@@ -658,4 +658,32 @@ final class DistributedSystemTests: XCTestCase {
         try await Task.sleep(for: Duration.seconds(3))
         clientSystem.stop()
     }
+
+    func testConnectWithDeadline() async throws {
+        let processInfo = ProcessInfo.processInfo
+        let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
+        let clientSystem = DistributedSystem(name: systemName)
+        try clientSystem.start()
+
+        do {
+            _ = try await clientSystem.connectToService(
+                TestServiceEndpoint.self,
+                withFilter: { _ in true },
+                clientFactory: { _ in
+                    XCTFail("Should not be called")
+                },
+                serviceHandler: { _, _ in
+                    XCTFail("Should not be called")
+                    return nil
+                },
+                deadline: DispatchTime.now().advanced(by: DispatchTimeInterval.seconds(2))
+            )
+        } catch DistributedSystemErrors.serviceDiscoveryTimeout(let str) {
+            XCTAssertEqual(str, TestServiceEndpoint.serviceName)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        clientSystem.stop()
+    }
 }

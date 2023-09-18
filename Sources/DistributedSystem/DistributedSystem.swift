@@ -2,6 +2,7 @@
 
 import PackageConcurrencyHelpers
 import ConsulServiceDiscovery
+import Dispatch
 import Distributed
 import DistributedSystemConformance
 import Frostflake
@@ -333,6 +334,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
     private func cancellationTokenForService(_ serviceName: String) -> CancellationToken {
         let id = nextCancellationID.wrappingIncrementThenLoad(ordering: .releasing)
+        logger.debug("Create cancellation token \(id)/\(serviceName)", metadata: logMetadata)
         return CancellationToken(serviceName, id, self)
     }
 
@@ -459,27 +461,40 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         _ /* serviceEndpointType */: S.Type,
         withFilter serviceFilter: @escaping ServiceFilter,
         clientFactory: ((DistributedSystem) -> C)?,
-        serviceHandler: ((S, ConsulServiceDiscovery.Instance) -> ConnectionLossHandler?)? = nil
-    )
-        async throws -> S
+        serviceHandler: ((S, ConsulServiceDiscovery.Instance) -> ConnectionLossHandler?)? = nil,
+        deadline: DispatchTime? = nil) async throws -> S
         where S.ID == EndpointIdentifier, S.ActorSystem == DistributedSystem {
         let cancellationToken = cancellationTokenForService(S.serviceName)
         return try await withCheckedThrowingContinuation { continuation in
+
+            if let deadline {
+                let eventLoop = self.eventLoopGroup.next()
+                eventLoop.scheduleTask(deadline: NIODeadline.uptimeNanoseconds(deadline.uptimeNanoseconds)) {
+                    let cancelled = cancellationToken.cancel()
+                    if cancelled {
+                        continuation.resume(throwing: DistributedSystemErrors.serviceDiscoveryTimeout(S.serviceName))
+                    }
+                }
+            }
+
             self.connectToServices(
                 S.self,
                 withFilter: serviceFilter,
                 clientFactory: clientFactory,
                 serviceHandler: { serviceEndpoint, service in
                     let cancelled = cancellationToken.cancel()
-                    assert(cancelled)
-                    let connectionLossHandler: ConnectionLossHandler?
-                    if let serviceHandler {
-                        connectionLossHandler = serviceHandler(serviceEndpoint, service)
+                    if cancelled {
+                        let connectionLossHandler: ConnectionLossHandler?
+                        if let serviceHandler {
+                            connectionLossHandler = serviceHandler(serviceEndpoint, service)
+                        } else {
+                            connectionLossHandler = nil
+                        }
+                        continuation.resume(returning: serviceEndpoint)
+                        return connectionLossHandler
                     } else {
-                        connectionLossHandler = nil
+                        return nil
                     }
-                    continuation.resume(returning: serviceEndpoint)
-                    return connectionLossHandler
                 },
                 cancellationToken: cancellationToken
             )
@@ -496,14 +511,20 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     public func connectToService<S: ServiceEndpoint>(
          _ serviceEndpointType: S.Type,
          withFilter serviceFilter: @escaping ServiceFilter,
-         serviceHandler: ((S, ConsulServiceDiscovery.Instance) -> ConnectionLossHandler?)? = nil) async throws -> S
+         serviceHandler: ((S, ConsulServiceDiscovery.Instance) -> ConnectionLossHandler?)? = nil,
+         deadline: DispatchTime? = nil) async throws -> S
         where S.ID == EndpointIdentifier, S.ActorSystem == DistributedSystem {
         let clientFactory: ((DistributedSystem) -> Any)? = nil
-        return try await connectToService(serviceEndpointType, withFilter: serviceFilter, clientFactory: clientFactory, serviceHandler: serviceHandler)
+        return try await connectToService(serviceEndpointType,
+                                          withFilter: serviceFilter,
+                                          clientFactory: clientFactory,
+                                          serviceHandler: serviceHandler,
+                                          deadline: deadline)
     }
 
     private func cancel(_ serviceName: String, _ id: UInt64) -> Bool {
-        self.discoveryManager.cancel(serviceName, id)
+        logger.debug("Cancel token \(id)/\(serviceName)", metadata: logMetadata)
+        return self.discoveryManager.cancel(serviceName, id)
     }
 
     func addService(_ serviceName: String,
