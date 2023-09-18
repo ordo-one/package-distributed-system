@@ -676,7 +676,7 @@ final class DistributedSystemTests: XCTestCase {
                     XCTFail("Should not be called")
                     return nil
                 },
-                deadline: DispatchTime.now().advanced(by: DispatchTimeInterval.seconds(2))
+                deadline: DispatchTime.now() + 2.0
             )
         } catch DistributedSystemErrors.serviceDiscoveryTimeout(let str) {
             XCTAssertEqual(str, TestServiceEndpoint.serviceName)
