@@ -6,6 +6,7 @@ public enum DistributedSystemErrors: DistributedActorSystemError {
     case duplicatedEndpointIdentifier(EndpointIdentifier)
     case error(String)
     case connectionForActorLost(EndpointIdentifier)
+    case serviceDiscoveryTimeout(String)
 }
 
 public enum StreamErrors: DistributedActorSystemError {

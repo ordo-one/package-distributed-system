@@ -41,7 +41,7 @@ final class GenericDistributedActorTests: XCTestCase {
     }
 
     func test1() async throws {
-        DistributedSystem.logger.logLevel = .debug
+        // DistributedSystem.logger.logLevel = .debug
 
         let processInfo = ProcessInfo.processInfo
         let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
