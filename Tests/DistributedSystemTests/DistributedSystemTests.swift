@@ -65,7 +65,7 @@ class Service: TestableService {
 
     func handleMonsters(_ monsters: [String: Monster]) async {
         var invalidEntries = 0
-        for key in monsters.key {
+        for key in monsters.keys {
             if !key.hasPrefix("monster-") {
                 invalidEntries += 1
             }
