@@ -14,9 +14,7 @@ public extension Dictionary where Key: Serializable, Value: Serializable {
     func withUnsafeBytesSerialization<Result>(_ body: (UnsafeRawBufferPointer) throws -> Result) rethrows -> Result {
         var buffer = UnsafeMutableRawBufferPointer(start: nil, count: 0)
         defer {
-            if buffer.baseAddress != nil {
-                buffer.deallocate()
-            }
+            buffer.deallocate()
         }
         var pos = 0
         for entry in self {
