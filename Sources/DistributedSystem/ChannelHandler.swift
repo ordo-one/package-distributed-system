@@ -23,7 +23,6 @@ class ChannelHandler: ChannelInboundHandler {
     }
 
     private var logger: Logger { DistributedSystem.logger }
-    private var logMetadata: Logger.Metadata? { actorSystem.logMetadata }
     private let side: Side
     private let actorSystem: DistributedSystem
 
@@ -43,7 +42,7 @@ class ChannelHandler: ChannelInboundHandler {
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         var buffer = unwrapInboundIn(data)
-        logger.trace("\(context.remoteAddressDescription): received \(buffer.readableBytes) bytes", metadata: logMetadata)
+        logger.trace("\(context.remoteAddressDescription): received \(buffer.readableBytes) bytes")
         actorSystem.channelRead(context, &buffer)
     }
 
