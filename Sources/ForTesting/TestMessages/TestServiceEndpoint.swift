@@ -26,4 +26,12 @@ public distributed actor TestServiceEndpoint: ServiceEndpoint {
     public distributed func doNothing() async throws {
         await service.doNothing()
     }
+
+    public distributed func handleMonsters(array monsters: [Monster]) async throws {
+        await service.handleMonsters(monsters)
+    }
+
+    public distributed func handleMonsters(dictionary monsters: [String: Monster]) async throws {
+        await service.handleMonsters(monsters)
+    }
 }

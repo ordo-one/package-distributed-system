@@ -291,16 +291,6 @@ let benchmarks = {
         let frostflake = getFrostflake(benchmark.currentIteration)
 
         do {
-            let openRequest = _OpenRequestStruct(requestIdentifier: 1)
-
-            try await endpoints.service.openStream(byRequest: OpenRequest(openRequest))
-            await service.whenOpenStream()
-
-            try await endpoints.client.streamOpened(StreamOpened(_StreamOpenedStruct(requestIdentifier: openRequest.id)))
-            await client.whenStreamOpened()
-
-            let stream = Stream(_StreamStruct(streamIdentifier: openRequest.id))
-
             let iterations = benchmark.scaledIterations.count / arraySize
 
             benchmark.startMeasurement()
@@ -310,11 +300,12 @@ let benchmarks = {
                     let monster = _MonsterStruct(identifier: frostflake.generate())
                     monsters.append(Monster(monster))
                 }
-                try await endpoints.client.handleMonsters(monsters, for: stream)
+                try await endpoints.service.handleMonsters(array: monsters)
             }
 
-            try await endpoints.client.snapshotDone(for: stream)
-            await client.whenSnapshotDone()
+            let openRequest = _OpenRequestStruct(requestIdentifier: 1)
+            try await endpoints.service.openStream(byRequest: OpenRequest(openRequest))
+            await service.whenOpenStream()
 
             benchmark.stopMeasurement()
 

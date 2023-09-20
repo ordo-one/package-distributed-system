@@ -27,6 +27,7 @@ public struct ULEB128 {
     /// - Parameters
     ///     - value: the value to encode
     ///     - dst: destination buffer to encode to
+    /// - Returns: size in bytes of the encoded value
     public static func encode<T: UnsignedInteger>(_ value: T, to dst: UnsafeMutableRawPointer) -> Int {
         var value = value
         var ptr = dst.assumingMemoryBound(to: UInt8.self)

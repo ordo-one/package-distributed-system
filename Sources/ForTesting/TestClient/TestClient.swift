@@ -65,6 +65,11 @@ public class TestClient: TestableClient, @unchecked Sendable {
         logger.debug("Received \(monsters.count) monster for \(stream.streamIdentifier)")
     }
 
+    public func handleMonsters(_ monsters: [String : Monster], for stream: Stream) async {
+        received += monsters.count
+        logger.debug("Received \(monsters.count) monster for \(stream.streamIdentifier)")
+    }
+
     public func snapshotDone(for _: Stream) async {
         let finish = LatencyTimer.getTimestamp()
         if received != expected {
