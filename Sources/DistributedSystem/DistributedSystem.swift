@@ -137,9 +137,6 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     public static var logger = Logger(label: "ds")
     var logger: Logger { Self.logger }
 
-    var logMetadataBox = Box<Logger.Metadata?>(nil)
-    var logMetadata: Logger.Metadata? { logMetadataBox.value }
-
     // TODO: replace with configuration
     private static let pingInterval = TimeAmount.seconds(5)
     public static let serviceDiscoveryTimeout = TimeAmount.seconds(5)
@@ -195,7 +192,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 2)
         consul = Consul()
         consulServiceDiscovery = ConsulServiceDiscovery(consul)
-        discoveryManager = DiscoveryManager(logMetadataBox)
+        discoveryManager = DiscoveryManager()
         syncCallManager = SyncCallManager()
         duplicatedEndpointIdentifierHook = Self.duplicatedEndpointIdentifier
 
@@ -204,7 +201,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     }
 
     deinit {
-        logger.debug("deinit", metadata: logMetadata)
+        logger.debug("deinit")
     }
 
     private static func duplicatedEndpointIdentifier(_ endpointID: EndpointIdentifier) {
@@ -212,7 +209,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     }
 
     func connectToProcessAt(_ address: SocketAddress) {
-        logger.debug("connect to process @ \(address)", metadata: logMetadata)
+        logger.debug("connect to process @ \(address)")
         ClientBootstrap(group: eventLoopGroup)
             .channelOption(ChannelOptions.tcpOption(.tcp_nodelay), value: 1)
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
@@ -305,7 +302,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     }
 
     private func connectionEstablishmentFailed(_ error: Error, _ address: SocketAddress) {
-        logger.debug("failed to connect to process @ \(address): \(error)", metadata: logMetadata)
+        logger.debug("failed to connect to process @ \(address): \(error)")
         discoveryManager.connectionEstablishmentFailed(address)
     }
 
@@ -313,13 +310,12 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         let serviceAddress = service.serviceAddress.flatMap { $0.isEmpty ? nil : $0 } ?? service.address
 
         guard let serviceAddress else {
-            logger.debug("skip service \(service.serviceID), missing address", metadata: logMetadata)
+            logger.debug("skip service \(service.serviceID), missing address")
             return nil
         }
 
         guard let servicePort = service.servicePort else {
-            logger.debug("skip service \(service.serviceID), missing '\(NodeService.CodingKeys.servicePort)'",
-                         metadata: logMetadata)
+            logger.debug("skip service \(service.serviceID), missing '\(NodeService.CodingKeys.servicePort)'")
             return nil
         }
 
@@ -334,7 +330,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
     private func cancellationTokenForService(_ serviceName: String) -> CancellationToken {
         let id = nextCancellationID.wrappingIncrementThenLoad(ordering: .releasing)
-        logger.debug("Create cancellation token \(id)/\(serviceName)", metadata: logMetadata)
+        logger.debug("Create cancellation token \(id)/\(serviceName)")
         return CancellationToken(serviceName, id, self)
     }
 
@@ -355,7 +351,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     )
         where S.ID == EndpointIdentifier, S.ActorSystem == DistributedSystem {
         let serviceName = S.serviceName
-        logger.debug("connectTo: \(serviceName)", metadata: logMetadata)
+        logger.debug("connectTo: \(serviceName)")
 
         let connectionHandler = { (serviceID: ServiceIdentifier, service: ConsulServiceDiscovery.Instance, channel: Channel?) -> ConnectionLossHandler? in
             let serviceEndpointID = {
@@ -403,17 +399,15 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     switch result {
                     case let .success(services):
                         for service in services {
-                            self.logger.trace("Found service \(service)", metadata: self.logMetadata)
+                            self.logger.trace("Found service \(service)")
 
                             guard let serviceSystemName = service.serviceMeta?[ServiceMetadata.systemName.rawValue] else {
-                                self.logger.debug("service \(serviceName)/\(service.serviceID) has no '\(ServiceMetadata.systemName)' in the metadata",
-                                                  metadata: self.logMetadata)
+                                self.logger.debug("service \(serviceName)/\(service.serviceID) has no '\(ServiceMetadata.systemName)' in the metadata")
                                 continue
                             }
 
                             guard serviceSystemName == self.systemName else {
-                                self.logger.debug("skip service \(serviceName)/\(service.serviceID), different system",
-                                                  metadata: self.logMetadata)
+                                self.logger.debug("skip service \(serviceName)/\(service.serviceID), different system")
                                 continue
                             }
 
@@ -422,14 +416,12 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                             }
 
                             guard let serviceID = ServiceIdentifier(service.serviceID) else {
-                                self.logger.debug("skip service \(serviceName)/\(service.serviceID), invalid service identifier",
-                                                  metadata: self.logMetadata)
+                                self.logger.debug("skip service \(serviceName)/\(service.serviceID), invalid service identifier")
                                 continue
                             }
 
                             let connect = self.discoveryManager.setAddress(address, for: serviceName, serviceID, service)
-                            self.logger.debug("setAddress \(address) for \(serviceName)/\(service.serviceID), connect=\(connect)",
-                                              metadata: self.logMetadata)
+                            self.logger.debug("setAddress \(address) for \(serviceName)/\(service.serviceID), connect=\(connect)")
                             if connect {
                                 self.connectToProcessAt(address)
                             }
@@ -439,7 +431,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     }
                 },
                 onComplete: { _ in
-                    self.logger.debug("onComplete", metadata: self.logMetadata)
+                    self.logger.debug("onComplete")
                 }
             )
         }
@@ -523,7 +515,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     }
 
     private func cancel(_ serviceName: String, _ id: UInt64) -> Bool {
-        logger.debug("Cancel token \(id)/\(serviceName)", metadata: logMetadata)
+        logger.debug("Cancel token \(id)/\(serviceName)")
         return self.discoveryManager.cancel(serviceName, id)
     }
 
@@ -552,7 +544,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
     private func updateHealthStatus(with eventLoop: EventLoop) {
         let services = discoveryManager.getLocalServices()
-        logger.trace("update health status for \(services.count) services", metadata: logMetadata)
+        logger.trace("update health status for \(services.count) services")
 
         for serviceID in services {
             let checkID = "service:\(serviceID)"
@@ -580,7 +572,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
     /// Service lifecycle start
     public func start() throws {
-        logger.debug("starting system '\(systemName)'", metadata: logMetadata)
+        logger.debug("starting system '\(systemName)'")
 
         let eventLoop = eventLoopGroup.next()
         connectToServices(
@@ -643,13 +635,13 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
         continuations.forEach { $0.finish() }
 
-        logger.debug("stopped", metadata: logMetadata)
+        logger.debug("stopped")
     }
 
     public func assignID<Actor>(_: Actor.Type) -> EndpointIdentifier
         where Actor: DistributedActor, EndpointIdentifier == Actor.ID {
         if let actorID = Self.$actorID.get() {
-            logger.debug("assign<\(Actor.self)>: \(actorID)", metadata: logMetadata)
+            logger.debug("assign<\(Actor.self)>: \(actorID)")
             return actorID
         } else {
             fatalError("Internal error: missing actor identifier")
@@ -659,7 +651,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     public func resolve<Actor>(id: EndpointIdentifier, as _: Actor.Type) throws -> Actor?
         where Actor: DistributedActor,
         EndpointIdentifier == Actor.ID {
-        logger.debug("resolve<\(Actor.self)>: \(id)", metadata: logMetadata)
+        logger.debug("resolve<\(Actor.self)>: \(id)")
         if id.serviceID.rawValue == 0 {
             return lock.withLock {
                 if let actorInfo = self.actors[id] {
@@ -711,7 +703,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     }
 
     public func actorReady<Actor>(_ actor: Actor) where Actor: DistributedActor, EndpointIdentifier == Actor.ID {
-        logger.debug("actorReady<\(Actor.self)>: \(actor.id)", metadata: logMetadata)
+        logger.debug("actorReady<\(Actor.self)>: \(actor.id)")
         lock.withLockVoid {
             if actor.id.serviceID.rawValue == 0 {
                 if self.actors.updateValue(.newClient(actor), forKey: actor.id) != nil {
@@ -741,7 +733,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     }
 
     public func resignID(_ id: EndpointIdentifier) {
-        logger.debug("resign: \(id)", metadata: logMetadata)
+        logger.debug("resign: \(id)")
         // In some cases ActorInfo holds a reference to the distributed actor instance,
         // in a case if it is a last reference then it will be released,
         // and it will entail a nested call to the resignID() for that actor,
@@ -812,7 +804,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         buffer.writeInteger(UInt32(payloadSize))
         buffer.writeInteger(SessionMessage.invocationEnvelope.rawValue)
         InvocationEnvelope.encode(actor.id, callID, target, invocation.genericSubstitutions, &invocation.arguments, to: &buffer)
-        logger.trace("\(channel.remoteAddressDescription): send \(buffer.readableBytes) bytes for \(actor.id)", metadata: logMetadata)
+        logger.trace("\(channel.remoteAddressDescription): send \(buffer.readableBytes) bytes for \(actor.id)")
         channel.writeAndFlush(buffer, promise: nil)
     }
 
@@ -913,7 +905,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
     private func streamTask(_ stream: AsyncStream<InvocationEnvelope>, _ actor: any DistributedActor, _ channel: Channel) async {
         let remoteAddressDescription = channel.remoteAddressDescription
-        logger.debug("\(remoteAddressDescription): start stream task for \(actor.id)", metadata: logMetadata)
+        logger.debug("\(remoteAddressDescription): start stream task for \(actor.id)")
         let resultHandler = ResultHandler()
         for await envelope in stream {
             var decoder = RemoteCallDecoder(envelope: envelope)
@@ -931,10 +923,10 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 }
             } catch {
                 // TODO: should we propagate throw back? or close connection?
-                logger.error("can't invoke target function: \(error)", metadata: logMetadata)
+                logger.error("can't invoke target function: \(error)")
             }
         }
-        logger.debug("\(remoteAddressDescription): streamTask for \(actor.id) done", metadata: logMetadata)
+        logger.debug("\(remoteAddressDescription): streamTask for \(actor.id) done")
     }
 
     private func invokeLocalCall(envelope: InvocationEnvelope, for channel: Channel) {
@@ -942,7 +934,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         let continuation: AsyncStream<InvocationEnvelope>.Continuation? = lock.withLock {
             let actorInfo = self.actors[targetID]
             guard let actorInfo else {
-                logger.error("\(channel.remoteAddressDescription): actor \(targetID) not found", metadata: logMetadata)
+                logger.error("\(channel.remoteAddressDescription): actor \(targetID) not found")
                 return nil
             }
             switch actorInfo {
@@ -958,7 +950,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             case let .clientForRemoteService(_, continuation):
                 return continuation
             default:
-                logger.error("\(channel.remoteAddressDescription): invalid actor state \(actorInfo)", metadata: logMetadata)
+                logger.error("\(channel.remoteAddressDescription): invalid actor state \(actorInfo)")
                 return nil
             }
         }

@@ -39,12 +39,8 @@ public class DistributedSystemServer: DistributedSystem {
             throw DistributedSystemErrors.error("Invalid local address (\(#file):\(#line))")
         }
 
-        if var logMetadata = logMetadataBox.value {
-            logMetadata["port"] = Logger.MetadataValue(stringLiteral: "\(portNumber)")
-            logMetadataBox.value = logMetadata
-        }
-
-        logger.debug("starting server '\(systemName)' @ \(portNumber)", metadata: logMetadata)
+        DistributedSystem.logger[metadataKey: "port"] = Logger.MetadataValue(stringLiteral: "\(portNumber)")
+        logger.debug("starting server '\(systemName)' @ \(portNumber)")
 
         // Ping service
         let metadata = [

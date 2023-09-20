@@ -69,17 +69,13 @@ final class DiscoveryManager {
     }
 
     private var logger: Logger { DistributedSystem.logger }
-    private var logMetadataBox: Box<Logger.Metadata?>
-    private var logMetadata: Logger.Metadata? { logMetadataBox.value }
 
     private var lock = Lock()
     private var generation: Int = 0
     private var processes: [SocketAddress: ProcessInfo] = [:]
     private var discoveries: [String: DiscoveryInfo] = [:]
 
-    init(_ logMetadataBox: Box<Logger.Metadata?>) {
-        self.logMetadataBox = logMetadataBox
-    }
+    init() {}
 
     func discoverService(_ serviceName: String,
                          _ serviceFilter: @escaping DistributedSystem.ServiceFilter,
@@ -122,7 +118,7 @@ final class DiscoveryManager {
             return (discover, addresses, services)
         }
 
-        logger.debug("discoverService: '\(serviceName)' \(discover) \(addresses) \(services)", metadata: logMetadata)
+        logger.debug("discoverService: '\(serviceName)' \(discover) \(addresses) \(services)")
 
         for (serviceID, service, process) in services {
             let connectionLossHandler = connectionHandler(serviceID, service, process?.channel)
@@ -196,7 +192,7 @@ final class DiscoveryManager {
                 fatalError("Internal error: duplicated service \(serviceName)/\(serviceID)")
             }
 
-            logger.debug("addService: \(serviceName)/\(serviceID)", metadata: logMetadata)
+            logger.debug("addService: \(serviceName)/\(serviceID)")
             discoveryInfo.services[serviceID] = ServiceInfo(service, factory)
 
             var services = [(DistributedSystem.ServiceIdentifier, ConsulServiceDiscovery.Instance, DistributedSystem.ConnectionHandler)]()
