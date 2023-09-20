@@ -17,10 +17,6 @@ public distributed actor TestClientEndpoint: ClientEndpoint {
         await client.handleMonster(monster, for: stream)
     }
 
-    public distributed func handleMonsters(_ monsters: [Monster], for stream: Stream) async throws {
-        await client.handleMonsters(monsters, for: stream)
-    }
-
     public distributed func snapshotDone(for stream: Stream) async throws {
         await client.snapshotDone(for: stream)
     }

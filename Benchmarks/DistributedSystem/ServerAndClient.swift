@@ -94,9 +94,6 @@ public class Client: TestableClient {
         }
         */
     }
-
-    public func handleMonsters(_ monsters: [TestMessages.Monster], for _: TestMessages.Stream) {
-    }
 }
 
 public class Service: TestableService {
@@ -104,10 +101,11 @@ public class Service: TestableService {
 
     let lock = Lock()
 
-    var openStream = false
+    var streamOpen = false
     var openStreamContinuation: CheckedContinuation<Void, Never>?
 
     private var doNothingCount = 0
+    private var monstersCount = 0
 
     init(_ logger: Logger) {
         self.logger = logger
@@ -117,7 +115,7 @@ public class Service: TestableService {
         await withCheckedContinuation { continuation in
             lock.withLock {
                 openStreamContinuation = continuation
-                if openStream {
+                if streamOpen {
                     continuation.resume()
                 }
             }
@@ -126,14 +124,16 @@ public class Service: TestableService {
 
     public func reset() {
         openStreamContinuation = nil
-        openStream = false
+        streamOpen = false
+        doNothingCount = 0
+        monstersCount = 0
     }
 
     public func openStream(byRequest request: TestMessages.OpenRequest) async {
         logger.debug("SERVER: open stream #\(request.requestIdentifier) request received")
 
         lock.withLockVoid {
-            openStream = true
+            streamOpen = true
 
             if let openStreamContinuation {
                 logger.debug("SERVER: continuation resume")
@@ -150,6 +150,14 @@ public class Service: TestableService {
 
     public func doNothing() {
         doNothingCount += 1
+    }
+
+    public func handleMonsters(_ monsters: [Monster]) async {
+        monstersCount += monsters.count
+    }
+
+    public func handleMonsters(_ monsters: [String: Monster]) async {
+        fatalError("Should not be called")
     }
 }
 

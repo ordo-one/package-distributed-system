@@ -79,6 +79,14 @@ public class TestService: TestableService, @unchecked Sendable {
         fatalError("Should never be called")
     }
 
+    public func handleMonsters(_ monsters: [Monster]) async {
+        fatalError("Should never be called")
+    }
+
+    public func handleMonsters(_ monsters: [String: Monster]) async {
+        fatalError("Should never be called")
+    }
+
     public func start() async {}
 
     public func stop() async {}
