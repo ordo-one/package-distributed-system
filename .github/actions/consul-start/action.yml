@@ -1,0 +1,11 @@
+name: "Start Consul"
+runs:
+  using: "composite"
+  steps:
+    - uses: nahsi/setup-hashi-tool@v1
+      with:
+        name: consul
+    - name: Start consul 
+      shell: bash
+      run: |
+        consul agent -dev -log-level=warn &
