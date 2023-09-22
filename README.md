@@ -15,9 +15,9 @@ In order to register a service in the distributed system the function `addServic
                     _ factory: @escaping ServiceFactory) -> ServiceIdentifier
 ```
 where
-- serviceName: name of the service
-- metadata: additional key/value pairs to be propagated to the consul service metadata
-- factory: factory to be used by distributed system when some request a new service instance
+- `serviceName`: name of the service
+- `metadata`: additional key/value pairs to be propagated to the consul service metadata
+- `factory`: factory to be used by distributed system when some request a new service instance
 After calling the function, the service will be registered in the distributed system and other components of the system will be able to connect to this service and work with it.
 
 ## Use service
@@ -38,3 +38,5 @@ where
 - `cancellationToken`: a token through which you can stop the connection
 
 Calling the function starts the procedure for searching for services in the same system. For each service found, filter closure will be called, and if it returns true, then the distributed system will establish a connection with the process in which the service is running. After the connection is established, the factory will be called to create a response handler from the service, and then a serviceHandler in which you can start working with the service.
+
+## Work is in progress!
