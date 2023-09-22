@@ -7,6 +7,20 @@ TCP/IP and swift-nio are used to transfer data between processes.
 
 The basic element of the system is a module that combines several different services. Each service of the system is assigned the distributed actor type. Services in the system are registered programmatically, during registration it is determined to which module the service belongs.
 
+## Register service
+In order to register a service in the distributed system the function `addService` supposed to be used:
+```
+   func addService(_ serviceName: String,
+                    _ metadata: [String: String],
+                    _ factory: @escaping ServiceFactory) -> ServiceIdentifier
+```
+where
+- serviceName: name of the service
+- metadata: additional key/value pairs to be propagated to the consul service metadata
+- factory: factory to be used by distributed system when some request a new service instance
+After calling the function, the service will be registered in the distributed system and other components of the system will be able to connect to this service and work with it.
+
+## Use service
 In order to use the service, you need to get it through the distributed system. The basic mechanism of receiving the service:
 
 ```
@@ -17,7 +31,6 @@ func connectToServices<S: ServiceEndpoint, C>(
         serviceHandler: @escaping (S, ConsulServiceDiscovery.Instance) -> ConnectionLossHandler?,
         cancellationToken: CancellationToken? = nil)
 ```
-
 where
 - `serviceFilter`: filter closure, giving a possibility to filter out services which are not interesting
 - `clientFactory`: factory for creating a response handler from the service
