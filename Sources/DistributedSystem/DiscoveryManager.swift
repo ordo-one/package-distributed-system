@@ -1,3 +1,11 @@
+// Copyright 2023 Ordo One AB
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+
 import PackageConcurrencyHelpers
 import ConsulServiceDiscovery
 import Helpers
@@ -64,7 +72,7 @@ final class DiscoveryManager {
 
     private final class DiscoveryInfo {
         var discover = true
-        var filters: [UInt64: FilterInfo] = [:]
+        var filters: [DistributedSystem.CancellationToken: FilterInfo] = [:]
         var services: [DistributedSystem.ServiceIdentifier: ServiceInfo] = [:]
     }
 
@@ -77,15 +85,30 @@ final class DiscoveryManager {
 
     init() {}
 
+    enum DiscoverServiceResult {
+        case cancelled
+        case started(Bool, [SocketAddress])
+    }
+
     func discoverService(_ serviceName: String,
                          _ serviceFilter: @escaping DistributedSystem.ServiceFilter,
                          _ connectionHandler: @escaping DistributedSystem.ConnectionHandler,
-                         _ cancellationToken: DistributedSystem.CancellationToken) -> (Bool, [SocketAddress]) {
-        let (discover, addresses, services) = lock.withLock {
-            var discoveryInfo = self.discoveries[serviceName]
+                         _ cancellationToken: DistributedSystem.CancellationToken) -> DiscoverServiceResult {
+        let (cancelled, discover, addresses, services) = lock.withLock {
+            if cancellationToken.serviceName != nil {
+                fatalError("Internal error: cancellation token already used.")
+            }
             var discover: Bool
             var addresses: [SocketAddress] = []
             var services = [(DistributedSystem.ServiceIdentifier, ConsulServiceDiscovery.Instance, (address: SocketAddress, generation: Int, channel: Channel)?)]()
+
+            if cancellationToken.cancelled {
+                return (true, false, addresses, services)
+            }
+
+            cancellationToken.serviceName = serviceName
+
+            var discoveryInfo = self.discoveries[serviceName]
             if let discoveryInfo {
                 for (serviceID, serviceInfo) in discoveryInfo.services {
                     if serviceFilter(serviceInfo.service) {
@@ -114,20 +137,23 @@ final class DiscoveryManager {
                 self.discoveries[serviceName] = discoveryInfo
             }
             guard let discoveryInfo else { fatalError("Internal error: discoveryInfo unexpectedly nil") }
-            discoveryInfo.filters[cancellationToken.id] = FilterInfo(serviceFilter, connectionHandler)
-            return (discover, addresses, services)
+            discoveryInfo.filters[cancellationToken] = FilterInfo(serviceFilter, connectionHandler)
+            return (false, discover, addresses, services)
         }
 
-        logger.debug("discoverService: '\(serviceName)' \(discover) \(addresses) \(services)")
-
-        for (serviceID, service, process) in services {
-            let connectionLossHandler = connectionHandler(serviceID, service, process?.channel)
-            if let connectionLossHandler, let process {
-                addConnectionLossHandler(process.address, process.generation, connectionLossHandler)
+        if cancelled {
+            logger.debug("discoverService[\(serviceName)]: cancelled \(Unmanaged.passUnretained(cancellationToken).toOpaque())")
+            return .cancelled
+        } else {
+            logger.debug("discoverService[\(serviceName)]: \(discover) \(addresses) \(services), cancellation token \(Unmanaged.passUnretained(cancellationToken).toOpaque())")
+            for (serviceID, service, process) in services {
+                let connectionLossHandler = connectionHandler(serviceID, service, process?.channel)
+                if let connectionLossHandler, let process {
+                    addConnectionLossHandler(process.address, process.generation, connectionLossHandler)
+                }
             }
+            return .started(discover, addresses)
         }
-
-        return (discover, addresses)
     }
 
     private func addConnectionLossHandler(_ address: SocketAddress, _ generation: Int, _ connectionLossHandler: @escaping DistributedSystem.ConnectionLossHandler) {
@@ -144,12 +170,24 @@ final class DiscoveryManager {
         }
     }
 
-    func cancel(_ serviceName: String, _ id: UInt64) -> Bool {
+    func cancel(_ token: DistributedSystem.CancellationToken) -> Bool {
         lock.withLock {
-            guard let discoveryInfo = self.discoveries[serviceName] else {
-                fatalError("Internal error: no discovery registered for '\(serviceName)'")
+            if token.cancelled {
+                logger.debug("Token \(Unmanaged.passUnretained(token).toOpaque()) already cancelled")
+                return false
+            } else {
+                token.cancelled = true
+                if let serviceName = token.serviceName {
+                    logger.debug("Cancel token \(Unmanaged.passUnretained(token).toOpaque())/\(serviceName)")
+                    guard let discoveryInfo = self.discoveries[serviceName] else {
+                        fatalError("Internal error: no discovery registered for '\(serviceName)'")
+                    }
+                    return discoveryInfo.filters.removeValue(forKey: token) != nil
+                } else {
+                    logger.debug("Cancel token \(Unmanaged.passUnretained(token).toOpaque())")
+                    return true
+                }
             }
-            return discoveryInfo.filters.removeValue(forKey: id) != nil
         }
     }
 

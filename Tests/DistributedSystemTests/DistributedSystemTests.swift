@@ -774,4 +774,61 @@ final class DistributedSystemTests: XCTestCase {
         clientSystem.stop()
         serverSystem.stop()
     }
+
+    func testCancelTokenBeforeConnect() async throws {
+        let processInfo = ProcessInfo.processInfo
+        let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
+
+        let moduleID = DistributedSystem.ModuleIdentifier(1)
+        let serverSystem = DistributedSystemServer(name: systemName)
+        try await serverSystem.start()
+        try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+            XCTFail("should not be called")
+            let serviceEndpoint = try TestServiceEndpoint(Service(), in: actorSystem)
+            return (serviceEndpoint, nil)
+        }
+
+        let clientSystem = DistributedSystem(name: systemName)
+        try clientSystem.start()
+
+        let cancellationToken = clientSystem.makeCancellationToken()
+        _ = cancellationToken.cancel()
+
+        let clientFactory: ((DistributedSystem) -> Any)? = nil
+        let started = clientSystem.connectToServices(
+            TestServiceEndpoint.self,
+            withFilter: { _ in fatalError("should not be called") },
+            clientFactory: clientFactory,
+            serviceHandler: { _, _ in fatalError("should not be called") },
+            cancellationToken: cancellationToken
+        )
+        XCTAssertFalse(started)
+
+        try await Task.sleep(for: .seconds(1))
+
+        clientSystem.stop()
+        serverSystem.stop()
+    }
+
+    func testCancelTaskCallingConnectToService() async throws {
+        let processInfo = ProcessInfo.processInfo
+        let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
+
+        let clientSystem = DistributedSystem(name: systemName)
+        try clientSystem.start()
+
+        let task = Task {
+            let _ = try await clientSystem.connectToService(
+                TestServiceEndpoint.self,
+                withFilter: { _ in true },
+                serviceHandler: { _, _ in
+                    return nil
+                }
+            )
+        }
+        task.cancel()
+        _ = await task.result
+
+        clientSystem.stop()
+    }
 }
