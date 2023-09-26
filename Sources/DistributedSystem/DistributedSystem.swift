@@ -593,7 +593,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         logger.debug("starting system '\(systemName)'")
 
         let eventLoop = eventLoopGroup.next()
-        connectToServices(
+        _ = connectToServices(
             PingServiceEndpoint.self,
             withFilter: { _ in true },
             clientFactory: { actorSystem in

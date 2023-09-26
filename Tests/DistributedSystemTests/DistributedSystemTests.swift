@@ -400,7 +400,7 @@ final class DistributedSystemTests: XCTestCase {
         let clientSystem = DistributedSystem(name: systemName)
         try clientSystem.start()
 
-        clientSystem.connectToServices(
+        _ = clientSystem.connectToServices(
             TestServiceEndpoint.self,
             withFilter: { _ in true },
             clientFactory: { actorSystem in
@@ -418,7 +418,7 @@ final class DistributedSystemTests: XCTestCase {
             }
         )
 
-        clientSystem.connectToServices(
+        _ = clientSystem.connectToServices(
             TestServiceEndpoint.self,
             withFilter: { _ in true },
             clientFactory: { actorSystem in
@@ -638,7 +638,7 @@ final class DistributedSystemTests: XCTestCase {
         let stream = AsyncStream<Void>() { continuation = $0 }
         guard let continuation else { fatalError("Internal error: continuation unexpectedly nil") }
 
-        distributedSystem.connectToServices(
+        _ = distributedSystem.connectToServices(
             TestServiceEndpoint.self,
             withFilter: { _ in true },
             clientFactory: { actorSystem in
