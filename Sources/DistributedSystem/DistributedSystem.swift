@@ -1,3 +1,11 @@
+// Copyright 2023 Ordo One AB
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+
 // swiftformat:disable opaqueGenericParameters
 
 import PackageConcurrencyHelpers
@@ -111,19 +119,25 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
     }
 
-    public struct CancellationToken {
-        let serviceName: String
-        let id: UInt64
-        let actorSystem: DistributedSystem
+    public class CancellationToken: Hashable {
+        private let actorSystem: DistributedSystem
+        var serviceName: String?
+        var cancelled: Bool = false
 
-        init(_ serviceName: String, _ id: UInt64, _ actorSystem: DistributedSystem) {
-            self.serviceName = serviceName
-            self.id = id
+        init(_ actorSystem: DistributedSystem) {
             self.actorSystem = actorSystem
         }
 
         public func cancel() -> Bool {
-            actorSystem.cancel(serviceName, id)
+            actorSystem.cancel(self)
+        }
+
+        public func hash(into hasher: inout Hasher) {
+            hasher.combine(Unmanaged.passUnretained(self).toOpaque())
+        }
+
+        public static func == (lhs: DistributedSystem.CancellationToken, rhs: DistributedSystem.CancellationToken) -> Bool {
+            return (lhs === rhs)
         }
     }
 
@@ -168,7 +182,6 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     private var actors: [EndpointIdentifier: ActorInfo] = [:]
     private var connectionLossHandlers: [UnsafeMutableRawPointer: [ConnectionLossHandler]] = [:]
 
-    private var nextCancellationID = ManagedAtomic<UInt64>(0)
     private var discoveryManager: DiscoveryManager
     private var syncCallManager: SyncCallManager
 
@@ -328,19 +341,18 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
     }
 
-    private func cancellationTokenForService(_ serviceName: String) -> CancellationToken {
-        let id = nextCancellationID.wrappingIncrementThenLoad(ordering: .releasing)
-        logger.debug("Create cancellation token \(id)/\(serviceName)")
-        return CancellationToken(serviceName, id, self)
+    public func makeCancellationToken() -> CancellationToken {
+        return CancellationToken(self)
     }
 
     /// To be used to connect to multiple services of the same type.
     /// Service will be discovered with using a discovery system (consul by default).
-    /// - parameters:
+    /// - Parameters:
     ///     - serviceEndpointType - type of the service endpoint
     ///     - serviceFilter: user can filter out services and create a distributed actors only to needed
     ///     - clientFactory: a closure creating a client side endpoint instance
     ///     - serviceHandler: a clusure getting an instance of the service endpoint and a service where the endpoint is connected to
+    /// - Returns: false, if cancellation token was cancelled before the call
     ///
     public func connectToServices<S: ServiceEndpoint, C>(
         _ serviceEndpointType: S.Type,
@@ -348,7 +360,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         clientFactory: ((DistributedSystem) -> C)? = nil,
         serviceHandler: @escaping (S, ConsulServiceDiscovery.Instance) -> ConnectionLossHandler?,
         cancellationToken: CancellationToken? = nil
-    )
+    ) -> Bool
         where S.ID == EndpointIdentifier, S.ActorSystem == DistributedSystem {
         let serviceName = S.serviceName
         logger.debug("connectTo: \(serviceName)")
@@ -386,58 +398,65 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
         var cancellationToken = cancellationToken
         if cancellationToken == nil {
-            cancellationToken = cancellationTokenForService(serviceName)
+            cancellationToken = makeCancellationToken()
         }
 
         guard let cancellationToken else { fatalError("Internal error: cancellationToken unexpectedly nil") }
 
-        let (discover, addresses) = discoveryManager.discoverService(serviceName, serviceFilter, connectionHandler, cancellationToken)
-        if discover {
-            _ = consulServiceDiscovery.subscribe(
-                to: serviceName,
-                onNext: { result in
-                    switch result {
-                    case let .success(services):
-                        for service in services {
-                            self.logger.trace("Found service \(service)")
+        let result = discoveryManager.discoverService(serviceName, serviceFilter, connectionHandler, cancellationToken)
+        switch result {
+        case .cancelled:
+            return false
+        case let .started(discover, addresses):
+            if discover {
+                _ = consulServiceDiscovery.subscribe(
+                    to: serviceName,
+                    onNext: { result in
+                        switch result {
+                        case let .success(services):
+                            for service in services {
+                                self.logger.trace("Found service \(service)")
 
-                            guard let serviceSystemName = service.serviceMeta?[ServiceMetadata.systemName.rawValue] else {
-                                self.logger.debug("service \(serviceName)/\(service.serviceID) has no '\(ServiceMetadata.systemName)' in the metadata")
-                                continue
-                            }
+                                guard let serviceSystemName = service.serviceMeta?[ServiceMetadata.systemName.rawValue] else {
+                                    self.logger.debug("service \(serviceName)/\(service.serviceID) has no '\(ServiceMetadata.systemName)' in the metadata")
+                                    continue
+                                }
 
-                            guard serviceSystemName == self.systemName else {
-                                self.logger.debug("skip service \(serviceName)/\(service.serviceID), different system")
-                                continue
-                            }
+                                guard serviceSystemName == self.systemName else {
+                                    self.logger.debug("skip service \(serviceName)/\(service.serviceID), different system")
+                                    continue
+                                }
 
-                            guard let address = self.addressForService(service) else {
-                                continue
-                            }
+                                guard let address = self.addressForService(service) else {
+                                    continue
+                                }
 
-                            guard let serviceID = ServiceIdentifier(service.serviceID) else {
-                                self.logger.debug("skip service \(serviceName)/\(service.serviceID), invalid service identifier")
-                                continue
-                            }
+                                guard let serviceID = ServiceIdentifier(service.serviceID) else {
+                                    self.logger.debug("skip service \(serviceName)/\(service.serviceID), invalid service identifier")
+                                    continue
+                                }
 
-                            let connect = self.discoveryManager.setAddress(address, for: serviceName, serviceID, service)
-                            self.logger.debug("setAddress \(address) for \(serviceName)/\(service.serviceID), connect=\(connect)")
-                            if connect {
-                                self.connectToProcessAt(address)
+                                let connect = self.discoveryManager.setAddress(address, for: serviceName, serviceID, service)
+                                self.logger.debug("setAddress \(address) for \(serviceName)/\(service.serviceID), connect=\(connect)")
+                                if connect {
+                                    self.connectToProcessAt(address)
+                                }
                             }
+                        case let .failure(error):
+                            self.logger.debug("\(error)")
                         }
-                    case let .failure(error):
-                        self.logger.debug("\(error)")
+                    },
+                    onComplete: { _ in
+                        self.logger.debug("onComplete")
                     }
-                },
-                onComplete: { _ in
-                    self.logger.debug("onComplete")
-                }
-            )
-        }
+                )
+            }
 
-        for address in addresses {
-            connectToProcessAt(address)
+            for address in addresses {
+                connectToProcessAt(address)
+            }
+
+            return true
         }
     }
 
@@ -448,48 +467,53 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     ///     - serviceFilter: user can filter out services and create a distributed actors only to needed
     ///     - clientFactory: a closure creating a client side endpoint instance
     ///     - serviceHandler: a clusure getting an instance of the service endpoint and a service where the endpoint is connected to
-    ///
+    /// - Returns: service endpoint
     public func connectToService<S: ServiceEndpoint, C>(
-        _ /* serviceEndpointType */: S.Type,
+        _ serviceEndpointType: S.Type,
         withFilter serviceFilter: @escaping ServiceFilter,
         clientFactory: ((DistributedSystem) -> C)?,
         serviceHandler: ((S, ConsulServiceDiscovery.Instance) -> ConnectionLossHandler?)? = nil,
         deadline: DispatchTime? = nil) async throws -> S
         where S.ID == EndpointIdentifier, S.ActorSystem == DistributedSystem {
-        let cancellationToken = cancellationTokenForService(S.serviceName)
-        return try await withCheckedThrowingContinuation { continuation in
-
-            if let deadline {
-                let eventLoop = self.eventLoopGroup.next()
-                eventLoop.scheduleTask(deadline: NIODeadline.uptimeNanoseconds(deadline.uptimeNanoseconds)) {
-                    let cancelled = cancellationToken.cancel()
-                    if cancelled {
-                        continuation.resume(throwing: DistributedSystemErrors.serviceDiscoveryTimeout(S.serviceName))
+        let cancellationToken = makeCancellationToken()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                if let deadline {
+                    let eventLoop = self.eventLoopGroup.next()
+                    eventLoop.scheduleTask(deadline: NIODeadline.uptimeNanoseconds(deadline.uptimeNanoseconds)) {
+                        let cancelled = cancellationToken.cancel()
+                        if cancelled {
+                            continuation.resume(throwing: DistributedSystemErrors.serviceDiscoveryTimeout(S.serviceName))
+                        }
                     }
                 }
-            }
-
-            self.connectToServices(
-                S.self,
-                withFilter: serviceFilter,
-                clientFactory: clientFactory,
-                serviceHandler: { serviceEndpoint, service in
-                    let cancelled = cancellationToken.cancel()
-                    if cancelled {
-                        let connectionLossHandler: ConnectionLossHandler?
-                        if let serviceHandler {
-                            connectionLossHandler = serviceHandler(serviceEndpoint, service)
+                let started = self.connectToServices(
+                    S.self,
+                    withFilter: serviceFilter,
+                    clientFactory: clientFactory,
+                    serviceHandler: { serviceEndpoint, service in
+                        let cancelled = cancellationToken.cancel()
+                        if cancelled {
+                            let connectionLossHandler: ConnectionLossHandler?
+                            if let serviceHandler {
+                                connectionLossHandler = serviceHandler(serviceEndpoint, service)
+                            } else {
+                                connectionLossHandler = nil
+                            }
+                            continuation.resume(returning: serviceEndpoint)
+                            return connectionLossHandler
                         } else {
-                            connectionLossHandler = nil
+                            return nil
                         }
-                        continuation.resume(returning: serviceEndpoint)
-                        return connectionLossHandler
-                    } else {
-                        return nil
-                    }
-                },
-                cancellationToken: cancellationToken
-            )
+                    },
+                    cancellationToken: cancellationToken
+                )
+                if !started {
+                    continuation.resume(throwing: DistributedSystemErrors.error("Canceled before start"))
+                }
+            }
+        } onCancel: {
+            _ = cancellationToken.cancel()
         }
     }
 
@@ -514,9 +538,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                                           deadline: deadline)
     }
 
-    private func cancel(_ serviceName: String, _ id: UInt64) -> Bool {
-        logger.debug("Cancel token \(id)/\(serviceName)")
-        return self.discoveryManager.cancel(serviceName, id)
+    private func cancel(_ token: CancellationToken) -> Bool {
+        return self.discoveryManager.cancel(token)
     }
 
     func addService(_ serviceName: String,
