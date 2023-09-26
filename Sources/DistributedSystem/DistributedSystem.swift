@@ -119,7 +119,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
     }
 
-    public class CancellationToken: Hashable {
+    public final class CancellationToken: Hashable {
         private let actorSystem: DistributedSystem
         var serviceName: String?
         var cancelled: Bool = false
@@ -128,6 +128,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             self.actorSystem = actorSystem
         }
 
+        // return true if was not cancelled before
         public func cancel() -> Bool {
             actorSystem.cancel(self)
         }
@@ -137,7 +138,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
 
         public static func == (lhs: DistributedSystem.CancellationToken, rhs: DistributedSystem.CancellationToken) -> Bool {
-            return (lhs === rhs)
+            (lhs === rhs)
         }
     }
 
@@ -354,7 +355,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     ///     - serviceHandler: a clusure getting an instance of the service endpoint and a service where the endpoint is connected to
     /// - Returns: false, if cancellation token was cancelled before the call
     ///
-    public func connectToServices<S: ServiceEndpoint, C>(
+    @discardableResult public func connectToServices<S: ServiceEndpoint, C>(
         _ serviceEndpointType: S.Type,
         withFilter serviceFilter: @escaping ServiceFilter,
         clientFactory: ((DistributedSystem) -> C)? = nil,
@@ -396,13 +397,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             }
         }
 
-        var cancellationToken = cancellationToken
-        if cancellationToken == nil {
-            cancellationToken = makeCancellationToken()
-        }
-
-        guard let cancellationToken else { fatalError("Internal error: cancellationToken unexpectedly nil") }
-
+        let cancellationToken = cancellationToken ?? makeCancellationToken()
         let result = discoveryManager.discoverService(serviceName, serviceFilter, connectionHandler, cancellationToken)
         switch result {
         case .cancelled:
