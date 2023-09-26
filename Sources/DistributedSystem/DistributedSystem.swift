@@ -355,7 +355,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     ///     - serviceHandler: a clusure getting an instance of the service endpoint and a service where the endpoint is connected to
     /// - Returns: false, if cancellation token was cancelled before the call
     ///
-    public func connectToServices<S: ServiceEndpoint, C>(
+    @discardableResult public func connectToServices<S: ServiceEndpoint, C>(
         _ serviceEndpointType: S.Type,
         withFilter serviceFilter: @escaping ServiceFilter,
         clientFactory: ((DistributedSystem) -> C)? = nil,
@@ -593,7 +593,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         logger.debug("starting system '\(systemName)'")
 
         let eventLoop = eventLoopGroup.next()
-        _ = connectToServices(
+        connectToServices(
             PingServiceEndpoint.self,
             withFilter: { _ in true },
             clientFactory: { actorSystem in
