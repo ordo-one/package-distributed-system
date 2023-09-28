@@ -152,6 +152,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     public static var logger = Logger(label: "ds")
     var logger: Logger { Self.logger }
 
+    private static let endpointQueueWarningSize: UInt64 = (1024 * 1024)
+
     // TODO: replace with configuration
     private static let pingInterval = TimeAmount.seconds(5)
     public static let serviceDiscoveryTimeout = TimeAmount.seconds(5)
@@ -175,8 +177,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         case serviceForLocalClient(any DistributedActor) // retain the client actor until the related service actor will not be resigned
         case remoteClient(Channel)
         case remoteService(Channel)
-        case clientForRemoteService(Channel, AsyncStream<InvocationEnvelope>.Continuation)
-        case serviceForRemoteClient(Channel, AsyncStream<InvocationEnvelope>.Continuation)
+        case clientForRemoteService(Channel, AsyncStream<InvocationEnvelope>.Continuation, ManagedAtomic<UInt64>)
+        case serviceForRemoteClient(Channel, AsyncStream<InvocationEnvelope>.Continuation, ManagedAtomic<UInt64>)
     }
 
     private var lock = Lock()
@@ -272,11 +274,11 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             var actors: [EndpointIdentifier] = []
             for (actorID, actorInfo) in self.actors {
                 switch actorInfo {
-                case let .clientForRemoteService(actorChannel, continuation):
+                case let .clientForRemoteService(actorChannel, continuation, _):
                     if actorChannel === channel {
                         continuations.append(continuation)
                     }
-                case let .serviceForRemoteClient(actorChannel, continuation):
+                case let .serviceForRemoteClient(actorChannel, continuation, _):
                     if actorChannel === channel {
                         continuations.append(continuation)
                     }
@@ -640,9 +642,9 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             var continuations: [AsyncStream<InvocationEnvelope>.Continuation] = []
             for (_, actorInfo) in self.actors {
                 switch actorInfo {
-                case let .clientForRemoteService(_, continuation):
+                case let .clientForRemoteService(_, continuation, _):
                     continuations.append(continuation)
-                case let .serviceForRemoteClient(_, continuation):
+                case let .serviceForRemoteClient(_, continuation, _):
                     continuations.append(continuation)
                 default:
                     break
@@ -740,8 +742,9 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                         var continuation: AsyncStream<InvocationEnvelope>.Continuation?
                         let stream = AsyncStream(InvocationEnvelope.self, bufferingPolicy: .unbounded) { continuation = $0 }
                         guard let continuation else { fatalError("Internal error: continuation unexpectedly nil") }
-                        self.actors[actor.id] = .serviceForRemoteClient(channel, continuation)
-                        Task { await self.streamTask(stream, actor, channel) }
+                        let queueSize = ManagedAtomic<UInt64>(0)
+                        self.actors[actor.id] = .serviceForRemoteClient(channel, continuation, queueSize)
+                        Task { await self.streamTask(stream, actor, channel, queueSize) }
                     default:
                         fatalError("Internal error: unexpected actor state \(actorInfo)")
                     }
@@ -921,7 +924,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
     }
 
-    private func streamTask(_ stream: AsyncStream<InvocationEnvelope>, _ actor: any DistributedActor, _ channel: Channel) async {
+    private func streamTask(_ stream: AsyncStream<InvocationEnvelope>, _ actor: any DistributedActor, _ channel: Channel, _ queueSize: ManagedAtomic<UInt64>) async {
         let remoteAddressDescription = channel.remoteAddressDescription
         logger.debug("\(remoteAddressDescription): start stream task for \(actor.id)")
         let resultHandler = ResultHandler()
@@ -943,13 +946,14 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 // TODO: should we propagate throw back? or close connection?
                 logger.error("can't invoke target function: \(error)")
             }
+            queueSize.wrappingDecrement(by: envelope.size, ordering: .releasing)
         }
         logger.debug("\(remoteAddressDescription): streamTask for \(actor.id) done")
     }
 
     private func invokeLocalCall(envelope: InvocationEnvelope, for channel: Channel) {
         let targetID = envelope.targetID
-        let continuation: AsyncStream<InvocationEnvelope>.Continuation? = lock.withLock {
+        let res = lock.withLock { () -> (continuation: AsyncStream<InvocationEnvelope>.Continuation, queueSize: ManagedAtomic<UInt64>)? in
             let actorInfo = self.actors[targetID]
             guard let actorInfo else {
                 logger.error("\(channel.remoteAddressDescription): actor \(targetID) not found")
@@ -960,21 +964,29 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 var continuation: AsyncStream<InvocationEnvelope>.Continuation?
                 let stream = AsyncStream(InvocationEnvelope.self, bufferingPolicy: .unbounded) { continuation = $0 }
                 guard let continuation else { fatalError("Internal error: continuation unexpectedly nil") }
-                self.actors[targetID] = .clientForRemoteService(channel, continuation)
-                Task { await self.streamTask(stream, actor, channel) }
-                return continuation
-            case let .serviceForRemoteClient(_, continuation):
-                return continuation
-            case let .clientForRemoteService(_, continuation):
-                return continuation
+                let queueSize = ManagedAtomic<UInt64>(0)
+                self.actors[targetID] = .clientForRemoteService(channel, continuation, queueSize)
+                Task { await self.streamTask(stream, actor, channel, queueSize) }
+                return (continuation, queueSize)
+            case let .serviceForRemoteClient(_, continuation, queueSize):
+                return (continuation, queueSize)
+            case let .clientForRemoteService(_, continuation, queueSize):
+                return (continuation, queueSize)
             default:
                 logger.error("\(channel.remoteAddressDescription): invalid actor state \(actorInfo)")
                 return nil
             }
         }
 
-        if let continuation {
-            continuation.yield(envelope)
+        if let res {
+            let sizeBits = (UInt64.bitWidth - 8)
+            let sizeMask = ((UInt64(1) << sizeBits) - 1)
+            let queueSize = res.queueSize.wrappingIncrementThenLoad(by: envelope.size, ordering: .releasing)
+            if (queueSize & sizeMask) > (Self.endpointQueueWarningSize << (queueSize >> sizeBits)) {
+                logger.warning("Input queue size for \(envelope.targetID) reached \(queueSize & sizeMask)")
+                res.queueSize.wrappingIncrement(by: (UInt64(1) << sizeBits), ordering: .releasing)
+            }
+            res.continuation.yield(envelope)
         }
     }
 }
