@@ -982,7 +982,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             let sizeBits = (UInt64.bitWidth - 8)
             let sizeMask = ((UInt64(1) << sizeBits) - 1)
             let queueSize = res.queueSize.wrappingIncrementThenLoad(by: envelope.size, ordering: .relaxed)
-            if (queueSize & sizeMask) > (Self.endpointQueueWarningSize << (queueSize >> sizeBits)) {
+            if (queueSize & sizeMask) >= (Self.endpointQueueWarningSize << (queueSize >> sizeBits)) {
                 // The warning threshold multiplied by 2 each time is breached,
                 // so we will have warnings for 1, 2, 4, 8, etc megabytes
                 logger.warning("Input queue size for \(envelope.targetID) reached \(queueSize & sizeMask)")
