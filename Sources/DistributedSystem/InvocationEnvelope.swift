@@ -1,3 +1,11 @@
+// Copyright 2023 Ordo One AB
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+
 import Distributed
 import DistributedSystemConformance
 import NIOCore
@@ -17,6 +25,10 @@ struct InvocationEnvelope {
         self.targetFunc = targetFunc
         self.genericSubstitutions = genericSubstitutions
         self.arguments = arguments
+    }
+
+    var size: UInt64 {
+        UInt64(MemoryLayout<Self>.size + targetFunc.count + arguments.readableBytes)
     }
 
     init(from buffer: inout ByteBuffer) throws {
