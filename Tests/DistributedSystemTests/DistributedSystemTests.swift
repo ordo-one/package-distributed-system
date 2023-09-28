@@ -26,10 +26,6 @@ class Service: TestableService {
     let stream: AsyncStream<Result<Void, Error>>
     private let streamContinuation: AsyncStream<Result<Void, Error>>.Continuation
 
-    enum ServiceError: Error {
-        case error(String)
-    }
-
     init() {
         var streamContinuation: AsyncStream<Result<Void, Error>>.Continuation?
         self.stream = AsyncStream<Result<Void, Error>>() { streamContinuation = $0 }
@@ -61,21 +57,6 @@ class Service: TestableService {
 
     func handleMonsters(_ monsters: [Monster]) async {
         logger.info("SERVICE: got \(monsters.count) monsters")
-    }
-
-    func handleMonsters(_ monsters: [String: Monster]) async {
-        var invalidEntries = 0
-        for key in monsters.keys {
-            if !key.hasPrefix("monster-") {
-                invalidEntries += 1
-            }
-        }
-        logger.info("SERVICE: got \(monsters.count) monsters")
-        if invalidEntries == 0 {
-            streamContinuation.yield(.success(()))
-        } else {
-            streamContinuation.yield(.failure(ServiceError.error("Dictionary has \(invalidEntries) invalid entries")))
-        }
     }
 }
 
@@ -124,10 +105,6 @@ final class DistributedSystemTests: XCTestCase {
         }
 
         func handleMonsters(_ monsters: [Monster]) async {
-            fatalError("Should never be called")
-        }
-
-        func handleMonsters(_ monsters: [String: Monster]) async {
             fatalError("Should never be called")
         }
     }
@@ -379,10 +356,6 @@ final class DistributedSystemTests: XCTestCase {
             func handleMonsters(_ monsters: [Monster]) async {
                 fatalError("should never be called")
             }
-
-            func handleMonsters(_ monsters: [String: Monster]) async {
-                fatalError("should never be called")
-            }
         }
 
         let processInfo = ProcessInfo.processInfo
@@ -476,10 +449,6 @@ final class DistributedSystemTests: XCTestCase {
             }
 
             func handleMonsters(_ monsters: [Monster]) async {
-                fatalError("should never be called")
-            }
-
-            func handleMonsters(_ monsters: [String: Monster]) async {
                 fatalError("should never be called")
             }
         }
@@ -728,51 +697,6 @@ final class DistributedSystemTests: XCTestCase {
         }
 
         clientSystem.stop()
-    }
-
-    func testRemoteCallWithDictionary() async throws {
-        let processInfo = ProcessInfo.processInfo
-        let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
-
-        let moduleID = DistributedSystem.ModuleIdentifier(1)
-        let service = Service()
-        let serverSystem = DistributedSystemServer(name: systemName)
-        try await serverSystem.start()
-        try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
-            let serviceEndpoint = try TestServiceEndpoint(service, in: actorSystem)
-            let clientEndpointID = serviceEndpoint.id.makeClientEndpoint()
-            service.clientEndpoint = try TestClientEndpoint.resolve(id: clientEndpointID, using: actorSystem)
-            return (serviceEndpoint, nil)
-        }
-
-        let clientSystem = DistributedSystem(name: systemName)
-        try clientSystem.start()
-
-        let serviceEndpoint = try await clientSystem.connectToService(
-            TestServiceEndpoint.self,
-            withFilter: { _ in true },
-            serviceHandler: { _, _ in
-                return nil
-            }
-        )
-
-        var monsters = [String: Monster]()
-        for idx in 1...5 {
-            let monster = _MonsterStruct(identifier: MonsterIdentifier(idx))
-            monsters["monster-\(idx)"] = Monster(monster)
-        }
-
-        try await serviceEndpoint.handleMonsters(dictionary: monsters)
-
-        for await result in service.stream {
-            if case let .failure(err) = result {
-                XCTFail(String(describing: err))
-            }
-            break
-        }
-
-        clientSystem.stop()
-        serverSystem.stop()
     }
 
     func testCancelTokenBeforeConnect() async throws {

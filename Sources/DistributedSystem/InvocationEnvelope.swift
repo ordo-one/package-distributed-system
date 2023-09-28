@@ -19,16 +19,16 @@ struct InvocationEnvelope {
     let genericSubstitutions: [Any.Type]
     let arguments: ByteBuffer
 
+    var size: UInt64 {
+        UInt64(MemoryLayout<Self>.size + targetFunc.count + arguments.readableBytes)
+    }
+
     private init(_ targetID: EndpointIdentifier, _ callID: UInt64, _ targetFunc: String, _ genericSubstitutions: [Any.Type], _ arguments: ByteBuffer) {
         self.targetID = targetID
         self.callID = callID
         self.targetFunc = targetFunc
         self.genericSubstitutions = genericSubstitutions
         self.arguments = arguments
-    }
-
-    var size: UInt64 {
-        UInt64(MemoryLayout<Self>.size + targetFunc.count + arguments.readableBytes)
     }
 
     init(from buffer: inout ByteBuffer) throws {

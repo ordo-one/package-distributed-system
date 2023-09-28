@@ -3,7 +3,6 @@ public protocol TestableService {
     func getMonster() async -> Monster
     func doNothing() async
     func handleMonsters(_ monsters: [Monster]) async
-    func handleMonsters(_ monsters: [String: Monster]) async
 }
 
 public protocol TestableClient {
