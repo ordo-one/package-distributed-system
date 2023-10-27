@@ -30,8 +30,8 @@ public class DistributedSystemServer: DistributedSystem {
             .serverChannelOption(ChannelOptions.tcpOption(.tcp_nodelay), value: 1)
             .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .childChannelInitializer { channel in
-                channel.pipeline.addHandler(ByteToMessageHandler(StreamDecoder())).flatMap { _ in
-                    channel.pipeline.addHandler(ChannelHandler(.server, self))
+                channel.pipeline.addHandler(ByteToMessageHandler(StreamDecoder(self.loggerBox))).flatMap { _ in
+                    channel.pipeline.addHandler(ChannelHandler(self, nil))
                 }
             }
             .bind(host: address.host, port: address.port)
@@ -47,7 +47,7 @@ public class DistributedSystemServer: DistributedSystem {
             throw DistributedSystemErrors.error("Invalid local address (\(#file):\(#line))")
         }
 
-        DistributedSystem.logger[metadataKey: "port"] = Logger.MetadataValue(stringLiteral: "\(portNumber)")
+        loggerBox.value[metadataKey: "port"] = Logger.MetadataValue(stringLiteral: "\(portNumber)")
         logger.debug("starting server '\(systemName)' @ \(portNumber)")
 
         // Ping service
@@ -57,7 +57,7 @@ public class DistributedSystemServer: DistributedSystem {
         ]
 
         let serviceID = super.addService(PingServiceEndpoint.serviceName, metadata) { actorSystem in
-            try PingServiceEndpoint(PingServiceImpl(), in: actorSystem)
+            try PingServiceEndpoint(actorSystem: actorSystem)
         }
 
         try await registerService(PingServiceEndpoint.serviceName, serviceID, metadata: metadata)

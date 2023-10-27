@@ -6,6 +6,7 @@
 //
 // http://www.apache.org/licenses/LICENSE-2.0
 
+import Helpers
 import Logging
 import NIOCore
 
@@ -25,33 +26,31 @@ class ChannelHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias OutboundOut = ByteBuffer
 
-    enum Side: String {
-        case server
-        case client
-    }
-
-    private var logger: Logger { DistributedSystem.logger }
-    private let side: Side
+    private var logger: Logger { actorSystem.logger }
     private let actorSystem: DistributedSystem
+    private let address: SocketAddress?
 
-    init(_ side: Side, _ actorSystem: DistributedSystem) {
-        self.side = side
+    init(_ actorSystem: DistributedSystem, _ address: SocketAddress?) {
         self.actorSystem = actorSystem
+        self.address = address
     }
 
     func channelActive(context: ChannelHandlerContext) {
-        logger.debug("\(context.remoteAddressDescription): \(side) channel active")
+        logger.debug("\(context.remoteAddressDescription): channel active")
+        if let address {
+            actorSystem.setChannel(context.channel, forProcessAt: address)
+        }
     }
 
     func channelInactive(context: ChannelHandlerContext) {
         logger.debug("\(context.remoteAddressDescription): channel inactive")
-        actorSystem.channelInactive(context)
+        actorSystem.channelInactive(context.channel)
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         var buffer = unwrapInboundIn(data)
         logger.trace("\(context.remoteAddressDescription): received \(buffer.readableBytes) bytes")
-        actorSystem.channelRead(context, &buffer)
+        actorSystem.channelRead(context.channel, &buffer)
     }
 
     // Flush it out. This can make use of gathering writes if multiple buffers are pending
@@ -69,7 +68,12 @@ class StreamDecoder: ByteToMessageDecoder {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
 
-    private var logger: Logger { DistributedSystem.logger }
+    private var loggerBox: Box<Logger>
+    private var logger: Logger { loggerBox.value }
+
+    init(_ loggerBox: Box<Logger>) {
+        self.loggerBox = loggerBox
+    }
 
     func decode(context: ChannelHandlerContext, buffer: inout ByteBuffer) throws -> DecodingState {
         logger.trace("\(context.channel.remoteAddressDescription): stream decoder: available \(buffer.readableBytes) bytes")

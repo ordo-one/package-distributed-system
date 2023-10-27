@@ -1,28 +1,26 @@
 import Distributed
 import DistributedSystemConformance
-import Logging
 import NIOCore
 
 public final class RemoteCallResultHandler: DistributedTargetInvocationResultHandler {
-    public typealias SerializationRequirement = DistributedSystemConformance.Transferable
+    public typealias SerializationRequirement = Transferable
 
     private var buffer: ByteBuffer?
-    private var logger: Logger { DistributedSystem.logger }
 
     var hasResult: Bool { buffer != nil }
 
-    func sendTo(_ channel: Channel, for callID: UInt64) {
+    func sendTo(_ channel: Channel, for callID: UInt64) throws {
         if var buffer {
             if callID != 0 {
                 let offs = MemoryLayout<UInt32>.size + MemoryLayout<DistributedSystem.SessionMessage.RawValue>.size
                 buffer.setInteger(callID, at: offs)
                 _ = channel.writeAndFlush(buffer)
             } else {
-                logger.error("internal error: unexpected result for void call")
+                throw DistributedSystemErrors.error("Internal error: unexpected result for void call (callID=0, buffer not empty)")
             }
             self.buffer = nil
         } else {
-            logger.error("internal error: unexpected result for void call")
+            throw DistributedSystemErrors.error("Internal error: unexpected result for void call (callID=\(callID), buffer empty)")
         }
     }
 
@@ -65,6 +63,6 @@ public final class RemoteCallResultHandler: DistributedTargetInvocationResultHan
 
     public func onThrow(error: some Error) async throws {
         // TODO: if func throws we need to send some result, right?
-        logger.debug("onThrow: \(error)")
+        // logger.debug("onThrow: \(error)")
     }
 }
