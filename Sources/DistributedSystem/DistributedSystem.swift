@@ -22,7 +22,7 @@ import NIOPosix
 
 extension Channel {
     var debugDescription: String {
-        remoteAddress.map { $0.description } ?? "?"
+        remoteAddress?.description ?? "?"
     }
 }
 
@@ -312,9 +312,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             }
 
             let ptr = Self.ptr(for: channel)
-            let channelInfo = self.channels[ptr]
-            if let channelInfo {
-                self.channels.removeValue(forKey: ptr)
+            if let channelInfo = self.channels.removeValue(forKey: ptr) {
                 return (continuations, channelInfo.connectionLossHandlers)
             } else {
                 return (continuations, [])
@@ -390,7 +388,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 }
                 self.sendCreateService(serviceName, serviceEndpointID, to: channel)
             } else {
-                if (serviceEndpointType == PingServiceEndpoint.self) {
+                if serviceEndpointType == PingServiceEndpoint.self {
                     // do not connect to PingService in the same process
                     return nil
                 }
@@ -595,8 +593,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 try await endpoint.ping()
 
                 self.lock.withLockVoid {
-                    let actorInfo = self.actors[id]
-                    guard let actorInfo else { return }
+                    guard let actorInfo = self.actors[id] else { return }
 
                     var channel: Channel?
                     switch actorInfo {
@@ -866,16 +863,12 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             throw DistributedSystemErrors.connectionForActorLost(actor.id)
         }
 
-        var channel: Channel?
-        switch actorInfo {
+        let channel: Channel = switch actorInfo {
         case let .remoteClient(clientChannel):
-            channel = clientChannel
+            clientChannel
         case let .remoteService(serviceChannel):
-            channel = serviceChannel
+            serviceChannel
         default:
-            break
-        }
-        guard let channel else {
             fatalError("Internal error: invalid actor state \(actor.id): \(actorInfo)")
         }
 
@@ -940,15 +933,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
         let ptr = Self.ptr(for: channel)
         lock.withLockVoid {
-            let channelInfo = self.channels[ptr]
-            if var channelInfo {
-                channelInfo.bytesReceived += bytesReceived
-                self.channels[ptr] = channelInfo
-            } else {
-                var channelInfo = ChannelInfo()
-                channelInfo.bytesReceived = bytesReceived
-                self.channels[ptr] = channelInfo
-            }
+            self.channels[ptr, default: ChannelInfo()].bytesReceived += bytesReceived
         }
     }
 

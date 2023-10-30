@@ -19,7 +19,7 @@ distributed actor PingServiceEndpoint: ServiceEndpoint, PingEndpoint {
     }
 
     distributed func ping() async throws {
-        // actorSystem.logger.debug("\(id): ping")
+        actorSystem.logger.trace("\(id): ping")
         do {
             try await clientEndpoint.pong()
         } catch {
@@ -28,7 +28,7 @@ distributed actor PingServiceEndpoint: ServiceEndpoint, PingEndpoint {
     }
 
     distributed func pong() async throws {
-        // actorSystem.logger.debug("\(id): pong")
+        actorSystem.logger.trace("\(id): pong")
     }
 }
 
@@ -44,7 +44,7 @@ distributed actor PingServiceClientEndpoint: ClientEndpoint, PingEndpoint {
     }
 
     distributed func ping() async throws {
-        // actorSystem.logger.debug("\(id): ping")
+        actorSystem.logger.trace("\(id): ping")
 
         if serviceEndpoint == nil {
             if let serviceID {
@@ -63,6 +63,6 @@ distributed actor PingServiceClientEndpoint: ClientEndpoint, PingEndpoint {
     }
 
     distributed func pong() async throws {
-        // actorSystem.logger.debug("\(id): pong")
+        actorSystem.logger.trace("\(id): pong")
     }
 }
