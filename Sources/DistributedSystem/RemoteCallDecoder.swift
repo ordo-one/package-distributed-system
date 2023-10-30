@@ -1,12 +1,10 @@
 import Distributed
 import DistributedSystemConformance
-import Logging
 import NIOCore
 
 public struct RemoteCallDecoder: DistributedTargetInvocationDecoder {
     public typealias SerializationRequirement = DistributedSystemConformance.Transferable
 
-    private var logger: Logger { DistributedSystem.logger }
     private var genericSubstitutions: [Any.Type]
     private var arguments: ByteBuffer
 
@@ -16,7 +14,6 @@ public struct RemoteCallDecoder: DistributedTargetInvocationDecoder {
     }
 
     public mutating func decodeNextArgument<Argument: SerializationRequirement>() throws -> Argument {
-        logger.trace("decodeNextArgument of type \(Argument.self) from \(arguments)")
         let size = try arguments.readWithUnsafeReadableBytes { ptr in try ULEB128.decode(ptr, as: UInt.self) }
 
         guard let slice = arguments.readSlice(length: Int(size)) else {

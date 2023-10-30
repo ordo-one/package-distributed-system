@@ -1,62 +1,68 @@
 import Distributed
 import DistributedSystemConformance
 
-protocol PingService {
-    func ping(_ clientEndpoint: PingServiceClientEndpoint) async
+protocol PingEndpoint {
+    func ping() async throws
 }
 
-struct PingServiceImpl: PingService {
-    func ping(_ clientEndpoint: PingServiceClientEndpoint) async {
-        // DistributedSystem.logger.debug("\(id): ping")
-        do {
-            try await clientEndpoint.pong()
-        } catch {
-            DistributedSystem.logger.error("\(error)")
-        }
-    }
-}
-
-distributed actor PingServiceEndpoint: ServiceEndpoint {
+distributed actor PingServiceEndpoint: ServiceEndpoint, PingEndpoint {
     public typealias ActorSystem = DistributedSystem
 
     public static var serviceName: String { "Ping" }
 
-    private let service: PingService
     private let clientEndpoint: PingServiceClientEndpoint
 
-    init(_ service: PingService, in actorSystem: ActorSystem) throws {
+    init(actorSystem: ActorSystem) throws {
         self.actorSystem = actorSystem
-        self.service = service
         clientEndpoint = try PingServiceClientEndpoint.resolve(id: id.makeClientEndpoint(), using: actorSystem)
+        actorSystem.sendPing(to: clientEndpoint, id: clientEndpoint.id)
     }
 
     distributed func ping() async throws {
-        await service.ping(clientEndpoint)
-    }
-}
-
-protocol PingServiceClient {
-    func pong() async
-}
-
-struct PingServiceClientImpl: PingServiceClient {
-    func pong() async {
-        // DistributedSystem.logger.debug("\(id): pong")
-    }
-}
-
-distributed actor PingServiceClientEndpoint: ClientEndpoint {
-    public typealias ActorSystem = DistributedSystem
-
-    private let client: PingServiceClient
-
-    init(_ client: PingServiceClient, in actorSystem: ActorSystem) {
-        self.actorSystem = actorSystem
-        self.client = client
+        actorSystem.logger.trace("\(id): ping")
+        do {
+            try await clientEndpoint.pong()
+        } catch {
+            actorSystem.logger.error("\(error)")
+        }
     }
 
     distributed func pong() async throws {
-        await client.pong()
+        actorSystem.logger.trace("\(id): pong")
     }
 }
 
+distributed actor PingServiceClientEndpoint: ClientEndpoint, PingEndpoint {
+    public typealias ActorSystem = DistributedSystem
+
+    let serviceID: DistributedSystem.ServiceIdentifier?
+    var serviceEndpoint: PingServiceEndpoint?
+
+    init(actorSystem: ActorSystem, _ serviceID: DistributedSystem.ServiceIdentifier?) {
+        self.actorSystem = actorSystem
+        self.serviceID = serviceID
+    }
+
+    distributed func ping() async throws {
+        actorSystem.logger.trace("\(id): ping")
+
+        if serviceEndpoint == nil {
+            if let serviceID {
+                let endpointID = EndpointIdentifier(id.instanceID, serviceID)
+                serviceEndpoint = try PingServiceEndpoint.resolve(id: endpointID, using: actorSystem)
+            }
+        }
+
+        if let serviceEndpoint {
+            do {
+                try await serviceEndpoint.pong()
+            } catch {
+                actorSystem.logger.error("\(error)")
+            }
+        }
+    }
+
+    distributed func pong() async throws {
+        actorSystem.logger.trace("\(id): pong")
+    }
+}

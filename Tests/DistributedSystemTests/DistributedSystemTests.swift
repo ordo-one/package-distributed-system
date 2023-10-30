@@ -1,4 +1,5 @@
 import Atomics
+import ConsulServiceDiscovery
 @testable import DistributedSystem
 @testable import DistributedSystemConformance
 import Frostflake
@@ -110,7 +111,6 @@ final class DistributedSystemTests: XCTestCase {
     }
 
     class ClientWithLeakCheckImpl: TestableClient {
-        private var logger: Logger { DistributedSystem.logger }
         let flags: Flags
         let stream: AsyncStream<Void>
         private let continuation: AsyncStream<Void>.Continuation
@@ -322,7 +322,6 @@ final class DistributedSystemTests: XCTestCase {
 
     func testConcurrentRemoteCalls() async throws {
         class ServiceImpl: TestableService {
-            private var logger: Logger { DistributedSystem.logger }
             private let totalCount: Int
             private let count: ManagedAtomic<Int>
             let stream: AsyncStream<Void>
@@ -376,7 +375,7 @@ final class DistributedSystemTests: XCTestCase {
         clientSystem.connectToServices(
             TestServiceEndpoint.self,
             withFilter: { _ in true },
-            clientFactory: { actorSystem in
+            clientFactory: { actorSystem, _ in
                 TestClientEndpoint(Client(), in: actorSystem)
             },
             serviceHandler: { serviceEndpoint, _ in
@@ -394,7 +393,7 @@ final class DistributedSystemTests: XCTestCase {
         clientSystem.connectToServices(
             TestServiceEndpoint.self,
             withFilter: { _ in true },
-            clientFactory: { actorSystem in
+            clientFactory: { actorSystem, _ in
                 TestClientEndpoint(Client(), in: actorSystem)
             },
             serviceHandler: { serviceEndpoint, _ in
@@ -610,7 +609,7 @@ final class DistributedSystemTests: XCTestCase {
         distributedSystem.connectToServices(
             TestServiceEndpoint.self,
             withFilter: { _ in true },
-            clientFactory: { actorSystem in
+            clientFactory: { actorSystem, _ in
                 TestClientEndpoint(Client(), in: actorSystem)
             },
             serviceHandler: { _, _ in
@@ -718,7 +717,7 @@ final class DistributedSystemTests: XCTestCase {
         let cancellationToken = clientSystem.makeCancellationToken()
         _ = cancellationToken.cancel()
 
-        let clientFactory: ((DistributedSystem) -> Any)? = nil
+        let clientFactory: ((DistributedSystem, ConsulServiceDiscovery.Instance) -> Any)? = nil
         let started = clientSystem.connectToServices(
             TestServiceEndpoint.self,
             withFilter: { _ in fatalError("should not be called") },

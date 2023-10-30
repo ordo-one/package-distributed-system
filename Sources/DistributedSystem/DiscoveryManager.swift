@@ -76,14 +76,17 @@ final class DiscoveryManager {
         var services: [DistributedSystem.ServiceIdentifier: ServiceInfo] = [:]
     }
 
-    private var logger: Logger { DistributedSystem.logger }
+    private var loggerBox: Box<Logger>
+    private var logger: Logger { loggerBox.value }
 
     private var lock = Lock()
     private var generation: Int = 0
     private var processes: [SocketAddress: ProcessInfo] = [:]
     private var discoveries: [String: DiscoveryInfo] = [:]
 
-    init() {}
+    init(_ loggerBox: Box<Logger>) {
+        self.loggerBox = loggerBox
+    }
 
     enum DiscoverServiceResult {
         case cancelled
