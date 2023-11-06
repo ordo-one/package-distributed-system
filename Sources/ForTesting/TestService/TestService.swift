@@ -2,6 +2,7 @@ import ArgumentParser
 import Dispatch
 import Distributed
 import DistributedSystem
+import DistributedSystemConformance
 import class Foundation.ProcessInfo
 import Frostflake
 import Lifecycle

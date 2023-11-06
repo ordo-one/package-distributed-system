@@ -1,4 +1,4 @@
-// swift-tools-version: 5.7
+// swift-tools-version: 5.9
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import class Foundation.ProcessInfo
@@ -72,6 +72,7 @@ let package = Package(
         .target(
             name: "DistributedSystemConformance",
             dependencies: [
+                .product(name: "Frostflake", package: "package-frostflake"),
                 .product(name: "Helpers", package: "package-concurrency-helpers"),
             ]
         ),
@@ -85,6 +86,9 @@ let package = Package(
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
+            ],
+            swiftSettings:[
+                .enableExperimentalFeature("AccessLevelOnImport")
             ]
         ),
         .target(

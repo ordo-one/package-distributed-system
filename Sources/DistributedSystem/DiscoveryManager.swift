@@ -6,11 +6,12 @@
 //
 // http://www.apache.org/licenses/LICENSE-2.0
 
-import PackageConcurrencyHelpers
 import ConsulServiceDiscovery
+import DistributedSystemConformance
 import Helpers
 import Logging
-import NIOCore
+internal import NIOCore
+import PackageConcurrencyHelpers
 
 final class DiscoveryManager {
     private final class ProcessInfo {
@@ -73,7 +74,7 @@ final class DiscoveryManager {
     private final class DiscoveryInfo {
         var discover = true
         var filters: [DistributedSystem.CancellationToken: FilterInfo] = [:]
-        var services: [DistributedSystem.ServiceIdentifier: ServiceInfo] = [:]
+        var services: [ServiceIdentifier: ServiceInfo] = [:]
     }
 
     private var loggerBox: Box<Logger>
@@ -103,7 +104,7 @@ final class DiscoveryManager {
             }
             var discover: Bool
             var addresses: [SocketAddress] = []
-            var services = [(DistributedSystem.ServiceIdentifier, ConsulServiceDiscovery.Instance, (address: SocketAddress, generation: Int, channel: Channel)?)]()
+            var services = [(ServiceIdentifier, ConsulServiceDiscovery.Instance, (address: SocketAddress, generation: Int, channel: Channel)?)]()
 
             if cancellationToken.cancelled {
                 return (true, false, addresses, services)
@@ -194,7 +195,7 @@ final class DiscoveryManager {
         }
     }
 
-    func factoryFor(_ serviceName: String, _ serviceID: DistributedSystem.ServiceIdentifier) -> DistributedSystem.ServiceFactory? {
+    func factoryFor(_ serviceName: String, _ serviceID: ServiceIdentifier) -> DistributedSystem.ServiceFactory? {
         lock.withLock {
             guard let discoveryInfo = self.discoveries[serviceName] else {
                 return nil
@@ -213,7 +214,7 @@ final class DiscoveryManager {
     }
 
     func addService(_ serviceName: String,
-                    _ serviceID: DistributedSystem.ServiceIdentifier,
+                    _ serviceID: ServiceIdentifier,
                     _ service: NodeService,
                     _ factory: @escaping DistributedSystem.ServiceFactory) -> Bool {
         let (updateHealthStatus, services) = lock.withLock {
@@ -236,7 +237,7 @@ final class DiscoveryManager {
             logger.debug("addService: \(serviceName)/\(serviceID)")
             discoveryInfo.services[serviceID] = ServiceInfo(service, factory)
 
-            var services = [(DistributedSystem.ServiceIdentifier, ConsulServiceDiscovery.Instance, DistributedSystem.ConnectionHandler)]()
+            var services = [(ServiceIdentifier, ConsulServiceDiscovery.Instance, DistributedSystem.ConnectionHandler)]()
             for (_, filterInfo) in discoveryInfo.filters {
                 if filterInfo.filter(service) {
                     services.append((serviceID, service, filterInfo.connectionHandler))
@@ -254,7 +255,7 @@ final class DiscoveryManager {
         return updateHealthStatus
     }
 
-    func setAddress(_ address: SocketAddress, for serviceName: String, _ serviceID: DistributedSystem.ServiceIdentifier, _ service: NodeService) -> Bool {
+    func setAddress(_ address: SocketAddress, for serviceName: String, _ serviceID: ServiceIdentifier, _ service: NodeService) -> Bool {
         let (connect, process) = lock.withLock { () -> (Bool, (channel: Channel, generation: Int, connectionHandlers: [DistributedSystem.ConnectionHandler])?) in
             guard let discoveryInfo = self.discoveries[serviceName] else {
                 fatalError("Internal error: service \(serviceName) not discovered")
@@ -323,7 +324,7 @@ final class DiscoveryManager {
                 fatalError("Internal error: \(PingServiceEndpoint.serviceName) not discovered")
             }
 
-            var services = [(DistributedSystem.ServiceIdentifier, ConsulServiceDiscovery.Instance, Int, DistributedSystem.ConnectionHandler)]()
+            var services = [(ServiceIdentifier, ConsulServiceDiscovery.Instance, Int, DistributedSystem.ConnectionHandler)]()
             for serviceName in processInfo.services {
                 guard let discoveryInfo = self.discoveries[serviceName] else {
                     fatalError("Internal error: service \(serviceName) not found")
@@ -349,9 +350,9 @@ final class DiscoveryManager {
         }
     }
 
-    func getLocalServices() -> [DistributedSystem.ServiceIdentifier] {
+    func getLocalServices() -> [ServiceIdentifier] {
         lock.withLock {
-            var services: [DistributedSystem.ServiceIdentifier] = []
+            var services: [ServiceIdentifier] = []
             for (_, discoveryInfo) in self.discoveries {
                 for (serviceID, serviceInfo) in discoveryInfo.services {
                     if case .local = serviceInfo.address {

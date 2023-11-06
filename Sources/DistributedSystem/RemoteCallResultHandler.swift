@@ -1,6 +1,6 @@
 import Distributed
 import DistributedSystemConformance
-import NIOCore
+internal import NIOCore
 
 public final class RemoteCallResultHandler: DistributedTargetInvocationResultHandler {
     public typealias SerializationRequirement = Transferable

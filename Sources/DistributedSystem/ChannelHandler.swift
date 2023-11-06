@@ -8,7 +8,7 @@
 
 import Helpers
 import Logging
-import NIOCore
+internal import NIOCore
 
 extension Channel {
     var remoteAddressDescription: String {

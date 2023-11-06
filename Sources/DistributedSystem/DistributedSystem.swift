@@ -17,8 +17,8 @@ import Frostflake
 import Helpers
 import Logging
 import Atomics
-import NIOCore
-import NIOPosix
+internal import NIOCore
+internal import NIOPosix
 
 extension Channel {
     var debugDescription: String {
@@ -32,70 +32,6 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     public typealias InvocationDecoder = RemoteCallDecoder
     public typealias ResultHandler = RemoteCallResultHandler
     public typealias SerializationRequirement = Transferable
-
-    public struct InstanceIdentifier: Hashable, Codable, CustomStringConvertible {
-        public let rawValue: FrostflakeIdentifier
-
-        public var description: String {
-            String(describing: rawValue)
-        }
-
-        public var wireSize: Int {
-            MemoryLayout<FrostflakeIdentifier>.size
-        }
-
-        public init(_ rawValue: FrostflakeIdentifier = Frostflake.generate()) {
-            self.rawValue = rawValue
-        }
-
-        public init(from buffer: inout ByteBuffer) throws {
-            if let rawValue = buffer.readInteger(as: FrostflakeIdentifier.self) {
-                self.rawValue = rawValue
-            } else {
-                throw DistributedSystemErrors.error("Failed to decode InstanceIdentifier")
-            }
-        }
-
-        public func encode(to buffer: inout ByteBuffer) {
-            buffer.writeInteger(rawValue)
-        }
-    }
-
-    public struct ServiceIdentifier: Hashable, Codable, CustomStringConvertible {
-        public let rawValue: FrostflakeIdentifier
-
-        public var description: String {
-            String(describing: rawValue)
-        }
-
-        public var wireSize: Int {
-            MemoryLayout<FrostflakeIdentifier>.size
-        }
-
-        public init(_ rawValue: FrostflakeIdentifier) {
-            self.rawValue = rawValue
-        }
-
-        public init?(_ str: String) {
-            if let rawValue = FrostflakeIdentifier(str) {
-                self.init(rawValue)
-            } else {
-                return nil
-            }
-        }
-
-        public init(from buffer: inout ByteBuffer) throws {
-            if let rawValue = buffer.readInteger(as: FrostflakeIdentifier.self) {
-                self.rawValue = rawValue
-            } else {
-                throw DistributedSystemErrors.error("Failed to decode ServiceIdentifier")
-            }
-        }
-
-        public func encode(to buffer: inout ByteBuffer) {
-            buffer.writeInteger(rawValue)
-        }
-    }
 
     public struct ModuleIdentifier: Hashable, Codable, CustomStringConvertible {
         public let rawValue: FrostflakeIdentifier
@@ -162,7 +98,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
     // TODO: replace with configuration
     private static let pingInterval = TimeAmount.seconds(2)
-    public static let serviceDiscoveryTimeout = TimeAmount.seconds(5)
+    private static let serviceDiscoveryTimeout = TimeAmount.seconds(5)
 
     enum SessionMessage: UInt16 {
         case createServiceInstance = 0
