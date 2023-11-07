@@ -12,8 +12,8 @@ import DistributedSystemConformance
 import class Foundation.ProcessInfo
 import Frostflake
 import Logging
-import NIOCore
-import NIOPosix
+internal import NIOCore
+internal import NIOPosix
 import class ServiceDiscovery.CancellationToken
 
 public class DistributedSystemServer: DistributedSystem {
@@ -88,7 +88,7 @@ public class DistributedSystemServer: DistributedSystem {
     }
 
     public func addService(ofType type: any ServiceEndpoint.Type,
-                           toModule moduleID: DistributedSystem.ModuleIdentifier,
+                           toModule moduleID: ModuleIdentifier,
                            metadata: [String: String]? = nil,
                            _ factory: @escaping (DistributedSystem) throws -> any DistributedActor) async throws {
         try await addService(name: type.serviceName, toModule: moduleID, metadata: metadata) { actorSystem in
@@ -97,14 +97,14 @@ public class DistributedSystemServer: DistributedSystem {
     }
 
     public func addService(ofType type: any ServiceEndpoint.Type,
-                           toModule moduleID: DistributedSystem.ModuleIdentifier,
+                           toModule moduleID: ModuleIdentifier,
                            metadata: [String: String]? = nil,
                            _ factory: @escaping ServiceFactory) async throws {
         try await addService(name: type.serviceName, toModule: moduleID, metadata: metadata, factory)
     }
 
     public func addService(name: String,
-                           toModule moduleID: DistributedSystem.ModuleIdentifier,
+                           toModule moduleID: ModuleIdentifier,
                            _ factory: @escaping (DistributedSystem) throws -> any DistributedActor) async throws {
         try await addService(name: name, toModule: moduleID, metadata: nil) { actorSystem in
             try (factory(actorSystem), nil)
@@ -112,7 +112,7 @@ public class DistributedSystemServer: DistributedSystem {
     }
 
     public func addService(name: String,
-                           toModule moduleID: DistributedSystem.ModuleIdentifier,
+                           toModule moduleID: ModuleIdentifier,
                            metadata: [String: String]? = nil,
                            _ factory: @escaping ServiceFactory) async throws {
         var metadata = metadata ?? [:]

@@ -8,7 +8,7 @@
 
 import Distributed
 import DistributedSystemConformance
-import NIOCore
+internal import NIOCore
 
 struct InvocationEnvelope {
     private typealias TypeNameSizeType = UInt16

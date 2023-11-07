@@ -35,10 +35,10 @@ distributed actor PingServiceEndpoint: ServiceEndpoint, PingEndpoint {
 distributed actor PingServiceClientEndpoint: ClientEndpoint, PingEndpoint {
     public typealias ActorSystem = DistributedSystem
 
-    let serviceID: DistributedSystem.ServiceIdentifier?
+    let serviceID: ServiceIdentifier?
     var serviceEndpoint: PingServiceEndpoint?
 
-    init(actorSystem: ActorSystem, _ serviceID: DistributedSystem.ServiceIdentifier?) {
+    init(actorSystem: ActorSystem, _ serviceID: ServiceIdentifier?) {
         self.actorSystem = actorSystem
         self.serviceID = serviceID
     }
