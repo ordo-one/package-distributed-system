@@ -271,22 +271,13 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     if actorChannel === channel {
                         streamContinuations.append(continuation)
                     }
-                case let .remoteClient(remoteClient):
-                    if remoteClient.channel === channel {
+                case let .remoteClient(rcs), let .remoteService(rcs):
+                    if rcs.channel === channel {
                         actors.append(actorID)
-                        if remoteClient.suspended {
-                            endpointContinuations.append(contentsOf: remoteClient.continuations)
+                        if rcs.suspended {
+                            endpointContinuations.append(contentsOf: rcs.continuations)
                         } else {
-                            assert(remoteClient.continuations.isEmpty)
-                        }
-                    }
-                case let .remoteService(remoteService):
-                    if remoteService.channel === channel {
-                        actors.append(actorID)
-                        if remoteService.suspended {
-                            endpointContinuations.append(contentsOf: remoteService.continuations)
-                        } else {
-                            assert(remoteService.continuations.isEmpty)
+                            assert(rcs.continuations.isEmpty)
                         }
                     }
                 default:
@@ -319,7 +310,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
 
         if !pendingSyncCalls.isEmpty {
-            syncCallManager.resume(pendingSyncCalls)
+            syncCallManager.resumeWithConnectionLoss(pendingSyncCalls)
         }
     }
 
@@ -592,10 +583,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
                     var channel: Channel?
                     switch actorInfo {
-                    case let .remoteClient(remoteClient):
-                        channel = remoteClient.channel
-                    case let .remoteService(remoteService):
-                        channel = remoteService.channel
+                    case let .remoteClient(rcs), let .remoteService(rcs):
+                        channel = rcs.channel
                     case let .serviceForRemoteClient(clientChannel, _, _):
                         channel = clientChannel
                     case let .clientForRemoteService(serviceChannel, _, _):
@@ -850,10 +839,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 return
             }
             let channel = switch actorInfo {
-            case let .remoteClient(remoteClient):
-                remoteClient.channel
-            case let .remoteService(remoteService):
-                remoteService.channel
+            case let .remoteClient(rcs), let .remoteService(rcs):
+                rcs.channel
             default:
                 fatalError("Internal error: invalid actor state \(actorInfo)")
             }
@@ -879,26 +866,14 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 throw DistributedSystemErrors.noConnectionForActor(actor.id)
             }
             let (channel, suspended) = switch actorInfo {
-            case let .remoteClient(remoteClient):
-                (remoteClient.channel, remoteClient.suspended)
-            case let .remoteService(remoteService):
-                (remoteService.channel, remoteService.suspended)
+            case let .remoteClient(rcs), let .remoteService(rcs):
+                (rcs.channel, rcs.suspended)
             default:
                 fatalError("Internal error: invalid actor state \(actor.id): \(actorInfo)")
             }
 
             if callID != 0 {
                 let ptr = Self.ptr(for: channel)
-                if var channelInfo = self.channels[ptr] {
-                    if !channelInfo.pendingSyncCalls.insert(callID).inserted {
-                        logger.error("Internal error: call \(callID) already registered")
-                    }
-                    self.channels[ptr] = channelInfo
-                } else {
-                    var channelInfo = ChannelInfo()
-                    channelInfo.pendingSyncCalls.insert(callID)
-                    self.channels[ptr] = channelInfo
-                }
                 self.channels[ptr, default: ChannelInfo()].pendingSyncCalls.insert(callID)
                 logger.trace("add sync call \(callID) for \(ptr)")
             }
@@ -1020,7 +995,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             if self.actors[clientEndpointID] != nil {
                 return true
             } else {
-                self.actors[clientEndpointID] = .remoteClient(.init(channel, false, []))
+                self.actors[clientEndpointID] = .remoteClient(.init(channel))
                 return false
             }
         }
@@ -1076,7 +1051,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     }
                     logger.debug("resume endpoint \(endpointID)")
                     remoteService.suspended = true
-                    self.actors[endpointID] = .remoteClient(remoteService)
+                    self.actors[endpointID] = .remoteService(remoteService)
                 }
             default:
                 if let actorInfo {
@@ -1097,7 +1072,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 if remoteClient.suspended {
                     continuations = remoteClient.continuations
                     remoteClient.suspended = false
-                    remoteClient.continuations.removeAll()
+                    remoteClient.continuations = []
                     self.actors[endpointID] = .remoteClient(remoteClient)
                 } else {
                     logger.error("Internal error: endpoint \(endpointID) not suspended")
@@ -1106,7 +1081,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 if remoteService.suspended {
                     continuations = remoteService.continuations
                     remoteService.suspended = false
-                    remoteService.continuations.removeAll()
+                    remoteService.continuations = []
                     self.actors[endpointID] = .remoteService(remoteService)
                 } else {
                     logger.error("Internal error: endpoint \(endpointID) not suspended")
@@ -1238,10 +1213,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     func closeConnectionFor(_ endpointID: EndpointIdentifier) throws {
         let channel = try lock.withLock {
             switch self.actors[endpointID] {
-            case let .remoteClient(remoteClient):
-                remoteClient.channel
-            case let .remoteService(remoteService):
-                remoteService.channel
+            case let .remoteClient(rcs), let .remoteService(rcs):
+                rcs.channel
             default:
                 throw DistributedSystemErrors.noConnectionForActor(endpointID)
             }

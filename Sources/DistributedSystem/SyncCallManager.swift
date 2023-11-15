@@ -40,7 +40,7 @@ class SyncCallManager {
     private func resumeContinuation(_ continuation: CheckedContinuation<any DistributedSystem.SerializationRequirement, Error>, with result: inout ByteBuffer) {
         guard let typeHintSize = result.readInteger(as: UInt16.self),
               let typeHint = result.readString(length: Int(typeHintSize)) else {
-            logger.error("Invalid result received")
+            continuation.resume(throwing: DistributedSystemErrors.error("Invalid result received"))
             return
         }
 
@@ -106,12 +106,10 @@ class SyncCallManager {
 
         let continuation: CheckedContinuation<any DistributedSystem.SerializationRequirement, Error>? = lock.withLock {
             let continuation = self.continuations.removeValue(forKey: callID)
-            if let continuation {
-                return continuation
-            } else {
+            if continuation == nil {
                 self.results[callID] = buffer
-                return nil
             }
+            return continuation
         }
 
         if let continuation {
@@ -119,7 +117,7 @@ class SyncCallManager {
         }
     }
 
-    func resume(_ pendingSyncCalls: Set<UInt64>) {
+    func resumeWithConnectionLoss(_ pendingSyncCalls: Set<UInt64>) {
         let continuations = lock.withLock {
             var continuations = [CheckedContinuation<any DistributedSystem.SerializationRequirement, Error>]()
             for callID in pendingSyncCalls {
