@@ -93,7 +93,7 @@ class SyncCallManager {
         if let result = result as? T {
             return result
         } else {
-            throw DistributedSystemErrors.error("Result does not conform to \(T.self)")
+            throw DistributedSystemErrors.unexpectedResultType("\(type(of: result)) instead of \(T.self)")
         }
     }
 

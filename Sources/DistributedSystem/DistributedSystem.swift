@@ -1161,7 +1161,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 if (newSize < Self.endpointQueueLowWatermark) && (oldSize >= Self.endpointQueueLowWatermark) && ((oldState & Self.endpointQueueSuspendIndicator) != 0) {
                     newState -= Self.endpointQueueSuspendIndicator
                 }
-                let (exchanged, original) = queueState.compareExchange(expected: oldState, desired: newState, ordering: .releasing)
+                let (exchanged, original) = queueState.compareExchange(expected: oldState, desired: newState, ordering: .relaxed)
                 if exchanged {
                     if ((oldState & Self.endpointQueueSuspendIndicator) != 0) && ((newState & Self.endpointQueueSuspendIndicator) == 0) {
                         sendResumeEndpoint(envelope.targetID, to: channel)
@@ -1216,7 +1216,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 if (oldSize < Self.endpointQueueHighWatermark) && (newSize >= Self.endpointQueueHighWatermark) && ((oldState & Self.endpointQueueSuspendIndicator) == 0) {
                     newState |= Self.endpointQueueSuspendIndicator
                 }
-                let (exchanged, original) = res.queueState.compareExchange(expected: oldState, desired: newState, ordering: .releasing)
+                let (exchanged, original) = res.queueState.compareExchange(expected: oldState, desired: newState, ordering: .relaxed)
                 if exchanged {
                     if (oldSize < warningSize) && (newSize >= warningSize) {
                         // The warning threshold multiplied by 2 each time is breached,

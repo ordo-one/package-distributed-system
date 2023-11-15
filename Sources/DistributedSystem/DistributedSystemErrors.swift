@@ -16,6 +16,7 @@ public enum DistributedSystemErrors: DistributedActorSystemError {
     case error(String)
     case noConnectionForActor(EndpointIdentifier)
     case serviceDiscoveryTimeout(String)
+    case unexpectedResultType(String)
     case connectionLost
 }
 
