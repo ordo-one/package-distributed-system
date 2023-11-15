@@ -1185,20 +1185,24 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 let oldSize = (oldState & sizeMask)
                 let newSize = (newState & sizeMask)
                 let warningSize = (Self.endpointQueueWarningSize << ((oldState >> sizeBits) & 0x7F))
+                var logWarning = false
                 if (oldSize < warningSize) && (newSize >= warningSize) {
                     newState += (UInt64(1) << sizeBits)
+                    logWarning = true
                 }
+                var suspendEndpoint = false
                 if (oldSize < Self.endpointQueueHighWatermark) && (newSize >= Self.endpointQueueHighWatermark) && ((oldState & Self.endpointQueueSuspendIndicator) == 0) {
                     newState |= Self.endpointQueueSuspendIndicator
+                    suspendEndpoint = true
                 }
                 let (exchanged, original) = res.queueState.compareExchange(expected: oldState, desired: newState, ordering: .relaxed)
                 if exchanged {
-                    if (oldSize < warningSize) && (newSize >= warningSize) {
+                    if logWarning {
                         // The warning threshold multiplied by 2 each time is breached,
                         // so we will have warnings for 1, 2, 4, 8, etc megabytes
                         logger.warning("Input queue size for \(envelope.targetID) reached \(newSize) bytes")
                     }
-                    if ((oldState & Self.endpointQueueSuspendIndicator) == 0) && ((newState & Self.endpointQueueSuspendIndicator) != 0) {
+                    if suspendEndpoint {
                         sendSuspendEndpoint(targetID, to: channel)
                     }
                     break
