@@ -1,3 +1,4 @@
+import Benchmark
 import PackageConcurrencyHelpers
 import DistributedSystem
 import LatencyStatistics
@@ -13,12 +14,28 @@ public class Client: TestableClient {
     var statistics = LatencyStatistics()
 
     var snapshotDoneReceived = false
-    var streamOpened = false
-
     var snapshotDoneContinuation: CheckedContinuation<Void, Never>?
+
+    var streamOpened = false
     var streamOpenedContinuation: CheckedContinuation<Void, Never>?
 
     let label: String
+
+    private var receiveSleepIterations: Int = 0
+
+    public var receiveThroughput: Int {
+        get { fatalError("should not be called") }
+        set {
+            let calibrateIterations = 2_000_000
+            let elapsed = ContinuousClock().measure {
+                for idx in 0..<calibrateIterations {
+                    blackHole(idx)
+                }
+            }
+            let elapsedMicroseconds = Int(elapsed.nanoseconds() / 1000)
+            receiveSleepIterations = calibrateIterations / elapsedMicroseconds * 1_000_000 / newValue
+        }
+    }
 
     public init(_ logger: Logger, label: String) {
         self.logger = logger
@@ -28,9 +45,10 @@ public class Client: TestableClient {
     public func whenSnapshotDone() async {
         await withCheckedContinuation { continuation in
             lock.withLock {
-                snapshotDoneContinuation = continuation
                 if snapshotDoneReceived {
                     continuation.resume()
+                } else {
+                    snapshotDoneContinuation = continuation
                 }
             }
         }
@@ -39,9 +57,10 @@ public class Client: TestableClient {
     public func whenStreamOpened() async {
         await withCheckedContinuation { continuation in
             lock.withLockVoid {
-                streamOpenedContinuation = continuation
                 if streamOpened {
                     continuation.resume()
+                } else {
+                    streamOpenedContinuation = continuation
                 }
             }
         }
@@ -61,6 +80,7 @@ public class Client: TestableClient {
             snapshotDoneReceived = true
             if let snapshotDoneContinuation {
                 snapshotDoneContinuation.resume()
+                self.snapshotDoneContinuation = nil
             }
         }
     }
@@ -70,9 +90,9 @@ public class Client: TestableClient {
 
         lock.withLockVoid {
             streamOpened = true
-
             if let streamOpenedContinuation {
                 streamOpenedContinuation.resume()
+                self.streamOpenedContinuation = nil
             }
         }
     }
@@ -93,6 +113,9 @@ public class Client: TestableClient {
             // ignore second wrapping
         }
         */
+        for idx in 0...receiveSleepIterations {
+            blackHole(idx)
+        }
     }
 }
 

@@ -6,64 +6,134 @@
 //
 // http://www.apache.org/licenses/LICENSE-2.0
 
+import Atomics
 import PackageConcurrencyHelpers
 import DistributedSystemConformance
+import Helpers
+import Logging
 internal import NIOCore
 
 class SyncCallManager {
+    private let loggerBox: Box<Logger>
+    private var nextID = ManagedAtomic<UInt64>(0)
     private var lock = Lock()
-    private var nextID: UInt64 = 1
-    private var continuations: [UInt64: CheckedContinuation<any DistributedSystem.SerializationRequirement, Error>] = [:]
+    private var continuations = [UInt64: CheckedContinuation<any DistributedSystem.SerializationRequirement, Error>]()
+    private var results = [UInt64: ByteBuffer?]()
 
-    func addCall<T: DistributedSystem.SerializationRequirement>(_ body: (UInt64) throws -> Void) async throws -> T {
-        let result = try await withCheckedThrowingContinuation { continuation in
-            let callID = self.lock.withLock {
-                let callID = self.nextID
-                self.continuations[callID] = continuation
-                self.nextID += 1
-                return callID
+    var nextCallID: UInt64 {
+        while true {
+            let nextID = nextID.wrappingIncrementThenLoad(ordering: .releasing)
+            if nextID != 0 {
+                return nextID
             }
+        }
+    }
 
+    var logger: Logger {
+        loggerBox.value
+    }
+
+    init(_ loggerBox: Box<Logger>) {
+        self.loggerBox = loggerBox
+    }
+
+    private func resumeContinuation(_ continuation: CheckedContinuation<any DistributedSystem.SerializationRequirement, Error>, with result: inout ByteBuffer) {
+        guard let typeHintSize = result.readInteger(as: UInt16.self),
+              let typeHint = result.readString(length: Int(typeHintSize)) else {
+            logger.error("Invalid result received")
+            return
+        }
+
+        guard let type = _typeByName(typeHint) else {
+            continuation.resume(throwing: DistributedSystemErrors.error("Result with undefined type '\(typeHint)'"))
+            return
+        }
+
+        guard let type = type as? DistributedSystem.SerializationRequirement.Type else {
+            continuation.resume(throwing: DistributedSystemErrors.error("Result type '\(typeHint) does not conform to DistributedSystem.SerializationRequirement"))
+            return
+        }
+
+        result.withUnsafeReadableBytes { bytes in
             do {
-                try body(callID)
-            } catch {
-                lock.withLockVoid {
-                    continuations.removeValue(forKey: callID)
+                let value: Any = try type.init(fromSerializedBuffer: bytes)
+                if let value = value as? (any DistributedSystem.SerializationRequirement) {
+                    continuation.resume(returning: value)
+                } else {
+                    continuation.resume(throwing: DistributedSystemErrors.error("result with invalid type '\(typeHint)'"))
                 }
+            } catch {
                 continuation.resume(throwing: error)
             }
         }
+    }
+
+    func waitResult<T: DistributedSystem.SerializationRequirement>(_ callID: UInt64) async throws -> T {
+        logger.trace("waiting result for \(callID)")
+        let result = try await withCheckedThrowingContinuation { continuation in
+            let result: Optional<ByteBuffer>? = self.lock.withLock {
+                if let result = self.results.removeValue(forKey: callID) {
+                    return result
+                } else {
+                    self.continuations[callID] = continuation
+                    return nil
+                }
+            }
+
+            if let result {
+                if var result {
+                    resumeContinuation(continuation, with: &result)
+                } else {
+                    continuation.resume(throwing: DistributedSystemErrors.connectionLost)
+                }
+            }
+        }
+        logger.trace("got result for \(callID)")
 
         if let result = result as? T {
             return result
         } else {
-            throw DistributedSystemErrors.error("Invalid result type")
+            throw DistributedSystemErrors.error("Result does not conform to \(T.self)")
         }
     }
 
     func handleResult(_ buffer: inout ByteBuffer) throws {
-        let (callID, typeHint, result) = try RemoteCallResultHandler.decode(from: &buffer)
-        let continuation = lock.withLock {
-            continuations.removeValue(forKey: callID)
+        let callID = buffer.readInteger(as: UInt64.self)
+        guard let callID else {
+            logger.warning("Invalid result received")
+            return
         }
 
-        guard let continuation else {
-            throw DistributedSystemErrors.error("\(callID) not found")
-        }
-
-        if let type = _typeByName(typeHint) {
-            if let type = type as? DistributedSystem.SerializationRequirement.Type {
-                try result.withUnsafeReadableBytes { bytes in
-                    let value: Any = try type.init(fromSerializedBuffer: bytes)
-                    if let value = value as? (any DistributedSystem.SerializationRequirement) {
-                        continuation.resume(returning: value)
-                    } else {
-                        continuation.resume(throwing: DistributedSystemErrors.error("result with invalid type '\(typeHint)'"))
-                    }
-                }
-                return
+        let continuation: CheckedContinuation<any DistributedSystem.SerializationRequirement, Error>? = lock.withLock {
+            let continuation = self.continuations.removeValue(forKey: callID)
+            if let continuation {
+                return continuation
+            } else {
+                self.results[callID] = buffer
+                return nil
             }
         }
-        continuation.resume(throwing: DistributedSystemErrors.error("result with invalid type '\(typeHint)'"))
+
+        if let continuation {
+            resumeContinuation(continuation, with: &buffer)
+        }
+    }
+
+    func resume(_ pendingSyncCalls: Set<UInt64>) {
+        let continuations = lock.withLock {
+            var continuations = [CheckedContinuation<any DistributedSystem.SerializationRequirement, Error>]()
+            for callID in pendingSyncCalls {
+                if let continuation = self.continuations[callID] {
+                    continuations.append(continuation)
+                } else {
+                    self.results.updateValue(nil, forKey: callID)
+                }
+            }
+            return continuations
+        }
+
+        for continuation in continuations {
+            continuation.resume(throwing: DistributedSystemErrors.connectionLost)
+        }
     }
 }

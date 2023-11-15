@@ -14,8 +14,9 @@ public enum DistributedSystemErrors: DistributedActorSystemError {
     case duplicatedService(String, DistributedSystem.ModuleIdentifier)
     case duplicatedEndpointIdentifier(EndpointIdentifier)
     case error(String)
-    case connectionForActorLost(EndpointIdentifier)
+    case noConnectionForActor(EndpointIdentifier)
     case serviceDiscoveryTimeout(String)
+    case connectionLost
 }
 
 public enum StreamErrors: DistributedActorSystemError {

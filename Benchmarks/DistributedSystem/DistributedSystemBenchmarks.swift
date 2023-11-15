@@ -240,7 +240,7 @@ let benchmarks = {
         }
     }
 
-    Benchmark("Send Monster  #4 - facade: distributed actor, remote (network) calls",
+    Benchmark("Send Monster #4.1 - facade: distributed actor, remote (network) calls",
               configuration: Benchmark.Configuration(scalingFactor: .kilo)) { benchmark in
         guard let sharedData else {
             fatalError("Shared data is not initialized")
@@ -265,6 +265,50 @@ let benchmarks = {
             benchmark.startMeasurement()
             for _ in benchmark.scaledIterations {
                 let monster = _MonsterStruct(identifier: frostflake.generate())
+                try await endpoints.client.handleMonster(Monster(monster), for: stream)
+            }
+
+            try await endpoints.client.snapshotDone(for: stream)
+            await client.whenSnapshotDone()
+
+            benchmark.stopMeasurement()
+
+            client.reset()
+            service.reset()
+        } catch {
+            fatalError("Exception handled: \(error), stopping execution for this test")
+        }
+    }
+
+    Benchmark("Send Monster #4.2 - facade: distributed actor, remote (network) calls (slow receiver)",
+              configuration: Benchmark.Configuration(scalingFactor: .kilo)) { benchmark in
+        guard let sharedData else {
+            fatalError("Shared data is not initialized")
+        }
+
+        let (client, endpoints) = try await sharedData.getClientAndEndpoints(remote: true)
+        client.receiveThroughput = 10_000
+        var service = sharedData.service
+
+        let frostflake = getFrostflake(benchmark.currentIteration)
+
+        do {
+            let openRequest = _OpenRequestStruct(requestIdentifier: 1)
+
+            try await endpoints.service.openStream(byRequest: OpenRequest(openRequest))
+            await service.whenOpenStream()
+
+            try await endpoints.client.streamOpened(StreamOpened(_StreamOpenedStruct(requestIdentifier: openRequest.id)))
+            await client.whenStreamOpened()
+
+            let stream = Stream(_StreamStruct(streamIdentifier: openRequest.id))
+
+            benchmark.startMeasurement()
+            for _ in 0..<50_000 {
+                var monster = _MonsterStruct(identifier: frostflake.generate())
+                monster.hp = 100
+                monster.mana = 50
+                monster.name = "Orc"
                 try await endpoints.client.handleMonster(Monster(monster), for: stream)
             }
 
