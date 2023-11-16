@@ -1,3 +1,11 @@
+// Copyright 2023 Ordo One AB
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+
 import Distributed
 import DistributedSystemConformance
 internal import NIOCore
@@ -24,18 +32,6 @@ public final class RemoteCallResultHandler: DistributedTargetInvocationResultHan
         }
     }
 
-    static func decode(from buffer: inout ByteBuffer) throws -> (UInt64, String, ByteBuffer) {
-        if let callID = buffer.readInteger(as: UInt64.self),
-           let typeHintSize = buffer.readInteger(as: UInt16.self),
-           let typeHint = buffer.readString(length: Int(typeHintSize)),
-           let resultSize = buffer.readInteger(as: UInt32.self),
-           let result = buffer.readSlice(length: Int(resultSize)) {
-            return (callID, typeHint, result)
-        } else {
-            throw DistributedSystemErrors.error("failed to decode remote result (\(#file):\(#line))")
-        }
-    }
-
     public func onReturn(value: some SerializationRequirement) async throws {
         value.withUnsafeBytesSerialization { bytes in
             let valueType = type(of: value as Any)
@@ -44,14 +40,13 @@ public final class RemoteCallResultHandler: DistributedTargetInvocationResultHan
                 MemoryLayout<DistributedSystem.SessionMessage.RawValue>.size +
                 MemoryLayout<UInt64>.size +
                 MemoryLayout<UInt16>.size + valueTypeHint.count +
-                MemoryLayout<UInt32>.size + bytes.count
+                bytes.count
             var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt32>.size + payloadSize)
             buffer.writeInteger(UInt32(payloadSize))
             buffer.writeInteger(DistributedSystem.SessionMessage.invocationResult.rawValue)
             buffer.writeInteger(UInt64(0))
             buffer.writeInteger(UInt16(valueTypeHint.count))
             buffer.writeString(valueTypeHint)
-            buffer.writeInteger(UInt32(bytes.count))
             buffer.writeBytes(bytes)
             self.buffer = buffer
         }

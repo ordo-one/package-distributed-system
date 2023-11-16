@@ -1,5 +1,6 @@
 import Atomics
 import ConsulServiceDiscovery
+import Distributed
 @testable import DistributedSystem
 @testable import DistributedSystemConformance
 import Frostflake
@@ -558,6 +559,59 @@ final class DistributedSystemTests: XCTestCase {
         XCTAssertEqual(monster.name, "orc")
         XCTAssertEqual(monster.hp, 100)
         XCTAssertEqual(monster.mana, 100)
+
+        clientSystem.stop()
+        serverSystem.stop()
+    }
+
+    func testThrowsErrorOnConnectionLostWhenWaitingNonVoidCall() async throws {
+        distributed actor TestServiceEndpoint: ServiceEndpoint {
+            public typealias ActorSystem = DistributedSystem
+            public typealias SerializationRequirement = DistributedSystemConformance.Transferable
+
+            public static var serviceName: String { "test_service" }
+
+            public distributed func getMonster() async throws -> Monster {
+                var monster = _MonsterStruct(identifier: 5)
+                monster.name = "orc"
+                monster.hp = 100
+                monster.mana = 100
+                try actorSystem.closeConnectionFor(id.makeClientEndpoint())
+                return Monster(monster)
+            }
+        }
+
+        let processInfo = ProcessInfo.processInfo
+        let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
+
+        let moduleID = DistributedSystem.ModuleIdentifier(FrostflakeIdentifier(processInfo.processIdentifier))
+        let serverSystem = DistributedSystemServer(name: systemName)
+        try await serverSystem.start()
+        try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+            TestServiceEndpoint(actorSystem: actorSystem)
+        }
+
+        let clientSystem = DistributedSystem(name: systemName)
+        try clientSystem.start()
+
+        let distributedService = try await clientSystem.connectToService(
+            TestServiceEndpoint.self,
+            withFilter: { _ in true },
+            clientFactory: { _ in }
+        )
+
+        var connectionLost = false
+        do {
+            let _ = try await distributedService.getMonster()
+        } catch {
+            if let error = error as? DistributedSystemErrors, case .connectionLost = error {
+                connectionLost = true
+            } else {
+                throw error
+            }
+        }
+
+        XCTAssertTrue(connectionLost)
 
         clientSystem.stop()
         serverSystem.stop()
