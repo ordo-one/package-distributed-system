@@ -56,7 +56,6 @@ let package = Package(
         ),
         .library(
             name: "DistributedSystemConformance",
-            type: .dynamic,
             targets: ["DistributedSystemConformance"]
         ),
         .executable(
