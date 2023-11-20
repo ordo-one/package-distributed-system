@@ -52,6 +52,7 @@ let package = Package(
     products: [
         .library(
             name: "DistributedSystem",
+            type: .dynamic,
             targets: ["DistributedSystem"]
         ),
         .library(
