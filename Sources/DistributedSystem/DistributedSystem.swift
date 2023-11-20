@@ -95,8 +95,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     public var logger: Logger { loggerBox.value }
 
     private static let endpointQueueWarningSize: UInt64 = (1024 * 1024)
-    private static let endpointQueueHighWatermark: UInt64 = (1024 * 1024)
-    private static let endpointQueueLowWatermark: UInt64 = (512 * 1024)
+    private static let endpointQueueHighWatermark: UInt64 = (10 * 1024 * 1024)
+    private static let endpointQueueLowWatermark: UInt64 = (1024 * 1024)
     private static let endpointQueueSuspendIndicator: UInt64 = 0x8000_0000_0000_0000
     private static let endpointQueueSizeBits: Int = (UInt64.bitWidth - 8)
 
@@ -1200,7 +1200,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     if logWarning {
                         // The warning threshold multiplied by 2 each time is breached,
                         // so we will have warnings for 1, 2, 4, 8, etc megabytes
-                        logger.warning("Input queue size for \(envelope.targetID) reached \(newSize) bytes")
+                        logger.debug("Input queue size for \(envelope.targetID) reached \(newSize) bytes")
                     }
                     if suspendEndpoint {
                         sendSuspendEndpoint(targetID, to: channel)
