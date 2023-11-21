@@ -20,7 +20,7 @@ let internalDependencies: [String: Range<Version>] = [
     "package-concurrency-helpers": .upToNextMajor(from: "2.0.0"),
     "package-consul": .upToNextMajor(from: "3.0.0"),
     "package-datetime": .upToNextMajor(from: "1.0.1"),
-    "package-frostflake": .upToNextMajor(from: "3.1.0"),
+    "package-frostflake": .upToNextMajor(from: "4.0.0"),
 ]
 
 func makeDependencies() -> [Package.Dependency] {
