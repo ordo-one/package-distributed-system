@@ -13,15 +13,13 @@ let externalDependencies: [String: Range<Version>] = [
 ]
 
 let internalDependencies: [String: Range<Version>] = [
-    // Internal:
     "package-latency-tools": .upToNextMajor(from: "1.0.0"),
-    // Internal, but public:
     "package-benchmark": .upToNextMajor(from: "1.0.0"),
     "package-concurrency-helpers": .upToNextMajor(from: "2.0.0"),
     "package-consul": .upToNextMajor(from: "3.0.0"),
     "package-datetime": .upToNextMajor(from: "1.0.1"),
-    "package-frostflake": .upToNextMajor(from: "3.1.0"),
-    "package-distributed-system-conformance": .upToNextMajor(from: "1.0.0"),
+    "package-frostflake": .upToNextMajor(from: "4.0.0"),
+    "package-distributed-system-conformance": .upToNextMajor(from: "2.0.0"),
 ]
 
 func makeDependencies() -> [Package.Dependency] {
