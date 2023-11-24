@@ -13,14 +13,13 @@ let externalDependencies: [String: Range<Version>] = [
 ]
 
 let internalDependencies: [String: Range<Version>] = [
-    // Internal:
     "package-latency-tools": .upToNextMajor(from: "1.0.0"),
-    // Internal, but public:
     "package-benchmark": .upToNextMajor(from: "1.0.0"),
     "package-concurrency-helpers": .upToNextMajor(from: "2.0.0"),
     "package-consul": .upToNextMajor(from: "3.0.0"),
     "package-datetime": .upToNextMajor(from: "1.0.1"),
     "package-frostflake": .upToNextMajor(from: "4.0.0"),
+    "package-distributed-system-conformance": .upToNextMajor(from: "2.0.0"),
 ]
 
 func makeDependencies() -> [Package.Dependency] {
@@ -32,7 +31,6 @@ func makeDependencies() -> [Package.Dependency] {
     }
 
     let localPath = ProcessInfo.processInfo.environment["LOCAL_PACKAGES_DIR"]
-
     for intDep in internalDependencies {
         if let localPath {
             dependencies.append(.package(name: "\(intDep.key)", path: "\(localPath)/\(intDep.key)"))
@@ -40,6 +38,7 @@ func makeDependencies() -> [Package.Dependency] {
             dependencies.append(.package(url: "https://github.com/ordo-one/\(intDep.key)", intDep.value))
         }
     }
+
     return dependencies
 }
 
@@ -54,10 +53,6 @@ let package = Package(
             name: "DistributedSystem",
             targets: ["DistributedSystem"]
         ),
-        .library(
-            name: "DistributedSystemConformance",
-            targets: ["DistributedSystemConformance"]
-        ),
         .executable(
             name: "TestClient",
             targets: ["TestClient"]
@@ -70,16 +65,9 @@ let package = Package(
     dependencies: makeDependencies(),
     targets: [
         .target(
-            name: "DistributedSystemConformance",
-            dependencies: [
-                .product(name: "Frostflake", package: "package-frostflake"),
-                .product(name: "Helpers", package: "package-concurrency-helpers"),
-            ]
-        ),
-        .target(
             name: "DistributedSystem",
             dependencies: [
-                "DistributedSystemConformance",
+                .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
                 .product(name: "PackageConcurrencyHelpers", package: "package-concurrency-helpers"),
                 .product(name: "ConsulServiceDiscovery", package: "package-consul"),
                 .product(name: "Frostflake", package: "package-frostflake"),
@@ -95,7 +83,7 @@ let package = Package(
             name: "TestMessages",
             dependencies: [
                 "DistributedSystem",
-                "DistributedSystemConformance",
+                .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
                 .product(name: "FlatBuffers", package: "flatbuffers"),
                 .product(name: "Frostflake", package: "package-frostflake"),
                 .product(name: "Helpers", package: "package-concurrency-helpers"),
@@ -107,8 +95,8 @@ let package = Package(
             name: "TestService",
             dependencies: [
                 "DistributedSystem",
-                "DistributedSystemConformance",
                 "TestMessages",
+                .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Lifecycle", package: "swift-service-lifecycle_1.0"),
             ],
@@ -121,8 +109,8 @@ let package = Package(
             name: "TestClient",
             dependencies: [
                 "DistributedSystem",
-                "DistributedSystemConformance",
                 "TestMessages",
+                .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Lifecycle", package: "swift-service-lifecycle_1.0"),
             ],
@@ -134,8 +122,9 @@ let package = Package(
         .executableTarget(
             name: "DistributedSystemBenchmark",
             dependencies: [
-                "DistributedSystemConformance", "DistributedSystem",
+                "DistributedSystem",
                 "TestMessages",
+                .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
                 .product(name: "PackageConcurrencyHelpers", package: "package-concurrency-helpers"),
                 .product(name: "Benchmark", package: "package-benchmark"),
                 .product(name: "BenchmarkPlugin", package: "package-benchmark"),
@@ -149,9 +138,9 @@ let package = Package(
         .testTarget(
             name: "DistributedSystemTests",
             dependencies: [
-                "DistributedSystemConformance",
                 "DistributedSystem",
-                "TestMessages"
+                "TestMessages",
+                .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
             ]
         ),
     ]
