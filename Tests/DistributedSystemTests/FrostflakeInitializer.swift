@@ -6,7 +6,7 @@
 //
 // http://www.apache.org/licenses/LICENSE-2.0
 
-import Foundation
+import class Foundation.ProcessInfo
 import Frostflake
 import Logging
 

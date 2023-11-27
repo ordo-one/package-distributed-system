@@ -91,6 +91,10 @@ public struct OpenRequest: Transferable, CustomStringConvertible {
         value = .buffer(_OpenRequestBuffer(from: retainedBuffer))
     }
 
+    public func _releaseBuffer() {
+        value._releaseBuffer()
+    }
+
     /* Identifiable */
     public typealias ID = RequestIdentifier
     public var id: RequestIdentifier { requestIdentifier }
@@ -185,6 +189,12 @@ private enum _OpenRequestValue {
             fatalError("Value has inconsistent state: \(self)")
         }
     }
+
+    public func _releaseBuffer() {
+        if case var .buffer(value) = self {
+            value._releaseBuffer()
+        }
+    }
 }
 
 /*
@@ -274,6 +284,13 @@ public struct _OpenRequestBuffer: Identifiable, CustomStringConvertible {
         message = getRoot(byteBuffer: &bb)
     }
 
+    public mutating func _releaseBuffer() {
+        if let retained {
+            Unmanaged.passUnretained(retained).release()
+            self.retained = nil
+        }
+    }
+
     @inline(__always)
     public var requestIdentifier: RequestIdentifier {
         message.requestIdentifier
@@ -339,6 +356,10 @@ public struct SnapshotDone: Transferable, CustomStringConvertible {
         }
         let retainedBuffer = UnsafeRetainedRawBuffer(UnsafeRawBufferPointer(start: copyPtr, count: buffer.count))
         value = .buffer(_SnapshotDoneBuffer(from: retainedBuffer))
+    }
+
+    public func _releaseBuffer() {
+        value._releaseBuffer()
     }
 
     /* Identifiable */
@@ -421,6 +442,12 @@ private enum _SnapshotDoneValue {
             return value.description
         default:
             fatalError("Value has inconsistent state: \(self)")
+        }
+    }
+
+    public func _releaseBuffer() {
+        if case var .buffer(value) = self {
+            value._releaseBuffer()
         }
     }
 }
@@ -506,6 +533,13 @@ public struct _SnapshotDoneBuffer: Identifiable, CustomStringConvertible {
         message = getRoot(byteBuffer: &bb)
     }
 
+    public mutating func _releaseBuffer() {
+        if let retained {
+            Unmanaged.passUnretained(retained).release()
+            self.retained = nil
+        }
+    }
+
     @inline(__always)
     public var streamIdentifier: StreamIdentifier {
         message.streamIdentifier
@@ -565,6 +599,10 @@ public struct Stream: Transferable, CustomStringConvertible {
         }
         let retainedBuffer = UnsafeRetainedRawBuffer(UnsafeRawBufferPointer(start: copyPtr, count: buffer.count))
         value = .buffer(_StreamBuffer(from: retainedBuffer))
+    }
+
+    public func _releaseBuffer() {
+        value._releaseBuffer()
     }
 
     /* Identifiable */
@@ -647,6 +685,12 @@ private enum _StreamValue {
             return value.description
         default:
             fatalError("Value has inconsistent state: \(self)")
+        }
+    }
+
+    public func _releaseBuffer() {
+        if case var .buffer(value) = self {
+            value._releaseBuffer()
         }
     }
 }
@@ -732,6 +776,13 @@ public struct _StreamBuffer: Identifiable, CustomStringConvertible {
         message = getRoot(byteBuffer: &bb)
     }
 
+    public mutating func _releaseBuffer() {
+        if let retained {
+            Unmanaged.passUnretained(retained).release()
+            self.retained = nil
+        }
+    }
+
     @inline(__always)
     public var streamIdentifier: StreamIdentifier {
         message.streamIdentifier
@@ -795,6 +846,10 @@ public struct StreamOpened: Transferable, CustomStringConvertible {
         }
         let retainedBuffer = UnsafeRetainedRawBuffer(UnsafeRawBufferPointer(start: copyPtr, count: buffer.count))
         value = .buffer(_StreamOpenedBuffer(from: retainedBuffer))
+    }
+
+    public func _releaseBuffer() {
+        value._releaseBuffer()
     }
 
     /* Identifiable */
@@ -891,6 +946,12 @@ private enum _StreamOpenedValue {
             fatalError("Value has inconsistent state: \(self)")
         }
     }
+
+    public func _releaseBuffer() {
+        if case var .buffer(value) = self {
+            value._releaseBuffer()
+        }
+    }
 }
 
 /*
@@ -980,6 +1041,13 @@ public struct _StreamOpenedBuffer: Identifiable, CustomStringConvertible {
         message = getRoot(byteBuffer: &bb)
     }
 
+    public mutating func _releaseBuffer() {
+        if let retained {
+            Unmanaged.passUnretained(retained).release()
+            self.retained = nil
+        }
+    }
+
     @inline(__always)
     public var requestIdentifier: RequestIdentifier {
         message.requestIdentifier
@@ -1062,6 +1130,10 @@ public struct Monster: Transferable, CustomStringConvertible {
         }
         let retainedBuffer = UnsafeRetainedRawBuffer(UnsafeRawBufferPointer(start: copyPtr, count: buffer.count))
         value = .buffer(_MonsterBuffer(from: retainedBuffer))
+    }
+
+    public func _releaseBuffer() {
+        value._releaseBuffer()
     }
 
     /* Identifiable */
@@ -1198,6 +1270,12 @@ private enum _MonsterValue {
             fatalError("Value has inconsistent state: \(self)")
         }
     }
+
+    public func _releaseBuffer() {
+        if case var .buffer(value) = self {
+            value._releaseBuffer()
+        }
+    }
 }
 
 /*
@@ -1303,6 +1381,13 @@ public struct _MonsterBuffer: Identifiable, CustomStringConvertible {
         self.buffer = buffer
         var bb = ByteBuffer(assumingMemoryBound: UnsafeMutableRawPointer(mutating: buffer.baseAddress!), capacity: buffer.count)
         message = getRoot(byteBuffer: &bb)
+    }
+
+    public mutating func _releaseBuffer() {
+        if let retained {
+            Unmanaged.passUnretained(retained).release()
+            self.retained = nil
+        }
     }
 
     @inline(__always)

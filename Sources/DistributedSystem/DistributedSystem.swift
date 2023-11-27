@@ -1125,6 +1125,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 // TODO: should we propagate throw back? or close connection?
                 logger.error("Target function error: \(error)")
             }
+            decoder._releaseArguments()
 
             let sizeMask = ((UInt64(1) << Self.endpointQueueSizeBits) - 1)
             var oldState = queueState.load(ordering: .relaxed)
