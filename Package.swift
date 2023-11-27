@@ -18,7 +18,6 @@ let internalDependencies: [String: Range<Version>] = [
     "package-concurrency-helpers": .upToNextMajor(from: "2.0.0"),
     "package-consul": .upToNextMajor(from: "3.0.0"),
     "package-datetime": .upToNextMajor(from: "1.0.1"),
-    "package-frostflake": .upToNextMajor(from: "4.0.0"),
     "package-distributed-system-conformance": .upToNextMajor(from: "3.0.0"),
 ]
 
@@ -67,10 +66,10 @@ let package = Package(
         .target(
             name: "DistributedSystem",
             dependencies: [
+                "Frostflake",
                 .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
                 .product(name: "PackageConcurrencyHelpers", package: "package-concurrency-helpers"),
                 .product(name: "ConsulServiceDiscovery", package: "package-consul"),
-                .product(name: "Frostflake", package: "package-frostflake"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
@@ -83,9 +82,9 @@ let package = Package(
             name: "TestMessages",
             dependencies: [
                 "DistributedSystem",
+                "Frostflake",
                 .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
                 .product(name: "FlatBuffers", package: "flatbuffers"),
-                .product(name: "Frostflake", package: "package-frostflake"),
                 .product(name: "Helpers", package: "package-concurrency-helpers"),
                 .product(name: "DateTime", package: "package-datetime"),
             ],
@@ -143,5 +142,9 @@ let package = Package(
                 .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
             ]
         ),
+        .binaryTarget(
+            name: "Frostflake",
+            path: "../Frostflake.xcframework"
+        )
     ]
 )

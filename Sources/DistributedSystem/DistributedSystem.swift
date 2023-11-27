@@ -731,6 +731,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 }
             }
         } else {
+            print("actor=\(Actor.self) \((any ServiceEndpoint.Type).self)")
             guard let actorType = Actor.self as? any ServiceEndpoint.Type else {
                 fatalError("Invalid remote actor type \(Actor.self), should conform to ServiceEndpoint")
             }
