@@ -45,8 +45,8 @@ func makeDependencies() -> [Package.Dependency] {
 let package = Package(
     name: "package-distributed-system",
     platforms: [
-        .macOS(.v13),
-        .iOS(.v16),
+        .macOS(.v14),
+        .iOS(.v17),
     ],
     products: [
         .library(
