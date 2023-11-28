@@ -3,7 +3,7 @@
 
 import class Foundation.ProcessInfo
 import PackageDescription
-
+   
 let externalDependencies: [String: Range<Version>] = [
     "https://github.com/ordo-one/flatbuffers": .upToNextMajor(from: "21.0.0"),
     "https://github.com/apple/swift-argument-parser": .upToNextMajor(from: "1.1.0"),
