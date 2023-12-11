@@ -19,7 +19,7 @@ public enum DataModel_Color: Int8, Enum, Verifiable {
 
 public struct DataModel_Timestamp: NativeStruct, Verifiable, FlatbuffersInitializable {
 
-  static func validateVersion() { FlatBuffersVersion_23_1_21() }
+  static func validateVersion() { FlatBuffersVersion_23_5_26() }
 
   private var _seconds: UInt64
   private var _attoseconds: UInt64
@@ -50,7 +50,7 @@ public struct DataModel_Timestamp: NativeStruct, Verifiable, FlatbuffersInitiali
 
 public struct DataModel_Timestamp_Mutable: FlatBufferObject {
 
-  static func validateVersion() { FlatBuffersVersion_23_1_21() }
+  static func validateVersion() { FlatBuffersVersion_23_5_26() }
   public var __buffer: ByteBuffer! { return _accessor.bb }
   private var _accessor: Struct
 
@@ -64,7 +64,7 @@ public struct DataModel_Timestamp_Mutable: FlatBufferObject {
 
 public struct DataModel_Vec3: NativeStruct, Verifiable, FlatbuffersInitializable {
 
-  static func validateVersion() { FlatBuffersVersion_23_1_21() }
+  static func validateVersion() { FlatBuffersVersion_23_5_26() }
 
   private var _x: Float32
   private var _y: Float32
@@ -100,7 +100,7 @@ public struct DataModel_Vec3: NativeStruct, Verifiable, FlatbuffersInitializable
 
 public struct DataModel_Vec3_Mutable: FlatBufferObject {
 
-  static func validateVersion() { FlatBuffersVersion_23_1_21() }
+  static func validateVersion() { FlatBuffersVersion_23_5_26() }
   public var __buffer: ByteBuffer! { return _accessor.bb }
   private var _accessor: Struct
 
@@ -116,7 +116,7 @@ public struct DataModel_Vec3_Mutable: FlatBufferObject {
 
 public struct DataModel_OpenRequest: FlatBufferObject, Verifiable {
 
-  static func validateVersion() { FlatBuffersVersion_23_1_21() }
+  static func validateVersion() { FlatBuffersVersion_23_5_26() }
   public var __buffer: ByteBuffer! { return _accessor.bb }
   private var _accessor: Table
 
@@ -159,7 +159,7 @@ public struct DataModel_OpenRequest: FlatBufferObject, Verifiable {
 
 public struct DataModel_SnapshotDone: FlatBufferObject, Verifiable {
 
-  static func validateVersion() { FlatBuffersVersion_23_1_21() }
+  static func validateVersion() { FlatBuffersVersion_23_5_26() }
   public var __buffer: ByteBuffer! { return _accessor.bb }
   private var _accessor: Table
 
@@ -195,7 +195,7 @@ public struct DataModel_SnapshotDone: FlatBufferObject, Verifiable {
 
 public struct DataModel_Stream: FlatBufferObject, Verifiable {
 
-  static func validateVersion() { FlatBuffersVersion_23_1_21() }
+  static func validateVersion() { FlatBuffersVersion_23_5_26() }
   public var __buffer: ByteBuffer! { return _accessor.bb }
   private var _accessor: Table
 
@@ -231,7 +231,7 @@ public struct DataModel_Stream: FlatBufferObject, Verifiable {
 
 public struct DataModel_StreamOpened: FlatBufferObject, Verifiable {
 
-  static func validateVersion() { FlatBuffersVersion_23_1_21() }
+  static func validateVersion() { FlatBuffersVersion_23_5_26() }
   public var __buffer: ByteBuffer! { return _accessor.bb }
   private var _accessor: Table
 
@@ -274,7 +274,7 @@ public struct DataModel_StreamOpened: FlatBufferObject, Verifiable {
 
 public struct DataModel_Monster: FlatBufferObject, Verifiable {
 
-  static func validateVersion() { FlatBuffersVersion_23_1_21() }
+  static func validateVersion() { FlatBuffersVersion_23_5_26() }
   public var __buffer: ByteBuffer! { return _accessor.bb }
   private var _accessor: Table
 
