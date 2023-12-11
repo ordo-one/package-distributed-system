@@ -808,4 +808,65 @@ final class DistributedSystemTests: XCTestCase {
 
         clientSystem.stop()
     }
+
+    func testResolveClientAfterConnectionLoss() async throws {
+        distributed actor TestServiceEndpoint: ServiceEndpoint {
+            typealias ActorSystem = DistributedSystem
+            typealias SerializationRequirement = DistributedSystemConformance.Transferable
+
+            static var serviceName: String { "test_service" }
+            let clientSystem: DistributedSystem
+            let continuation: AsyncStream<Void>.Continuation
+
+            init(_ actorSystem: DistributedSystem, _ clientSystem: DistributedSystem, _ continuation: AsyncStream<Void>.Continuation) {
+                self.actorSystem = actorSystem
+                self.clientSystem = clientSystem
+                self.continuation = continuation
+            }
+
+            distributed func openStream() async throws {
+                clientSystem.stop()
+                let clientEndpointID = id.makeClientEndpoint()
+                do {
+                    _ = try TestClientEndpoint.resolve(id: clientEndpointID, using: actorSystem)
+                } catch DistributedSystemErrors.unknownActor {
+                    continuation.yield()
+                } catch {
+                    throw error
+                }
+            }
+        }
+
+        let processInfo = ProcessInfo.processInfo
+        let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
+
+        let clientSystem = DistributedSystem(name: systemName)
+
+        var continuation: AsyncStream<Void>.Continuation?
+        let stream = AsyncStream<Void>() { continuation = $0 }
+        guard let continuation else { fatalError("continuation unexpectedly nil") }
+
+        let moduleID = DistributedSystem.ModuleIdentifier(1)
+        let serverSystem = DistributedSystemServer(name: systemName)
+        try await serverSystem.start()
+        try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+            let serviceEndpoint = TestServiceEndpoint(actorSystem, clientSystem, continuation)
+            return (serviceEndpoint, nil)
+        }
+
+        try clientSystem.start()
+
+        let serviceEndpoint = try await clientSystem.connectToService(
+            TestServiceEndpoint.self,
+            withFilter: { _ in true },
+            clientFactory: { actorSystem in
+                TestClientEndpoint(Client(), in: actorSystem)
+            }
+        )
+
+        try await serviceEndpoint.openStream()
+        for await _ in stream { break }
+
+        serverSystem.stop()
+    }
 }

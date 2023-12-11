@@ -146,10 +146,10 @@ final class DiscoveryManager {
         }
 
         if cancelled {
-            logger.debug("discoverService[\(serviceName)]: cancelled \(Unmanaged.passUnretained(cancellationToken).toOpaque())")
+            logger.debug("discoverService[\(serviceName)]: cancelled before start \(cancellationToken.ptr)")
             return .cancelled
         } else {
-            logger.debug("discoverService[\(serviceName)]: \(discover) \(addresses) \(services), cancellation token \(Unmanaged.passUnretained(cancellationToken).toOpaque())")
+            logger.debug("discoverService[\(serviceName)]: \(discover) \(addresses) \(services), cancellation token \(cancellationToken.ptr)")
             for (serviceID, service, process) in services {
                 let connectionLossHandler = connectionHandler(serviceID, service, process?.channel)
                 if let connectionLossHandler, let process {
@@ -177,18 +177,20 @@ final class DiscoveryManager {
     func cancel(_ token: DistributedSystem.CancellationToken) -> Bool {
         lock.withLock {
             if token.cancelled {
-                logger.debug("Token \(Unmanaged.passUnretained(token).toOpaque()) already cancelled")
+                logger.debug("token \(token.ptr) already cancelled")
                 return false
             } else {
                 token.cancelled = true
                 if let serviceName = token.serviceName {
-                    logger.debug("Cancel token \(Unmanaged.passUnretained(token).toOpaque())/\(serviceName)")
+                    logger.debug("cancel token \(token.ptr)/\(serviceName)")
                     guard let discoveryInfo = self.discoveries[serviceName] else {
                         fatalError("Internal error: no discovery registered for '\(serviceName)'")
                     }
-                    return discoveryInfo.filters.removeValue(forKey: token) != nil
+                    let removed = (discoveryInfo.filters.removeValue(forKey: token) != nil)
+                    assert(removed)
+                    return true
                 } else {
-                    logger.debug("Cancel token \(Unmanaged.passUnretained(token).toOpaque())")
+                    logger.debug("cancel token \(token.ptr)")
                     return true
                 }
             }

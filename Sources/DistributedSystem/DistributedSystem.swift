@@ -66,6 +66,10 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         var serviceName: String?
         var cancelled: Bool = false
 
+        var ptr: UnsafeRawPointer {
+            UnsafeRawPointer(Unmanaged.passUnretained(self).toOpaque())
+        }
+
         init(_ actorSystem: DistributedSystem) {
             self.actorSystem = actorSystem
         }
@@ -76,7 +80,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
 
         public func hash(into hasher: inout Hasher) {
-            hasher.combine(Unmanaged.passUnretained(self).toOpaque())
+            hasher.combine(ptr)
         }
 
         public static func == (lhs: DistributedSystem.CancellationToken, rhs: DistributedSystem.CancellationToken) -> Bool {
@@ -454,6 +458,31 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
     }
 
+    private final class Monitor<T> {
+        let lock: Lock = Lock()
+        var cancelled = false
+        var value: T?
+
+        func setValue(_ value: T) -> Bool {
+            lock.withLock {
+                if cancelled {
+                    return false
+                } else {
+                    self.value = value
+                    return true
+                }
+            }
+        }
+
+        func cancel() -> T? {
+            lock.withLock {
+                assert(cancelled == false)
+                cancelled = true
+                return value
+            }
+        }
+    }
+
     /// To be used to connect to a single service of the particular type.
     /// Function returns the service endpoint instance after connection to service is established and service endpoint is ready for use.
     /// - Parameters:
@@ -469,9 +498,11 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         serviceHandler: ((S, ConsulServiceDiscovery.Instance) -> ConnectionLossHandler?)? = nil,
         deadline: DispatchTime? = nil) async throws -> S
         where S.ID == EndpointIdentifier, S.ActorSystem == DistributedSystem {
-        let cancellationToken = makeCancellationToken()
+        let monitor = Monitor<CheckedContinuation<S, Error>>()
+        let cancellationToken = self.makeCancellationToken()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
+
                 if let deadline {
                     let eventLoop = self.eventLoopGroup.next()
                     eventLoop.scheduleTask(deadline: NIODeadline.uptimeNanoseconds(deadline.uptimeNanoseconds)) {
@@ -481,6 +512,12 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                         }
                     }
                 }
+
+                guard monitor.setValue(continuation) else {
+                    continuation.resume(throwing: DistributedSystemErrors.error("Cancelled"))
+                    return
+                }
+
                 let started = self.connectToServices(
                     S.self,
                     withFilter: serviceFilter,
@@ -502,12 +539,18 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     },
                     cancellationToken: cancellationToken
                 )
+
                 if !started {
-                    continuation.resume(throwing: DistributedSystemErrors.error("Canceled before start"))
+                    continuation.resume(throwing: DistributedSystemErrors.error("Cancelled"))
                 }
             }
         } onCancel: {
-            _ = cancellationToken.cancel()
+            let continuation = monitor.cancel()
+            if let continuation {
+                if cancellationToken.cancel() {
+                    continuation.resume(throwing: DistributedSystemErrors.error("Cancelled"))
+                }
+            }
         }
     }
 
@@ -649,6 +692,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
     /// Service lifecycle stop
     public func stop() {
+        logger.debug("stop")
+
         let services = discoveryManager.getLocalServices()
         for serviceID in services {
             do {
@@ -712,7 +757,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         EndpointIdentifier == Actor.ID {
         logger.debug("resolve<\(Actor.self)>: \(id)")
         if id.serviceID.rawValue == 0 {
-            return lock.withLock {
+            return try lock.withLock {
                 if let actorInfo = self.actors[id] {
                     switch actorInfo {
                     case let .newClient(actor):
@@ -727,7 +772,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                         fatalError("Internal error: invalid actor state")
                     }
                 } else {
-                    fatalError("Internal error: client actor \(id) not registered")
+                    throw DistributedSystemErrors.unknownActor
                 }
             }
         } else {

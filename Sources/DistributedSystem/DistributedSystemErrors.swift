@@ -18,6 +18,7 @@ public enum DistributedSystemErrors: DistributedActorSystemError {
     case serviceDiscoveryTimeout(String)
     case unexpectedResultType(String)
     case connectionLost
+    case unknownActor
 }
 
 public enum StreamErrors: DistributedActorSystemError {
