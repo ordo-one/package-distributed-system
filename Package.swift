@@ -18,7 +18,7 @@ let internalDependencies: [String: Range<Version>] = [
     "package-concurrency-helpers": .upToNextMajor(from: "2.0.0"),
     "package-consul": .upToNextMajor(from: "3.0.0"),
     "package-datetime": .upToNextMajor(from: "1.0.1"),
-    "package-frostflake": .upToNextMajor(from: "5.0.0"),
+    "package-frostflake-xcframework": .upToNextMajor(from: "1.0.0-alpha"),
     "package-distributed-system-conformance": .upToNextMajor(from: "3.0.0"),
 ]
 
@@ -45,8 +45,8 @@ func makeDependencies() -> [Package.Dependency] {
 let package = Package(
     name: "package-distributed-system",
     platforms: [
-        .macOS(.v13),
-        .iOS(.v16),
+        .macOS(.v14),
+        .iOS(.v17),
     ],
     products: [
         .library(
@@ -70,7 +70,7 @@ let package = Package(
                 .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
                 .product(name: "PackageConcurrencyHelpers", package: "package-concurrency-helpers"),
                 .product(name: "ConsulServiceDiscovery", package: "package-consul"),
-                .product(name: "Frostflake", package: "package-frostflake"),
+                .product(name: "FrostflakeKit", package: "package-frostflake-xcframework"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
@@ -85,7 +85,7 @@ let package = Package(
                 "DistributedSystem",
                 .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
                 .product(name: "FlatBuffers", package: "flatbuffers"),
-                .product(name: "Frostflake", package: "package-frostflake"),
+                .product(name: "FrostflakeKit", package: "package-frostflake-xcframework"),
                 .product(name: "Helpers", package: "package-concurrency-helpers"),
                 .product(name: "DateTime", package: "package-datetime"),
             ],

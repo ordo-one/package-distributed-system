@@ -10,7 +10,7 @@ import ConsulServiceDiscovery
 import Distributed
 import DistributedSystemConformance
 import class Foundation.ProcessInfo
-import Frostflake
+import FrostflakeKit
 import Logging
 internal import NIOCore
 internal import NIOPosix

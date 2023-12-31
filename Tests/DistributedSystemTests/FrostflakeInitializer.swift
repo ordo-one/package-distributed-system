@@ -7,7 +7,7 @@
 // http://www.apache.org/licenses/LICENSE-2.0
 
 import class Foundation.ProcessInfo
-import Frostflake
+import FrostflakeKit
 import Logging
 
 var logger = Logger(label: "ds-test")

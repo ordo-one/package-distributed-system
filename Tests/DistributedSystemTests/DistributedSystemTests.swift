@@ -3,7 +3,7 @@ import ConsulServiceDiscovery
 import Distributed
 @testable import DistributedSystem
 @testable import DistributedSystemConformance
-import Frostflake
+import FrostflakeKit
 import Logging
 import NIOCore
 @testable import TestMessages

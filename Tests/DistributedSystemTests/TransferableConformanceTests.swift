@@ -1,7 +1,7 @@
 import Distributed
 @testable import DistributedSystem
 @testable import DistributedSystemConformance
-import Frostflake
+import FrostflakeKit
 @testable import TestMessages
 import XCTest
 

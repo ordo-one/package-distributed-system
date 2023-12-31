@@ -13,7 +13,7 @@ import ConsulServiceDiscovery
 import Dispatch
 import Distributed
 import DistributedSystemConformance
-import Frostflake
+import FrostflakeKit
 import Helpers
 import Logging
 import Atomics
