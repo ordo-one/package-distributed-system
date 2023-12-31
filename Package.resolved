@@ -46,24 +46,6 @@
       }
     },
     {
-      "identity" : "package-distributed-system-conformance",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/ordo-one/package-distributed-system-conformance",
-      "state" : {
-        "revision" : "5efbf0b6d5abae2e1eeeeac3a8cb23276371bdd8",
-        "version" : "3.0.4"
-      }
-    },
-    {
-      "identity" : "package-frostflake",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/ordo-one/package-frostflake",
-      "state" : {
-        "revision" : "7321e6e89bfb0975f815d37d51502edbbc7ce891",
-        "version" : "5.1.0"
-      }
-    },
-    {
       "identity" : "package-frostflake-xcframework",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/ordo-one/package-frostflake-xcframework",

@@ -18,8 +18,7 @@ let internalDependencies: [String: Range<Version>] = [
     "package-concurrency-helpers": .upToNextMajor(from: "2.0.0"),
     "package-consul": .upToNextMajor(from: "3.0.0"),
     "package-datetime": .upToNextMajor(from: "1.0.1"),
-    "package-frostflake-xcframework": .upToNextMajor(from: "1.0.0-alpha"),
-    "package-distributed-system-conformance": .upToNextMajor(from: "3.0.0"),
+    "package-frostflake-xcframework": .upToNextMajor(from: "1.0.0-alpha")
 ]
 
 func makeDependencies() -> [Package.Dependency] {
@@ -67,7 +66,6 @@ let package = Package(
         .target(
             name: "DistributedSystem",
             dependencies: [
-                .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
                 .product(name: "PackageConcurrencyHelpers", package: "package-concurrency-helpers"),
                 .product(name: "ConsulServiceDiscovery", package: "package-consul"),
                 .product(name: "FrostflakeKit", package: "package-frostflake-xcframework"),
@@ -83,7 +81,6 @@ let package = Package(
             name: "TestMessages",
             dependencies: [
                 "DistributedSystem",
-                .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
                 .product(name: "FlatBuffers", package: "flatbuffers"),
                 .product(name: "FrostflakeKit", package: "package-frostflake-xcframework"),
                 .product(name: "Helpers", package: "package-concurrency-helpers"),
@@ -96,7 +93,6 @@ let package = Package(
             dependencies: [
                 "DistributedSystem",
                 "TestMessages",
-                .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Lifecycle", package: "swift-service-lifecycle_1.0"),
             ],
@@ -110,7 +106,6 @@ let package = Package(
             dependencies: [
                 "DistributedSystem",
                 "TestMessages",
-                .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Lifecycle", package: "swift-service-lifecycle_1.0"),
             ],
@@ -124,7 +119,6 @@ let package = Package(
             dependencies: [
                 "DistributedSystem",
                 "TestMessages",
-                .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
                 .product(name: "PackageConcurrencyHelpers", package: "package-concurrency-helpers"),
                 .product(name: "Benchmark", package: "package-benchmark"),
                 .product(name: "BenchmarkPlugin", package: "package-benchmark"),
@@ -139,8 +133,7 @@ let package = Package(
             name: "DistributedSystemTests",
             dependencies: [
                 "DistributedSystem",
-                "TestMessages",
-                .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
+                "TestMessages"
             ]
         ),
     ]

@@ -1,5 +1,4 @@
 import Distributed
-import DistributedSystemConformance
 
 protocol PingEndpoint {
     func ping() async throws

@@ -8,7 +8,6 @@
 
 import ConsulServiceDiscovery
 import Distributed
-import DistributedSystemConformance
 import class Foundation.ProcessInfo
 import FrostflakeKit
 import Logging
