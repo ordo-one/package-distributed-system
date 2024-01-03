@@ -50,8 +50,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/ordo-one/package-frostflake-xcframework",
       "state" : {
-        "revision" : "28e088b947314221db6278e43c633a36bed713d3",
-        "version" : "1.0.0-alpha.4"
+        "revision" : "4ef7263d2ced940538b2192311d2eca76935817f",
+        "version" : "1.0.0"
       }
     },
     {
