@@ -1,9 +1,8 @@
 import Distributed
-import DistributedSystemConformance
 internal import NIOCore
 
 public struct RemoteCallDecoder: DistributedTargetInvocationDecoder {
-    public typealias SerializationRequirement = DistributedSystemConformance.Transferable
+    public typealias SerializationRequirement = Transferable
 
     private var genericSubstitutions: [Any.Type]
     private var buffer: ByteBuffer

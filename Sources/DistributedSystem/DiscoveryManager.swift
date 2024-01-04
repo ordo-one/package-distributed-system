@@ -7,7 +7,6 @@
 // http://www.apache.org/licenses/LICENSE-2.0
 
 import ConsulServiceDiscovery
-import DistributedSystemConformance
 import Helpers
 import Logging
 internal import NIOCore

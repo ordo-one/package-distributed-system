@@ -6,8 +6,7 @@
 //
 // http://www.apache.org/licenses/LICENSE-2.0
 
-import DistributedSystemConformance
-import Frostflake
+import FrostflakeKit
 internal import NIOCore
 
 extension InstanceIdentifier {

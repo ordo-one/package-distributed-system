@@ -1,9 +1,9 @@
 // swiftlint:disable all
 
 import DateTime
-import DistributedSystemConformance
 import FlatBuffers
 import Helpers
+import DistributedSystem
 
 public extension Timestamp {
     var description: String {

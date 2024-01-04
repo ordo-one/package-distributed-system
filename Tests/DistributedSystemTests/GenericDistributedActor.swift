@@ -1,13 +1,12 @@
 import Distributed
 @testable import DistributedSystem
-@testable import DistributedSystemConformance
 import XCTest
 
 private let VALUE: UInt32 = 0x01020304
 
 private distributed actor TestServiceEndpoint: ServiceEndpoint {
     public typealias ActorSystem = DistributedSystem
-    public typealias SerializationRequirement = DistributedSystemConformance.Transferable
+    public typealias SerializationRequirement = Transferable
 
     static var serviceName = "TestService"
 
@@ -20,7 +19,7 @@ private distributed actor TestServiceEndpoint: ServiceEndpoint {
 
 private distributed actor TestClientEndpoint<T>: ClientEndpoint where T: Transferable {
     public typealias ActorSystem = DistributedSystem
-    public typealias SerializationRequirement = DistributedSystemConformance.Transferable
+    public typealias SerializationRequirement = Transferable
 
     private var continuation: AsyncStream<T>.Continuation
 

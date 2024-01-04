@@ -3,7 +3,7 @@ import Dispatch
 import Distributed
 import DistributedSystem
 import class Foundation.ProcessInfo
-import Frostflake
+import FrostflakeKit
 import LatencyTimer
 import Lifecycle
 import Logging

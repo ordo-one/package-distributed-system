@@ -1,10 +1,9 @@
 import Distributed
 import DistributedSystem
-import DistributedSystemConformance
 
 public distributed actor TestClientEndpoint: ClientEndpoint {
     public typealias ActorSystem = DistributedSystem
-    public typealias SerializationRequirement = DistributedSystemConformance.Transferable
+    public typealias SerializationRequirement = Transferable
 
     private let client: TestableClient
 

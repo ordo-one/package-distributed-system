@@ -6,7 +6,6 @@
 //
 // http://www.apache.org/licenses/LICENSE-2.0
 
-import DistributedSystemConformance
 internal import NIOCore
 
 extension EndpointIdentifier {
