@@ -68,6 +68,7 @@ let package = Package(
             name: "DistributedSystem",
             dependencies: [
                 .product(name: "PackageConcurrencyHelpers", package: "package-concurrency-helpers"),
+                .product(name: "Helpers", package: "package-concurrency-helpers"),
                 .product(name: "UnsafeRetainedKit", package: "package-unsafe-retained"),
                 .product(name: "ConsulServiceDiscovery", package: "package-consul"),
                 .product(name: "FrostflakeKit", package: "package-frostflake-xcframework"),
