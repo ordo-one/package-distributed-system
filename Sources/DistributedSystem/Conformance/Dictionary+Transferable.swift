@@ -7,6 +7,7 @@
 // http://www.apache.org/licenses/LICENSE-2.0
 
 import Helpers
+import UnsafeRetainedKit
 
 fileprivate typealias SizeType = UInt32
 
@@ -49,7 +50,7 @@ public extension Dictionary where Key: Serializable, Value: Serializable {
         return try body(UnsafeRawBufferPointer(start: buffer.baseAddress, count: pos))
     }
 
-    func withRetainedBytesSerialization<Result>(_ body: (Helpers.UnsafeRetainedRawBuffer) throws -> Result) rethrows -> Result {
+    func withRetainedBytesSerialization<Result>(_ body: (UnsafeRetainedRawBuffer) throws -> Result) rethrows -> Result {
         fatalError("Not implemented")
     }
 }

@@ -6,7 +6,7 @@
 //
 // http://www.apache.org/licenses/LICENSE-2.0
 
-import Helpers
+import UnsafeRetainedKit
 
 /// Defines protocol used to serialize distributed function call arguments or result type
 /// **Important:** Protocol requirements is subject to change, API compatibility is not guaranteed at this moment of time

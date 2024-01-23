@@ -15,7 +15,8 @@ let externalDependencies: [String: Range<Version>] = [
 let internalDependencies: [String: Range<Version>] = [
     "package-latency-tools": .upToNextMajor(from: "1.0.0"),
     "package-benchmark": .upToNextMajor(from: "1.0.0"),
-    "package-concurrency-helpers": .upToNextMajor(from: "2.0.0"),
+    "package-concurrency-helpers": .upToNextMajor(from: "4.0.0"),
+    "package-unsafe-retained": .upToNextMajor(from: "1.0.1"),
     "package-consul": .upToNextMajor(from: "3.0.0"),
     "package-datetime": .upToNextMajor(from: "1.0.1"),
     "package-frostflake-xcframework": .upToNextMajor(from: "1.0.0")
@@ -67,6 +68,7 @@ let package = Package(
             name: "DistributedSystem",
             dependencies: [
                 .product(name: "PackageConcurrencyHelpers", package: "package-concurrency-helpers"),
+                .product(name: "UnsafeRetainedKit", package: "package-unsafe-retained"),
                 .product(name: "ConsulServiceDiscovery", package: "package-consul"),
                 .product(name: "FrostflakeKit", package: "package-frostflake-xcframework"),
                 .product(name: "NIOCore", package: "swift-nio"),

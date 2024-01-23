@@ -6,6 +6,7 @@
 //
 // http://www.apache.org/licenses/LICENSE-2.0
 
+import UnsafeRetainedKit
 import Helpers
 
 fileprivate typealias SizeType = UInt32
@@ -50,7 +51,7 @@ public extension Array where Element: Serializable {
         }
     }
 
-    func withRetainedBytesSerialization<Result>(_ body: (Helpers.UnsafeRetainedRawBuffer) throws -> Result) rethrows -> Result {
+    func withRetainedBytesSerialization<Result>(_ body: (UnsafeRetainedRawBuffer) throws -> Result) rethrows -> Result {
         fatalError("Not implemented")
     }
 }

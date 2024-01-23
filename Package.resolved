@@ -10,12 +10,21 @@
       }
     },
     {
+      "identity" : "hdrhistogram-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/HdrHistogram/hdrhistogram-swift",
+      "state" : {
+        "revision" : "a69fa24d7b70421870cafa86340ece900489e17e",
+        "version" : "0.1.2"
+      }
+    },
+    {
       "identity" : "package-benchmark",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/ordo-one/package-benchmark",
       "state" : {
-        "revision" : "2e724bf526c980699ae0c4b7a470b51816a89e72",
-        "version" : "1.20.0"
+        "revision" : "ddf6c1ae01e139120bcdb917ece52819ee69d47a",
+        "version" : "1.22.1"
       }
     },
     {
@@ -23,8 +32,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/ordo-one/package-concurrency-helpers",
       "state" : {
-        "revision" : "673b7983a4b662887e143121b803e243c326a96e",
-        "version" : "2.1.0"
+        "revision" : "5bd22da2f1f6bb92df0b1d96056a53672b02e7fe",
+        "version" : "4.0.0"
       }
     },
     {
@@ -50,17 +59,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/ordo-one/package-frostflake-xcframework",
       "state" : {
-        "revision" : "4ef7263d2ced940538b2192311d2eca76935817f",
-        "version" : "1.0.0"
-      }
-    },
-    {
-      "identity" : "package-histogram",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/ordo-one/package-histogram",
-      "state" : {
-        "revision" : "a69fa24d7b70421870cafa86340ece900489e17e",
-        "version" : "0.1.2"
+        "revision" : "057e9cd8fe8abd455cf669587e24bf1b585df951",
+        "version" : "1.0.8"
       }
     },
     {
@@ -82,12 +82,12 @@
       }
     },
     {
-      "identity" : "progress.swift",
+      "identity" : "package-unsafe-retained",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/ordo-one/Progress.swift",
+      "location" : "https://github.com/ordo-one/package-unsafe-retained",
       "state" : {
-        "revision" : "29dc5dc29d8408f42878b832c7aae38a35ff26ee",
-        "version" : "1.0.3"
+        "revision" : "13903745061ae0ad4494db755c6598685bf0c938",
+        "version" : "1.0.1"
       }
     },
     {
@@ -140,8 +140,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-log",
       "state" : {
-        "revision" : "532d8b529501fb73a2455b179e0bbb6d49b652ed",
-        "version" : "1.5.3"
+        "revision" : "e97a6fcb1ab07462881ac165fdbb37f067e205d5",
+        "version" : "1.5.4"
       }
     },
     {
@@ -158,8 +158,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-nio",
       "state" : {
-        "revision" : "702cd7c56d5d44eeba73fdf83918339b26dc855c",
-        "version" : "2.62.0"
+        "revision" : "635b2589494c97e48c62514bc8b37ced762e0a62",
+        "version" : "2.63.0"
       }
     },
     {
