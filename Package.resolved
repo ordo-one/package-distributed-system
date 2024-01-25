@@ -55,12 +55,12 @@
       }
     },
     {
-      "identity" : "package-frostflake-xcframework",
+      "identity" : "package-frostflake-private-xcf",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/ordo-one/package-frostflake-xcframework",
+      "location" : "https://github.com/ordo-one/package-frostflake-private-xcf",
       "state" : {
-        "revision" : "057e9cd8fe8abd455cf669587e24bf1b585df951",
-        "version" : "1.0.8"
+        "revision" : "f627183e516f2e32e777878faf07d15094ae651f",
+        "version" : "1.0.9"
       }
     },
     {
@@ -82,12 +82,12 @@
       }
     },
     {
-      "identity" : "package-unsafe-retained",
+      "identity" : "package-unsafe-retained-xcf",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/ordo-one/package-unsafe-retained",
+      "location" : "https://github.com/ordo-one/package-unsafe-retained-xcf",
       "state" : {
-        "revision" : "13903745061ae0ad4494db755c6598685bf0c938",
-        "version" : "1.0.1"
+        "revision" : "07742d3a8d0d8ddc5c4c4e3fc35990fd0cc4a1f7",
+        "version" : "1.0.2"
       }
     },
     {

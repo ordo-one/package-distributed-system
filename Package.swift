@@ -16,10 +16,10 @@ let internalDependencies: [String: Range<Version>] = [
     "package-latency-tools": .upToNextMajor(from: "1.0.0"),
     "package-benchmark": .upToNextMajor(from: "1.0.0"),
     "package-concurrency-helpers": .upToNextMajor(from: "4.0.0"),
-    "package-unsafe-retained": .upToNextMajor(from: "1.0.1"),
     "package-consul": .upToNextMajor(from: "3.0.0"),
     "package-datetime": .upToNextMajor(from: "1.0.1"),
-    "package-frostflake-xcframework": .upToNextMajor(from: "1.0.0")
+    "package-frostflake-private-xcf": .upToNextMajor(from: "1.0.9"),
+    "package-unsafe-retained-xcf": .upToNextMajor(from: "1.0.2")
 ]
 
 func makeDependencies() -> [Package.Dependency] {
@@ -69,9 +69,9 @@ let package = Package(
             dependencies: [
                 .product(name: "PackageConcurrencyHelpers", package: "package-concurrency-helpers"),
                 .product(name: "Helpers", package: "package-concurrency-helpers"),
-                .product(name: "UnsafeRetainedKit", package: "package-unsafe-retained"),
                 .product(name: "ConsulServiceDiscovery", package: "package-consul"),
-                .product(name: "FrostflakeKit", package: "package-frostflake-xcframework"),
+                .product(name: "FrostflakeKit", package: "package-frostflake-private-xcf"),
+                .product(name: "UnsafeRetainedKit", package: "package-unsafe-retained-xcf"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
@@ -85,7 +85,7 @@ let package = Package(
             dependencies: [
                 "DistributedSystem",
                 .product(name: "FlatBuffers", package: "flatbuffers"),
-                .product(name: "FrostflakeKit", package: "package-frostflake-xcframework"),
+                .product(name: "FrostflakeKit", package: "package-frostflake-private-xcf"),
                 .product(name: "Helpers", package: "package-concurrency-helpers"),
                 .product(name: "DateTime", package: "package-datetime"),
             ],
