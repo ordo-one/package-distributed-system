@@ -55,12 +55,12 @@
       }
     },
     {
-      "identity" : "package-frostflake-private-xcf",
+      "identity" : "package-frostflake-xcf",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/ordo-one/package-frostflake-private-xcf",
+      "location" : "https://github.com/ordo-one/package-frostflake-xcf",
       "state" : {
-        "revision" : "f627183e516f2e32e777878faf07d15094ae651f",
-        "version" : "1.0.9"
+        "revision" : "0233eab8242aa11a1b10c074eaeead6982747552",
+        "version" : "1.0.12"
       }
     },
     {
