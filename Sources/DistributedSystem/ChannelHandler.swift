@@ -37,9 +37,7 @@ class ChannelHandler: ChannelInboundHandler {
 
     func channelActive(context: ChannelHandlerContext) {
         logger.debug("\(context.remoteAddressDescription): channel active")
-        if let address {
-            actorSystem.setChannel(context.channel, forProcessAt: address)
-        }
+        actorSystem.setChannel(context.channel, forProcessAt: address)
     }
 
     func channelInactive(context: ChannelHandlerContext) {

@@ -49,18 +49,6 @@ public class DistributedSystemServer: DistributedSystem {
 
         loggerBox.value[metadataKey: "port"] = Logger.MetadataValue(stringLiteral: "\(portNumber)")
         logger.debug("starting server '\(systemName)' @ \(portNumber)")
-
-        // Ping service
-        let metadata = [
-            ServiceMetadata.systemName.rawValue: systemName,
-            ServiceMetadata.processIdentifier.rawValue: String(ProcessInfo.processInfo.processIdentifier)
-        ]
-
-        let serviceID = super.addService(PingServiceEndpoint.serviceName, metadata) { actorSystem in
-            try PingServiceEndpoint(actorSystem: actorSystem)
-        }
-
-        try await registerService(PingServiceEndpoint.serviceName, serviceID, metadata: metadata)
     }
 
     private func registerService(_ serviceName: String, _ serviceID: ServiceIdentifier, metadata: [String: String]) async throws {
