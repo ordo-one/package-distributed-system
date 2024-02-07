@@ -16,6 +16,10 @@ private distributed actor TestServiceEndpoint: ServiceEndpoint {
         let clientEndpoint = try TestClientEndpoint<UInt32>.resolve(id: clientEndpointID, using: actorSystem)
         try await clientEndpoint.handleValue(VALUE)
     }
+
+    distributed func handleConnectionState(_ state: ConnectionState) async throws {
+        // do nothing
+    }
 }
 
 private distributed actor TestClientEndpoint<T>: ClientEndpoint where T: Transferable {
@@ -31,6 +35,10 @@ private distributed actor TestClientEndpoint<T>: ClientEndpoint where T: Transfe
 
     distributed func handleValue(_ value: T) async throws {
         continuation.yield(value)
+    }
+
+    distributed func handleConnectionState(_ state: ConnectionState) async throws {
+        // do nothing
     }
 }
 

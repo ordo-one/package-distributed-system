@@ -18,7 +18,6 @@ final class DiscoveryManager {
         let generation: Int
         var channel: Channel?
         var services = Set<String>()
-        var connectionStateHandlers = [DistributedSystem.ConnectionStateHandler]()
 
         init(_ generation: Int) {
             self.generation = generation
@@ -151,26 +150,9 @@ final class DiscoveryManager {
         } else {
             logger.debug("discoverService[\(serviceName)]: \(discover) \(addresses) \(services), cancellation token \(cancellationToken.ptr)")
             for (serviceID, service, process) in services {
-                let connectionLossHandler = connectionHandler(serviceID, service, process?.channel)
-                if let connectionLossHandler, let process {
-                    addConnectionLossHandler(process.address, process.generation, connectionLossHandler)
-                }
+                connectionHandler(serviceID, service, process?.channel)
             }
             return .started(discover, addresses)
-        }
-    }
-
-    private func addConnectionLossHandler(_ address: SocketAddress, _ generation: Int, _ connectionStateHandler: @escaping DistributedSystem.ConnectionStateHandler) {
-        logger.debug("addConnectionLossHandler for process @ \(address):\(generation)")
-        let added = lock.withLock {
-            if let processInfo = self.processes[address], processInfo.generation == generation {
-                processInfo.connectionStateHandlers.append(connectionStateHandler)
-                return true
-            }
-            return false
-        }
-        if !added {
-            connectionStateHandler(.closed)
         }
     }
 
@@ -296,10 +278,7 @@ final class DiscoveryManager {
 
         if let process {
             for connectionHandler in process.connectionHandlers {
-                let connectionLossHandler = connectionHandler(serviceID, service, process.channel)
-                if let connectionLossHandler {
-                    addConnectionLossHandler(address, generation, connectionLossHandler)
-                }
+                connectionHandler(serviceID, service, process.channel)
             }
         }
 
@@ -313,7 +292,7 @@ final class DiscoveryManager {
             }
             processInfo.channel = channel
 
-            var services = [(ServiceIdentifier, ConsulServiceDiscovery.Instance, Int, DistributedSystem.ConnectionHandler)]()
+            var services = [(ServiceIdentifier, ConsulServiceDiscovery.Instance, DistributedSystem.ConnectionHandler)]()
             for serviceName in processInfo.services {
                 guard let discoveryInfo = self.discoveries[serviceName] else {
                     fatalError("Internal error: service \(serviceName) not found")
@@ -322,7 +301,7 @@ final class DiscoveryManager {
                     if case let .remote(serviceAddress) = serviceInfo.address, serviceAddress == address {
                         for (_, filterInfo) in discoveryInfo.filters {
                             if filterInfo.filter(serviceInfo.service) {
-                                services.append((serviceID, serviceInfo.service, processInfo.generation, filterInfo.connectionHandler))
+                                services.append((serviceID, serviceInfo.service, filterInfo.connectionHandler))
                             }
                         }
                     }
@@ -331,11 +310,8 @@ final class DiscoveryManager {
             return services
         }
 
-        for (serviceID, service, generation, connectionHandler) in services {
-            let connectionLossHandler = connectionHandler(serviceID, service, channel)
-            if let connectionLossHandler {
-                addConnectionLossHandler(address, generation, connectionLossHandler)
-            }
+        for (serviceID, service, connectionHandler) in services {
+            connectionHandler(serviceID, service, channel)
         }
     }
 
@@ -367,12 +343,8 @@ final class DiscoveryManager {
             fatalError("Internal error: channel not connected")
         }
 
-        let connectionStateHandlers = lock.withLock {
-            self.processes.removeValue(forKey: address)?.connectionStateHandlers ?? []
-        }
-
-        for connectionStateHandler in connectionStateHandlers {
-            connectionStateHandler(.closed)
+        lock.withLockVoid {
+            self.processes.removeValue(forKey: address)
         }
     }
 }

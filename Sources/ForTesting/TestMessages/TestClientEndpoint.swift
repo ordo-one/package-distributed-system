@@ -24,4 +24,8 @@ public distributed actor TestClientEndpoint: ClientEndpoint {
     public distributed func streamOpened(_ reply: StreamOpened) async throws {
         await client.streamOpened(reply)
     }
+
+    public distributed func handleConnectionState(_ state: ConnectionState) async throws {
+        await client.handleConnectionState(state)
+    }
 }

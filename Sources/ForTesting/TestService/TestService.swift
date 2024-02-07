@@ -4,7 +4,7 @@ import Distributed
 import DistributedSystem
 import DistributedSystemConformance
 import class Foundation.ProcessInfo
-import Frostflake
+import FrostflakeKit
 import Lifecycle
 import Logging
 import TestMessages
@@ -86,6 +86,10 @@ public class TestService: TestableService, @unchecked Sendable {
 
     public func handleMonsters(_ monsters: [String: Monster]) async {
         fatalError("Should never be called")
+    }
+
+    public func handleConnectionState(_ state: ConnectionState) async {
+        // do nothing
     }
 
     public func start() async {}

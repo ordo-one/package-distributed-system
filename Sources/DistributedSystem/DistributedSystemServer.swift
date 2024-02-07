@@ -7,10 +7,8 @@
 // http://www.apache.org/licenses/LICENSE-2.0
 
 import ConsulServiceDiscovery
-import Distributed
 import DistributedSystemConformance
 import class Foundation.ProcessInfo
-import Frostflake
 import Logging
 internal import NIOCore
 internal import NIOPosix
@@ -78,25 +76,8 @@ public class DistributedSystemServer: DistributedSystem {
     public func addService(ofType type: any ServiceEndpoint.Type,
                            toModule moduleID: ModuleIdentifier,
                            metadata: [String: String]? = nil,
-                           _ factory: @escaping (DistributedSystem) throws -> any DistributedActor) async throws {
-        try await addService(name: type.serviceName, toModule: moduleID, metadata: metadata) { actorSystem in
-            try (factory(actorSystem), nil)
-        }
-    }
-
-    public func addService(ofType type: any ServiceEndpoint.Type,
-                           toModule moduleID: ModuleIdentifier,
-                           metadata: [String: String]? = nil,
                            _ factory: @escaping ServiceFactory) async throws {
         try await addService(name: type.serviceName, toModule: moduleID, metadata: metadata, factory)
-    }
-
-    public func addService(name: String,
-                           toModule moduleID: ModuleIdentifier,
-                           _ factory: @escaping (DistributedSystem) throws -> any DistributedActor) async throws {
-        try await addService(name: name, toModule: moduleID, metadata: nil) { actorSystem in
-            try (factory(actorSystem), nil)
-        }
     }
 
     public func addService(name: String,

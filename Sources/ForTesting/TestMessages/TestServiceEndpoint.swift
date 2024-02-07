@@ -30,4 +30,8 @@ public distributed actor TestServiceEndpoint: ServiceEndpoint {
     public distributed func handleMonsters(array monsters: [Monster]) async throws {
         await service.handleMonsters(monsters)
     }
+
+    public distributed func handleConnectionState(_ state: ConnectionState) async throws {
+        await service.handleConnectionState(state)
+    }
 }

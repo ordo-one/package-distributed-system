@@ -2,8 +2,9 @@ import ArgumentParser
 import Dispatch
 import Distributed
 import DistributedSystem
+import DistributedSystemConformance
 import class Foundation.ProcessInfo
-import Frostflake
+import FrostflakeKit
 import LatencyTimer
 import Lifecycle
 import Logging
@@ -67,6 +68,10 @@ public class TestClient: TestableClient, @unchecked Sendable {
         }
         let timePassed = finish - start
         logger.info("Stream snapshot done in \(timePassed) usec, received \(received) monsters")
+    }
+
+    public func handleConnectionState(_ state: ConnectionState) async {
+        // do nothing
     }
 
     public func start() async {

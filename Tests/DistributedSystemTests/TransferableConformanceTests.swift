@@ -1,7 +1,7 @@
 import Distributed
 @testable import DistributedSystem
 @testable import DistributedSystemConformance
-import Frostflake
+import FrostflakeKit
 @testable import TestMessages
 import XCTest
 
@@ -88,6 +88,10 @@ fileprivate distributed actor TestServiceEndpoint: ServiceEndpoint {
             streamContinuation.yield(.failure(ServiceError.error("Dictionary has \(invalidEntries) invalid entries")))
         }
     }
+
+    public distributed func handleConnectionState(_ state: ConnectionState) async {
+        logger.info("SERVICE: connection state: \(state)")
+    }
 }
 
 final class TransferableConformanceTests: XCTestCase {
@@ -165,8 +169,7 @@ final class TransferableConformanceTests: XCTestCase {
         let serverSystem = DistributedSystemServer(name: systemName)
         try await serverSystem.start()
         try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
-            let serviceEndpoint = TestServiceEndpoint(actorSystem: actorSystem, stream, streamContinuation)
-            return (serviceEndpoint, nil)
+            TestServiceEndpoint(actorSystem: actorSystem, stream, streamContinuation)
         }
 
         let clientSystem = DistributedSystem(name: systemName)
@@ -174,10 +177,7 @@ final class TransferableConformanceTests: XCTestCase {
 
         let serviceEndpoint = try await clientSystem.connectToService(
             TestServiceEndpoint.self,
-            withFilter: { _ in true },
-            serviceHandler: { _, _ in
-                return nil
-            }
+            withFilter: { _ in true }
         )
 
         var monsters = [String: Monster]()
