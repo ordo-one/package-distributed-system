@@ -18,7 +18,6 @@ final class DiscoveryManager {
         let generation: Int
         var channel: Channel?
         var services = Set<String>()
-        var connectionLossHandlers = [DistributedSystem.ConnectionLossHandler]()
 
         init(_ generation: Int) {
             self.generation = generation
@@ -151,26 +150,9 @@ final class DiscoveryManager {
         } else {
             logger.debug("discoverService[\(serviceName)]: \(discover) \(addresses) \(services), cancellation token \(cancellationToken.ptr)")
             for (serviceID, service, process) in services {
-                let connectionLossHandler = connectionHandler(serviceID, service, process?.channel)
-                if let connectionLossHandler, let process {
-                    addConnectionLossHandler(process.address, process.generation, connectionLossHandler)
-                }
+                connectionHandler(serviceID, service, process?.channel)
             }
             return .started(discover, addresses)
-        }
-    }
-
-    private func addConnectionLossHandler(_ address: SocketAddress, _ generation: Int, _ connectionLossHandler: @escaping DistributedSystem.ConnectionLossHandler) {
-        logger.debug("addConnectionLossHandler for process @ \(address):\(generation)")
-        let added = lock.withLock {
-            if let processInfo = self.processes[address], processInfo.generation == generation {
-                processInfo.connectionLossHandlers.append(connectionLossHandler)
-                return true
-            }
-            return false
-        }
-        if !added {
-            connectionLossHandler()
         }
     }
 
@@ -284,24 +266,19 @@ final class DiscoveryManager {
                     } else {
                         return (false, nil)
                     }
-                } else if serviceName != PingServiceEndpoint.serviceName {
+                } else {
                     generation += 1
                     let processInfo = ProcessInfo(generation)
                     processInfo.services.insert(serviceName)
                     self.processes[address] = processInfo
                     return (true, nil)
-                } else {
-                    return (false, nil)
                 }
             }
         }
 
         if let process {
             for connectionHandler in process.connectionHandlers {
-                let connectionLossHandler = connectionHandler(serviceID, service, process.channel)
-                if let connectionLossHandler {
-                    addConnectionLossHandler(address, generation, connectionLossHandler)
-                }
+                connectionHandler(serviceID, service, process.channel)
             }
         }
 
@@ -315,18 +292,7 @@ final class DiscoveryManager {
             }
             processInfo.channel = channel
 
-            if let discoveryInfo = self.discoveries[PingServiceEndpoint.serviceName] {
-                for (_, serviceInfo) in discoveryInfo.services {
-                    if case let .remote(serviceAddress) = serviceInfo.address, serviceAddress == address {
-                        processInfo.services.insert(PingServiceEndpoint.serviceName)
-                        break
-                    }
-                }
-            } else {
-                fatalError("Internal error: \(PingServiceEndpoint.serviceName) not discovered")
-            }
-
-            var services = [(ServiceIdentifier, ConsulServiceDiscovery.Instance, Int, DistributedSystem.ConnectionHandler)]()
+            var services = [(ServiceIdentifier, ConsulServiceDiscovery.Instance, DistributedSystem.ConnectionHandler)]()
             for serviceName in processInfo.services {
                 guard let discoveryInfo = self.discoveries[serviceName] else {
                     fatalError("Internal error: service \(serviceName) not found")
@@ -335,7 +301,7 @@ final class DiscoveryManager {
                     if case let .remote(serviceAddress) = serviceInfo.address, serviceAddress == address {
                         for (_, filterInfo) in discoveryInfo.filters {
                             if filterInfo.filter(serviceInfo.service) {
-                                services.append((serviceID, serviceInfo.service, processInfo.generation, filterInfo.connectionHandler))
+                                services.append((serviceID, serviceInfo.service, filterInfo.connectionHandler))
                             }
                         }
                     }
@@ -344,11 +310,8 @@ final class DiscoveryManager {
             return services
         }
 
-        for (serviceID, service, generation, connectionHandler) in services {
-            let connectionLossHandler = connectionHandler(serviceID, service, channel)
-            if let connectionLossHandler {
-                addConnectionLossHandler(address, generation, connectionLossHandler)
-            }
+        for (serviceID, service, connectionHandler) in services {
+            connectionHandler(serviceID, service, channel)
         }
     }
 
@@ -380,12 +343,8 @@ final class DiscoveryManager {
             fatalError("Internal error: channel not connected")
         }
 
-        let connectionLossHandlers = lock.withLock {
-            self.processes.removeValue(forKey: address)?.connectionLossHandlers ?? []
-        }
-
-        for connectionLossHandler in connectionLossHandlers {
-            connectionLossHandler()
+        lock.withLockVoid {
+            self.processes.removeValue(forKey: address)
         }
     }
 }

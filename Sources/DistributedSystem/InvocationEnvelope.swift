@@ -23,7 +23,7 @@ struct InvocationEnvelope {
         UInt64(MemoryLayout<Self>.size + targetFunc.count + arguments.readableBytes)
     }
 
-    private init(_ targetID: EndpointIdentifier, _ callID: UInt64, _ targetFunc: String, _ genericSubstitutions: [Any.Type], _ arguments: ByteBuffer) {
+    init(_ targetID: EndpointIdentifier, _ callID: UInt64, _ targetFunc: String, _ genericSubstitutions: [Any.Type], _ arguments: ByteBuffer) {
         self.targetID = targetID
         self.callID = callID
         self.targetFunc = targetFunc

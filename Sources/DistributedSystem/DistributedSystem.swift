@@ -8,15 +8,15 @@
 
 // swiftformat:disable opaqueGenericParameters
 
-import PackageConcurrencyHelpers
+import Atomics
 import ConsulServiceDiscovery
 import Dispatch
 import Distributed
 import DistributedSystemConformance
-import Frostflake
-import Helpers
+import FrostflakeKit
 import Logging
-import Atomics
+import PackageConcurrencyHelpers
+import class Helpers.Box
 internal import NIOCore
 internal import NIOPosix
 
@@ -115,6 +115,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         case duplicatedEndpointIdentifier = 3
         case suspendEndpoint = 4
         case resumeEndpoint = 5
+        case ping = 6
+        case pong = 7
     }
 
     public let systemName: String
@@ -137,19 +139,32 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             }
         }
 
+        struct Inbound {
+            let channel: Channel
+            let continuation: AsyncStream<InvocationEnvelope>.Continuation
+            let queueState: ManagedAtomic<UInt64>
+
+            init(_ channel: Channel,
+                 _ continuation: AsyncStream<InvocationEnvelope>.Continuation,
+                 _ queueState: ManagedAtomic<UInt64>) {
+                self.channel = channel
+                self.continuation = continuation
+                self.queueState = queueState
+            }
+        }
+
         case newClient(any DistributedActor) // retain the client actor instance while it will not be linked to local or remote service
         case serviceForLocalClient(any DistributedActor) // retain the client actor until the related service actor will not be resigned
         case remoteClient(Outbound)
         case remoteService(Outbound)
-        case clientForRemoteService(Channel, AsyncStream<InvocationEnvelope>.Continuation, ManagedAtomic<UInt64>)
-        case serviceForRemoteClient(Channel, AsyncStream<InvocationEnvelope>.Continuation, ManagedAtomic<UInt64>)
+        case clientForRemoteService(Inbound)
+        case serviceForRemoteClient(Inbound)
     }
 
     struct ChannelInfo {
         var bytesReceived = 0
         var bytesReceivedCheckpoint = 0
         var bytesReceivedTimeouts = 0
-        var connectionLossHandlers = [ConnectionLossHandler]()
         var pendingSyncCalls = Set<UInt64>()
     }
 
@@ -163,10 +178,9 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     public var duplicatedEndpointIdentifierHook: (EndpointIdentifier) -> Void
     var duplicatedEndpointIdentifier: EndpointIdentifier?
 
-    public typealias ConnectionLossHandler = () -> Void
     public typealias ServiceFilter = (NodeService) -> Bool
-    public typealias ServiceFactory = (DistributedSystem) throws -> (any DistributedActor, ConnectionLossHandler?)
-    typealias ConnectionHandler = (ServiceIdentifier, ConsulServiceDiscovery.Instance, Channel?) -> ConnectionLossHandler?
+    public typealias ServiceFactory = (DistributedSystem) throws -> any ServiceEndpoint
+    typealias ConnectionHandler = (ServiceIdentifier, ConsulServiceDiscovery.Instance, Channel?) -> Void /*ConnectionStateHandler?*/
 
     @TaskLocal
     private static var actorID: ActorID? // supposed to be private, but need to make it internal for tests
@@ -217,13 +231,15 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     private func sendCreateService(_ serviceName: String, _ endpointID: EndpointIdentifier, to channel: Channel) {
         let payloadSize =
             MemoryLayout<SessionMessage.RawValue>.size
-                + MemoryLayout<UInt16>.size
+                + ULEB128.size(UInt(serviceName.count))
                 + serviceName.count
                 + endpointID.wireSize
         var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt32>.size + payloadSize)
         buffer.writeInteger(UInt32(payloadSize))
         buffer.writeInteger(SessionMessage.createServiceInstance.rawValue)
-        buffer.writeInteger(UInt16(serviceName.count))
+        buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in
+            ULEB128.encode(UInt(serviceName.count), to: ptr.baseAddress!)
+        }
         buffer.writeString(serviceName)
         endpointID.encode(to: &buffer)
         logger.debug("\(channel.remoteAddressDescription): send create \(serviceName) \(endpointID)")
@@ -250,8 +266,11 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         _ = channel.writeAndFlush(buffer, promise: nil)
     }
 
-    func setChannel(_ channel: Channel, forProcessAt address: SocketAddress) {
-        discoveryManager.setChannel(channel, forProcessAt: address)
+    func setChannel(_ channel: Channel, forProcessAt address: SocketAddress?) {
+        if let address {
+            discoveryManager.setChannel(channel, forProcessAt: address)
+        }
+        sendPing(to: channel, with: eventLoopGroup.next())
     }
 
     static func ptr(for channel: some Channel) -> UnsafeRawPointer {
@@ -261,19 +280,19 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     func channelInactive(_ channel: Channel) {
         discoveryManager.channelInactive(channel)
 
-        let (streamContinuations, endpointContinuations, connectionLossHandlers, pendingSyncCalls) = lock.withLock {
+        let (streamContinuations, endpointContinuations, pendingSyncCalls) = lock.withLock {
             var streamContinuations = [AsyncStream<InvocationEnvelope>.Continuation]()
             var endpointContinuations = [CheckedContinuation<Void, Error>]()
             var actors: [EndpointIdentifier] = []
             for (actorID, actorInfo) in self.actors {
                 switch actorInfo {
-                case let .clientForRemoteService(actorChannel, continuation, _):
-                    if actorChannel === channel {
-                        streamContinuations.append(continuation)
+                case let .clientForRemoteService(cfrs):
+                    if cfrs.channel === channel {
+                        streamContinuations.append(cfrs.continuation)
                     }
-                case let .serviceForRemoteClient(actorChannel, continuation, _):
-                    if actorChannel === channel {
-                        streamContinuations.append(continuation)
+                case let .serviceForRemoteClient(sfrc):
+                    if sfrc.channel === channel {
+                        streamContinuations.append(sfrc.continuation)
                     }
                 case let .remoteClient(rcs), let .remoteService(rcs):
                     if rcs.channel === channel {
@@ -295,9 +314,9 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
             let ptr = Self.ptr(for: channel)
             if let channelInfo = self.channels.removeValue(forKey: ptr) {
-                return (streamContinuations, endpointContinuations, channelInfo.connectionLossHandlers, channelInfo.pendingSyncCalls)
+                return (streamContinuations, endpointContinuations, channelInfo.pendingSyncCalls)
             } else {
-                return (streamContinuations, endpointContinuations, [], [])
+                return (streamContinuations, endpointContinuations, [])
             }
         }
 
@@ -307,10 +326,6 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
         for continuation in endpointContinuations {
             continuation.resume(throwing: DistributedSystemErrors.connectionLost)
-        }
-
-        for connectionLossHandler in connectionLossHandlers {
-            connectionLossHandler()
         }
 
         if !pendingSyncCalls.isEmpty {
@@ -362,26 +377,21 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         _ serviceEndpointType: S.Type,
         withFilter serviceFilter: @escaping ServiceFilter,
         clientFactory: ((DistributedSystem, ConsulServiceDiscovery.Instance) -> C)? = nil,
-        serviceHandler: @escaping (S, ConsulServiceDiscovery.Instance) -> ConnectionLossHandler?,
+        serviceHandler: @escaping (S, ConsulServiceDiscovery.Instance) -> Void,
         cancellationToken: CancellationToken? = nil
     ) -> Bool
         where S.ID == EndpointIdentifier, S.ActorSystem == DistributedSystem {
         let serviceName = S.serviceName
         logger.debug("connectTo: \(serviceName)")
 
-        let connectionHandler = { (serviceID: ServiceIdentifier, service: ConsulServiceDiscovery.Instance, channel: Channel?) -> ConnectionLossHandler? in
-            let serviceEndpointID = self.duplicatedEndpointIdentifier.flatMap { (serviceEndpointType != PingServiceEndpoint.self) ? $0 : nil } ?? EndpointIdentifier(serviceID)
+        let connectionHandler = { (serviceID: ServiceIdentifier, service: ConsulServiceDiscovery.Instance, channel: Channel?) -> Void in
+            let serviceEndpointID = self.duplicatedEndpointIdentifier ?? EndpointIdentifier(serviceID)
 
             if let channel {
                 self.lock.withLockVoid {
                     self.actors[serviceEndpointID] = .remoteService(.init(channel))
                 }
                 self.sendCreateService(serviceName, serviceEndpointID, to: channel)
-            } else {
-                if serviceEndpointType == PingServiceEndpoint.self {
-                    // do not connect to PingService in the same process
-                    return nil
-                }
             }
 
             if let clientFactory {
@@ -393,10 +403,9 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
             do {
                 let serviceEndpoint = try S.resolve(id: serviceEndpointID, using: self)
-                return serviceHandler(serviceEndpoint, service)
+                serviceHandler(serviceEndpoint, service)
             } catch {
                 self.logger.error("\(error) (\(#file):\(#line))")
-                return nil
             }
         }
 
@@ -495,7 +504,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         _ serviceEndpointType: S.Type,
         withFilter serviceFilter: @escaping ServiceFilter,
         clientFactory: ((DistributedSystem) -> C)?,
-        serviceHandler: ((S, ConsulServiceDiscovery.Instance) -> ConnectionLossHandler?)? = nil,
+        serviceHandler: ((S, ConsulServiceDiscovery.Instance) -> Void)? = nil,
         deadline: DispatchTime? = nil) async throws -> S
         where S.ID == EndpointIdentifier, S.ActorSystem == DistributedSystem {
         let monitor = Monitor<CheckedContinuation<S, Error>>()
@@ -525,16 +534,10 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     serviceHandler: { serviceEndpoint, service in
                         let cancelled = cancellationToken.cancel()
                         if cancelled {
-                            let connectionLossHandler: ConnectionLossHandler?
                             if let serviceHandler {
-                                connectionLossHandler = serviceHandler(serviceEndpoint, service)
-                            } else {
-                                connectionLossHandler = nil
+                                serviceHandler(serviceEndpoint, service)
                             }
                             continuation.resume(returning: serviceEndpoint)
-                            return connectionLossHandler
-                        } else {
-                            return nil
                         }
                     },
                     cancellationToken: cancellationToken
@@ -564,7 +567,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     public func connectToService<S: ServiceEndpoint>(
          _ serviceEndpointType: S.Type,
          withFilter serviceFilter: @escaping ServiceFilter,
-         serviceHandler: ((S, ConsulServiceDiscovery.Instance) -> ConnectionLossHandler?)? = nil,
+         serviceHandler: ((S, ConsulServiceDiscovery.Instance) -> Void)? = nil,
          deadline: DispatchTime? = nil) async throws -> S
         where S.ID == EndpointIdentifier, S.ActorSystem == DistributedSystem {
         let clientFactory: ((DistributedSystem) -> Any)? = nil
@@ -594,14 +597,6 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         return serviceID
     }
 
-    func addService(_ serviceName: String,
-                    _ metadata: [String: String],
-                    _ factory: @escaping (DistributedSystem) throws -> any DistributedActor) -> ServiceIdentifier {
-        addService(serviceName, metadata) { actorSystem in
-            try (factory(actorSystem), nil)
-        }
-    }
-
     private func updateHealthStatus(with eventLoop: EventLoop) {
         let services = discoveryManager.getLocalServices()
         logger.trace("update health status for \(services.count) services")
@@ -616,78 +611,80 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
     }
 
-    private func sendPing(to endpoint: PingEndpoint, id: EndpointIdentifier, with eventLoop: EventLoop) {
-        Task {
-            do {
-                try await endpoint.ping()
+    private func sendPing(to channel: Channel, with eventLoop: EventLoop) {
+        let payloadSize = MemoryLayout<SessionMessage.RawValue>.size
+        var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt32>.size + payloadSize)
+        buffer.writeInteger(UInt32(payloadSize))
+        buffer.writeInteger(SessionMessage.ping.rawValue)
+        logger.debug("\(channel.remoteAddressDescription): send ping")
+        let promise: EventLoopPromise<Void> = eventLoop.makePromise()
+        promise.futureResult.whenSuccess {
+            eventLoop.scheduleTask(in: Self.pingInterval) {
+                self.sendPing(to: channel, with: eventLoop)
+            }
+        }
+        _ = channel.writeAndFlush(buffer, promise: promise)
 
-                self.lock.withLockVoid {
-                    guard let actorInfo = self.actors[id] else { return }
+        typealias Res = (
+            state: DistributedSystemConformance.ConnectionState,
+            actors: [(EndpointIdentifier, AsyncStream<InvocationEnvelope>.Continuation, ManagedAtomic<UInt64>)]
+        )
 
-                    var channel: Channel?
-                    switch actorInfo {
-                    case let .remoteClient(rcs), let .remoteService(rcs):
-                        channel = rcs.channel
-                    case let .serviceForRemoteClient(clientChannel, _, _):
-                        channel = clientChannel
-                    case let .clientForRemoteService(serviceChannel, _, _):
-                        channel = serviceChannel
-                    default:
-                        logger.error("Internal error: unexpected actor state \(actorInfo) for \(id)")
-                    }
-
-                    if let channel {
-                        let ptr = Self.ptr(for: channel)
-                        let channelInfo = self.channels[ptr]
-                        if var channelInfo {
-                            if channelInfo.bytesReceived == channelInfo.bytesReceivedCheckpoint {
-                                channelInfo.bytesReceivedTimeouts += 1
-                                if channelInfo.bytesReceivedTimeouts == 2 {
-                                    logger.warning("session \(channel.debugDescription) timeout")
-                                }
-                            } else {
-                                channelInfo.bytesReceivedCheckpoint = channelInfo.bytesReceived
-                                if channelInfo.bytesReceivedTimeouts > 1 {
-                                    logger.warning("session \(channel.debugDescription) recovered after \(channelInfo.bytesReceivedTimeouts * Self.pingInterval)")
-                                }
-                                channelInfo.bytesReceivedTimeouts = 0
-                            }
-                            self.channels[ptr] = channelInfo
-                        }
-                    }
+        let res: Res? = lock.withLock {
+            let ptr = Self.ptr(for: channel)
+            guard var channelInfo = self.channels[ptr] else { return nil }
+            var res: Res? = nil
+            if channelInfo.bytesReceived == channelInfo.bytesReceivedCheckpoint {
+                channelInfo.bytesReceivedTimeouts += 1
+                if channelInfo.bytesReceivedTimeouts == 2 {
+                    logger.warning("session \(channel.debugDescription) timeout")
+                    res = (.stale, actorsForChannel(channel))
                 }
-
-                eventLoop.scheduleTask(in: Self.pingInterval) {
-                    self.sendPing(to: endpoint, id: id, with: eventLoop)
+            } else {
+                channelInfo.bytesReceivedCheckpoint = channelInfo.bytesReceived
+                if channelInfo.bytesReceivedTimeouts > 1 {
+                    logger.warning("session \(channel.debugDescription) recovered after \(channelInfo.bytesReceivedTimeouts * Self.pingInterval)")
+                    res = (.active, actorsForChannel(channel))
                 }
-            } catch {
-                // seems connection to service lost
-                logger.debug("\(error)")
+                channelInfo.bytesReceivedTimeouts = 0
+            }
+            self.channels[ptr] = channelInfo
+            return res
+        }
+
+        if let res {
+            let arguments = Self.makeStateHandlerArguments(res.state)
+            for entry in res.actors {
+                let envelope = InvocationEnvelope(entry.0, 0, "", [], arguments)
+                dispatchInvocation(envelope, entry.1, channel, entry.2)
             }
         }
     }
 
-    func sendPing(to endpoint: PingEndpoint, id: EndpointIdentifier) {
-        let eventLoop = eventLoopGroup.next()
-        sendPing(to: endpoint, id: id, with: eventLoop)
+    private func actorsForChannel(_ channel: Channel) -> [(EndpointIdentifier, AsyncStream<InvocationEnvelope>.Continuation, ManagedAtomic<UInt64>)] {
+        var actors = [(EndpointIdentifier, AsyncStream<InvocationEnvelope>.Continuation, ManagedAtomic<UInt64>)]()
+        for (actorID, actorInfo) in self.actors {
+            switch actorInfo {
+            case let .clientForRemoteService(cfrs):
+                if cfrs.channel === channel {
+                    actors.append((actorID, cfrs.continuation, cfrs.queueState))
+                }
+            case let .serviceForRemoteClient(sfrc):
+                if sfrc.channel === channel {
+                    actors.append((actorID, sfrc.continuation, sfrc.queueState))
+                }
+            default:
+                break
+            }
+        }
+        return actors
     }
 
     /// Service lifecycle start
     public func start() throws {
-        logger.debug("starting system '\(systemName)'")
-
-        let eventLoop = eventLoopGroup.next()
-        connectToServices(
-            PingServiceEndpoint.self,
-            withFilter: { _ in true },
-            clientFactory: { actorSystem, service in
-                PingServiceClientEndpoint(actorSystem: actorSystem, ServiceIdentifier(service.serviceID))
-            },
-            serviceHandler: { serviceEndpoint, _ in
-                self.sendPing(to: serviceEndpoint, id: serviceEndpoint.id, with: eventLoop)
-                return nil
-            }
-        )
+        if type(of: self) == DistributedSystem.self {
+             logger.debug("starting system '\(systemName)'")
+        }
     }
 
     /// Service lifecycle stop
@@ -726,10 +723,10 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             var continuations: [AsyncStream<InvocationEnvelope>.Continuation] = []
             for (_, actorInfo) in self.actors {
                 switch actorInfo {
-                case let .clientForRemoteService(_, continuation, _):
-                    continuations.append(continuation)
-                case let .serviceForRemoteClient(_, continuation, _):
-                    continuations.append(continuation)
+                case let .clientForRemoteService(cfrs):
+                    continuations.append(cfrs.continuation)
+                case let .serviceForRemoteClient(sfrc):
+                    continuations.append(sfrc.continuation)
                 default:
                     break
                 }
@@ -782,9 +779,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             let serviceName = actorType.serviceName
             let serviceFactory = discoveryManager.factoryFor(serviceName, id.serviceID)
             if let serviceFactory {
-                // service registered in the same distributed system instance
-                // connection to the local service is never lost
-                let (actor, _ /* connectionLossHandler */ ) = try Self.$actorID.withValue(id) { try serviceFactory(self) }
+                let actor = try Self.$actorID.withValue(id) { try serviceFactory(self) }
                 guard let actor = actor as? Actor else {
                     fatalError("Factory \(serviceName)/\(id.serviceID) created not a \(Actor.self)")
                 }
@@ -829,7 +824,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                         let stream = AsyncStream(InvocationEnvelope.self, bufferingPolicy: .unbounded) { continuation = $0 }
                         guard let continuation else { fatalError("Internal error: continuation unexpectedly nil") }
                         let queueSize = ManagedAtomic<UInt64>(0)
-                        self.actors[actor.id] = .serviceForRemoteClient(remoteClient.channel, continuation, queueSize)
+                        let sfrc = ActorInfo.Inbound(remoteClient.channel, continuation, queueSize)
+                        self.actors[actor.id] = .serviceForRemoteClient(sfrc)
                         Task { await self.streamTask(stream, actor, remoteClient.channel, queueSize) }
                     default:
                         fatalError("Internal error: unexpected actor state \(actorInfo)")
@@ -979,6 +975,12 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         try await remoteCall(on: actor, target, &invocation, 0)
     }
 
+    private static func readSize<T: UnsignedInteger>(_ buffer: inout ByteBuffer, as: T.Type) throws -> T {
+        let (sizeSize, size) = try buffer.withUnsafeReadableBytes { ptr in try ULEB128.decode(ptr, as: T.self) }
+        buffer.moveReaderIndex(forwardBy: sizeSize)
+        return size
+    }
+
     func channelRead(_ channel: Channel, _ buffer: inout ByteBuffer) {
         let bytesReceived = buffer.readableBytes
         guard buffer.readInteger(as: UInt32.self) != nil, // skip message size
@@ -991,11 +993,9 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         do {
             switch SessionMessage(rawValue: messageType) {
             case .createServiceInstance:
-                guard let serviceNameLength = buffer.readInteger(as: UInt16.self),
-                      let serviceName = buffer.readString(length: Int(serviceNameLength)) else {
-                    logger.error("Invalid message from \(String(describing: channel.remoteAddress)), close connection.")
-                    _ = channel.close()
-                    return
+                let serviceNameLength = try Self.readSize(&buffer, as: UInt16.self)
+                guard let serviceName = buffer.readString(length: Int(serviceNameLength)) else {
+                    throw DecodeError.error("failed to decode service name")
                 }
                 let endpointID = try EndpointIdentifier(from: &buffer)
                 createService(serviceName, endpointID, for: channel)
@@ -1013,11 +1013,21 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             case .resumeEndpoint:
                 let endpointID = try EndpointIdentifier(from: &buffer)
                 resumeEndpoint(endpointID)
+            case .ping:
+                logger.debug("\(channel.remoteAddressDescription): ping, send pong")
+                let payloadSize = MemoryLayout<SessionMessage.RawValue>.size
+                var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt32>.size + payloadSize)
+                buffer.writeInteger(UInt32(payloadSize))
+                buffer.writeInteger(SessionMessage.pong.rawValue)
+                _ = channel.writeAndFlush(buffer, promise: nil)
+            case .pong:
+                logger.debug("\(channel.remoteAddressDescription): pong")
             case .none:
                 logger.error("\(channel.remoteAddressDescription): unexpected session message")
             }
         } catch {
-            logger.error("\(channel.remoteAddressDescription): \(error)")
+            logger.error("\(channel.remoteAddressDescription): \(error), close connection")
+            _ = channel.close()
         }
 
         let ptr = Self.ptr(for: channel)
@@ -1056,13 +1066,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         } else {
             logger.debug("\(channel.remoteAddressDescription): create service \(serviceName) \(endpointID)")
             do {
-                let (_, connectionLossHandler) = try Self.$actorID.withValue(endpointID) { try serviceFactory(self) }
-                if let connectionLossHandler {
-                    let ptr = Self.ptr(for: channel)
-                    lock.withLockVoid {
-                        self.channels[ptr, default: ChannelInfo()].connectionLossHandlers.append(connectionLossHandler)
-                    }
-                }
+                let _ = try Self.$actorID.withValue(endpointID) { try serviceFactory(self) }
             } catch {
                 lock.withLockVoid {
                     self.actors.removeValue(forKey: clientEndpointID)
@@ -1151,19 +1155,29 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     private func streamTask(_ stream: AsyncStream<InvocationEnvelope>, _ actor: any DistributedActor, _ channel: Channel, _ queueState: ManagedAtomic<UInt64>) async {
         let remoteAddressDescription = channel.remoteAddressDescription
         logger.debug("\(remoteAddressDescription): start stream task for \(actor.id)")
+
         let resultHandler = ResultHandler()
         for await envelope in stream {
             var decoder = RemoteCallDecoder(envelope: envelope)
             do {
-                try await executeDistributedTarget(on: actor,
-                                                   target: RemoteCallTarget(envelope.targetFunc),
-                                                   invocationDecoder: &decoder,
-                                                   handler: resultHandler)
-                if resultHandler.hasResult {
-                    try resultHandler.sendTo(channel, for: envelope.callID)
+                if envelope.targetFunc.isEmpty {
+                    let state: ConnectionState = try decoder.decodeNextArgument()
+                    if let connectionStateHandler = actor as? (any ConnectionStateHandler) {
+                        try await connectionStateHandler.handleConnectionState(state)
+                    } else {
+                        logger.error("unexpected actor type '\(type(of: actor))'")
+                    }
                 } else {
-                    if envelope.callID != 0 {
-                        logger.error("internal error: missing result")
+                    try await executeDistributedTarget(on: actor,
+                                                       target: RemoteCallTarget(envelope.targetFunc),
+                                                       invocationDecoder: &decoder,
+                                                       handler: resultHandler)
+                    if resultHandler.hasResult {
+                        try resultHandler.sendTo(channel, for: envelope.callID)
+                    } else {
+                        if envelope.callID != 0 {
+                            logger.error("internal error: missing result")
+                        }
                     }
                 }
             } catch {
@@ -1192,7 +1206,29 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 oldState = original
             }
         }
+
+        do {
+            if let connectionStateHandler = actor as? (any ConnectionStateHandler) {
+                try await connectionStateHandler.handleConnectionState(.closed)
+            } else {
+                logger.error("unexpected actor type '\(type(of: actor))'")
+            }
+        } catch {
+            logger.error("\(error)")
+        }
+
         logger.debug("\(remoteAddressDescription): streamTask for \(actor.id) done")
+    }
+
+    private static func makeStateHandlerArguments(_ state: DistributedSystemConformance.ConnectionState) -> ByteBuffer {
+        let stateSize = MemoryLayout<DistributedSystemConformance.ConnectionState.RawValue>.size
+        let bufferSize = ULEB128.size(UInt(stateSize)) + stateSize
+        var buffer = ByteBufferAllocator().buffer(capacity: bufferSize)
+        buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in
+            ULEB128.encode(UInt(stateSize), to: ptr.baseAddress!)
+        }
+        _ = state.rawValue.withUnsafeBytesSerialization { bytes in buffer.writeBytes(bytes) }
+        return buffer
     }
 
     private func invokeLocalCall(envelope: InvocationEnvelope, for channel: Channel) {
@@ -1209,13 +1245,14 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 let stream = AsyncStream(InvocationEnvelope.self, bufferingPolicy: .unbounded) { continuation = $0 }
                 guard let continuation else { fatalError("Internal error: continuation unexpectedly nil") }
                 let queueState = ManagedAtomic<UInt64>(0)
-                self.actors[targetID] = .clientForRemoteService(channel, continuation, queueState)
+                let inbound = ActorInfo.Inbound(channel, continuation, queueState)
+                self.actors[targetID] = .clientForRemoteService(inbound)
                 Task { await self.streamTask(stream, actor, channel, queueState) }
                 return (continuation, queueState)
-            case let .serviceForRemoteClient(_, continuation, queueState):
-                return (continuation, queueState)
-            case let .clientForRemoteService(_, continuation, queueState):
-                return (continuation, queueState)
+            case let .serviceForRemoteClient(inbound):
+                return (inbound.continuation, inbound.queueState)
+            case let .clientForRemoteService(inbound):
+                return (inbound.continuation, inbound.queueState)
             default:
                 logger.error("\(channel.remoteAddressDescription): invalid actor state \(actorInfo)")
                 return nil
@@ -1223,41 +1260,48 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
 
         if let res {
-            let sizeBits = Self.endpointQueueSizeBits
-            let sizeMask = ((UInt64(1) << sizeBits) - 1)
-            var oldState = res.queueState.load(ordering: .relaxed)
-            while true {
-                var newState = (oldState + envelope.size)
-                let oldSize = (oldState & sizeMask)
-                let newSize = (newState & sizeMask)
-                let warningSize = (Self.endpointQueueWarningSize << ((oldState >> sizeBits) & 0x7F))
-                var logWarning = false
-                if (oldSize < warningSize) && (newSize >= warningSize) {
-                    newState += (UInt64(1) << sizeBits)
-                    logWarning = true
-                }
-                var suspendEndpoint = false
-                if (oldSize < Self.endpointQueueHighWatermark) && (newSize >= Self.endpointQueueHighWatermark) && ((oldState & Self.endpointQueueSuspendIndicator) == 0) {
-                    newState |= Self.endpointQueueSuspendIndicator
-                    suspendEndpoint = true
-                }
-                let (exchanged, original) = res.queueState.compareExchange(expected: oldState, desired: newState, ordering: .relaxed)
-                if exchanged {
-                    if logWarning {
-                        // The warning threshold multiplied by 2 each time is breached,
-                        // so we will have warnings for 1, 2, 4, 8, etc megabytes
-                        logger.debug("Input queue size for \(envelope.targetID) reached \(newSize) bytes")
-                    }
-                    if suspendEndpoint {
-                        sendSuspendEndpoint(targetID, to: channel)
-                    }
-                    break
-                }
-                oldState = original
-            }
-
-            res.continuation.yield(envelope)
+            dispatchInvocation(envelope, res.continuation, channel, res.queueState)
         }
+    }
+
+    private func dispatchInvocation(_ envelope: InvocationEnvelope,
+                                    _ continuation: AsyncStream<InvocationEnvelope>.Continuation,
+                                    _ channel: Channel,
+                                    _ queueState: ManagedAtomic<UInt64>) {
+        let sizeBits = Self.endpointQueueSizeBits
+        let sizeMask = ((UInt64(1) << sizeBits) - 1)
+        var oldState = queueState.load(ordering: .relaxed)
+        while true {
+            var newState = (oldState + envelope.size)
+            let oldSize = (oldState & sizeMask)
+            let newSize = (newState & sizeMask)
+            let warningSize = (Self.endpointQueueWarningSize << ((oldState >> sizeBits) & 0x7F))
+            var logWarning = false
+            if (oldSize < warningSize) && (newSize >= warningSize) {
+                newState += (UInt64(1) << sizeBits)
+                logWarning = true
+            }
+            var suspendEndpoint = false
+            if (oldSize < Self.endpointQueueHighWatermark) && (newSize >= Self.endpointQueueHighWatermark) && ((oldState & Self.endpointQueueSuspendIndicator) == 0) {
+                newState |= Self.endpointQueueSuspendIndicator
+                suspendEndpoint = true
+            }
+            let (exchanged, original) = queueState.compareExchange(expected: oldState, desired: newState, ordering: .relaxed)
+            if exchanged {
+                if logWarning {
+                    // The warning threshold multiplied by 2 each time is breached,
+                    // so we will have warnings for 1, 2, 4, 8, etc megabytes
+                    logger.debug("Input queue size for \(envelope.targetID) reached \(newSize) bytes")
+                }
+                if suspendEndpoint {
+                    sendSuspendEndpoint(envelope.targetID, to: channel)
+                }
+                break
+            }
+            oldState = original
+        }
+
+        continuation.yield(envelope)
     }
 
     func closeConnectionFor(_ endpointID: EndpointIdentifier) throws {

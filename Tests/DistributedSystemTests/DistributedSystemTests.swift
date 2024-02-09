@@ -3,7 +3,7 @@ import ConsulServiceDiscovery
 import Distributed
 @testable import DistributedSystem
 @testable import DistributedSystemConformance
-import Frostflake
+import FrostflakeKit
 import Logging
 import NIOCore
 @testable import TestMessages
@@ -20,6 +20,10 @@ struct Client: TestableClient {
 
     func handleMonster(_ monster: TestMessages.Monster, for stream: TestMessages.Stream) {
         logger.info("CLIENT: got monster \(monster.identifier) from stream #\(stream.streamIdentifier)")
+    }
+
+    func handleConnectionState(_ state: ConnectionState) async {
+        logger.info("CLIENT: connection state: \(state)")
     }
 }
 
@@ -59,6 +63,10 @@ class Service: TestableService {
 
     func handleMonsters(_ monsters: [Monster]) async {
         logger.info("SERVICE: got \(monsters.count) monsters")
+    }
+
+    func handleConnectionState(_ state: ConnectionState) async {
+        logger.info("SERVICE: connection state: \(state)")
     }
 }
 
@@ -109,6 +117,12 @@ final class DistributedSystemTests: XCTestCase {
         func handleMonsters(_ monsters: [Monster]) async {
             fatalError("Should never be called")
         }
+
+        func handleConnectionState(_ state: ConnectionState) async {
+            if case .closed = state {
+                flags.serviceConnectionClosed = true
+            }
+        }
     }
 
     class ClientWithLeakCheckImpl: TestableClient {
@@ -139,6 +153,12 @@ final class DistributedSystemTests: XCTestCase {
         func handleMonster(_ monster: TestMessages.Monster, for _: TestMessages.Stream) {
             fatalError("Should never be called")
         }
+
+        func handleConnectionState(_ state: ConnectionState) async {
+            if case .closed = state {
+                flags.clientConnectionClosed = true
+            }
+        }
     }
 
     func testLocalService() async throws {
@@ -167,12 +187,6 @@ final class DistributedSystemTests: XCTestCase {
                 withFilter: { _ in true },
                 clientFactory: { actorSystem in
                     TestClientEndpoint(client!, in: actorSystem)
-                },
-                serviceHandler: { _, _ in
-                    let connectionLossHandler: DistributedSystem.ConnectionLossHandler = {
-                        fatalError("Internal error: should never happen")
-                    }
-                    return connectionLossHandler
                 }
             )
 
@@ -209,10 +223,7 @@ final class DistributedSystemTests: XCTestCase {
                 let serviceEndpoint = try TestServiceEndpoint(service, in: actorSystem)
                 let clientEndpointID = serviceEndpoint.id.makeClientEndpoint()
                 service.clientEndpoint = try TestClientEndpoint.resolve(id: clientEndpointID, using: actorSystem)
-                let connectionLossHandler: DistributedSystem.ConnectionLossHandler = {
-                    flags.serviceConnectionClosed = true
-                }
-                return (serviceEndpoint, connectionLossHandler)
+                return serviceEndpoint
             }
 
             let clientSystem = DistributedSystem(name: systemName)
@@ -225,12 +236,6 @@ final class DistributedSystemTests: XCTestCase {
                 withFilter: { _ in true },
                 clientFactory: { actorSystem in
                     TestClientEndpoint(client!, in: actorSystem)
-                },
-                serviceHandler: { _, _ in
-                    let connectionLossHandler = {
-                        flags.clientConnectionClosed = true
-                    }
-                    return connectionLossHandler
                 }
             )
 
@@ -356,6 +361,10 @@ final class DistributedSystemTests: XCTestCase {
             func handleMonsters(_ monsters: [Monster]) async {
                 fatalError("should never be called")
             }
+
+            func handleConnectionState(_ state: ConnectionState) async {
+                logger.info("SERVICE: connection state: \(state)")
+            }
         }
 
         let processInfo = ProcessInfo.processInfo
@@ -387,7 +396,6 @@ final class DistributedSystemTests: XCTestCase {
                         try await serviceEndpoint.openStream(byRequest: OpenRequest(openRequest))
                     }
                 }
-                return nil
             }
         )
 
@@ -405,7 +413,6 @@ final class DistributedSystemTests: XCTestCase {
                         try await serviceEndpoint.openStream(byRequest: OpenRequest(openRequest))
                     }
                 }
-                return nil
             }
         )
 
@@ -451,6 +458,10 @@ final class DistributedSystemTests: XCTestCase {
             func handleMonsters(_ monsters: [Monster]) async {
                 fatalError("should never be called")
             }
+
+            func handleConnectionState(_ state: ConnectionState) async {
+                logger.info("SERVICE: connection state: \(state)")
+            }
         }
 
         class ClientImpl: TestableClient {
@@ -488,6 +499,10 @@ final class DistributedSystemTests: XCTestCase {
             func handleMonster(_ monster: TestMessages.Monster, for stream: TestMessages.Stream) {
                 logger.info("CLIENT: got monster \(monster.identifier) from stream #\(stream.streamIdentifier)")
                 monsters += 1
+            }
+
+            func handleConnectionState(_ state: ConnectionState) async {
+                logger.info("CLIENT: connection state: \(state)")
             }
         }
 
@@ -579,6 +594,10 @@ final class DistributedSystemTests: XCTestCase {
                 try actorSystem.closeConnectionFor(id.makeClientEndpoint())
                 return Monster(monster)
             }
+
+            public distributed func handleConnectionState(_ state: ConnectionState) async throws {
+                // do nothing
+            }
         }
 
         let processInfo = ProcessInfo.processInfo
@@ -668,7 +687,6 @@ final class DistributedSystemTests: XCTestCase {
             },
             serviceHandler: { _, _ in
                 continuation.yield()
-                return nil
             }
         )
 
@@ -711,12 +729,6 @@ final class DistributedSystemTests: XCTestCase {
             clientFactory: { _ in
                 let cc = connects.wrappingIncrementThenLoad(ordering: .releasing)
                 XCTAssertEqual(cc, 1)
-            },
-            serviceHandler: { _, _ in
-                let connectionLossHandler = { () -> Void in
-                    Task { try await createAndStartServerSystem() }
-                }
-                return connectionLossHandler
             }
         )
 
@@ -739,7 +751,6 @@ final class DistributedSystemTests: XCTestCase {
                 },
                 serviceHandler: { _, _ in
                     XCTFail("Should not be called")
-                    return nil
                 },
                 deadline: DispatchTime.now() + 2.0
             )
@@ -761,8 +772,7 @@ final class DistributedSystemTests: XCTestCase {
         try await serverSystem.start()
         try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
             XCTFail("should not be called")
-            let serviceEndpoint = try TestServiceEndpoint(Service(), in: actorSystem)
-            return (serviceEndpoint, nil)
+            return try TestServiceEndpoint(Service(), in: actorSystem)
         }
 
         let clientSystem = DistributedSystem(name: systemName)
@@ -797,10 +807,7 @@ final class DistributedSystemTests: XCTestCase {
         let task = Task {
             let _ = try await clientSystem.connectToService(
                 TestServiceEndpoint.self,
-                withFilter: { _ in true },
-                serviceHandler: { _, _ in
-                    return nil
-                }
+                withFilter: { _ in true }
             )
         }
         task.cancel()
@@ -812,7 +819,7 @@ final class DistributedSystemTests: XCTestCase {
     func testResolveClientAfterConnectionLoss() async throws {
         distributed actor TestServiceEndpoint: ServiceEndpoint {
             typealias ActorSystem = DistributedSystem
-            typealias SerializationRequirement = DistributedSystemConformance.Transferable
+            typealias SerializationRequirement = Transferable
 
             static var serviceName: String { "test_service" }
             let clientSystem: DistributedSystem
@@ -835,6 +842,10 @@ final class DistributedSystemTests: XCTestCase {
                     throw error
                 }
             }
+
+            distributed func handleConnectionState(_ state: ConnectionState) async throws {
+                // do nothing
+            }
         }
 
         let processInfo = ProcessInfo.processInfo
@@ -850,8 +861,7 @@ final class DistributedSystemTests: XCTestCase {
         let serverSystem = DistributedSystemServer(name: systemName)
         try await serverSystem.start()
         try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
-            let serviceEndpoint = TestServiceEndpoint(actorSystem, clientSystem, continuation)
-            return (serviceEndpoint, nil)
+            TestServiceEndpoint(actorSystem, clientSystem, continuation)
         }
 
         try clientSystem.start()

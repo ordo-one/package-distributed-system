@@ -1,6 +1,6 @@
 import Benchmark
 import PackageConcurrencyHelpers
-import DistributedSystem
+import DistributedSystemConformance
 import LatencyStatistics
 import LatencyTimer
 import Logging
@@ -117,6 +117,10 @@ public class Client: TestableClient {
             blackHole(idx)
         }
     }
+
+    public func handleConnectionState(_ state: ConnectionState) async {
+        logger.debug("CLIENT: connectoin state: \(state)")
+    }
 }
 
 public class Service: TestableService {
@@ -181,6 +185,10 @@ public class Service: TestableService {
 
     public func handleMonsters(_ monsters: [String: Monster]) async {
         fatalError("Should not be called")
+    }
+
+    public func handleConnectionState(_ state: ConnectionState) async {
+        logger.debug("SERVER: connectoin state: \(state)")
     }
 }
 

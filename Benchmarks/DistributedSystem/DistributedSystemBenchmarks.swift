@@ -4,7 +4,7 @@ import Distributed
 import DistributedSystem
 import DistributedSystemConformance
 import class Foundation.ProcessInfo
-import Frostflake
+import FrostflakeKit
 import LatencyTimer
 import Logging
 import TestMessages

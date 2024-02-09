@@ -7,10 +7,8 @@
 // http://www.apache.org/licenses/LICENSE-2.0
 
 import ConsulServiceDiscovery
-import Distributed
 import DistributedSystemConformance
 import class Foundation.ProcessInfo
-import Frostflake
 import Logging
 internal import NIOCore
 internal import NIOPosix
@@ -49,18 +47,6 @@ public class DistributedSystemServer: DistributedSystem {
 
         loggerBox.value[metadataKey: "port"] = Logger.MetadataValue(stringLiteral: "\(portNumber)")
         logger.debug("starting server '\(systemName)' @ \(portNumber)")
-
-        // Ping service
-        let metadata = [
-            ServiceMetadata.systemName.rawValue: systemName,
-            ServiceMetadata.processIdentifier.rawValue: String(ProcessInfo.processInfo.processIdentifier)
-        ]
-
-        let serviceID = super.addService(PingServiceEndpoint.serviceName, metadata) { actorSystem in
-            try PingServiceEndpoint(actorSystem: actorSystem)
-        }
-
-        try await registerService(PingServiceEndpoint.serviceName, serviceID, metadata: metadata)
     }
 
     private func registerService(_ serviceName: String, _ serviceID: ServiceIdentifier, metadata: [String: String]) async throws {
@@ -90,25 +76,8 @@ public class DistributedSystemServer: DistributedSystem {
     public func addService(ofType type: any ServiceEndpoint.Type,
                            toModule moduleID: ModuleIdentifier,
                            metadata: [String: String]? = nil,
-                           _ factory: @escaping (DistributedSystem) throws -> any DistributedActor) async throws {
-        try await addService(name: type.serviceName, toModule: moduleID, metadata: metadata) { actorSystem in
-            try (factory(actorSystem), nil)
-        }
-    }
-
-    public func addService(ofType type: any ServiceEndpoint.Type,
-                           toModule moduleID: ModuleIdentifier,
-                           metadata: [String: String]? = nil,
                            _ factory: @escaping ServiceFactory) async throws {
         try await addService(name: type.serviceName, toModule: moduleID, metadata: metadata, factory)
-    }
-
-    public func addService(name: String,
-                           toModule moduleID: ModuleIdentifier,
-                           _ factory: @escaping (DistributedSystem) throws -> any DistributedActor) async throws {
-        try await addService(name: name, toModule: moduleID, metadata: nil) { actorSystem in
-            try (factory(actorSystem), nil)
-        }
     }
 
     public func addService(name: String,
