@@ -616,7 +616,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt32>.size + payloadSize)
         buffer.writeInteger(UInt32(payloadSize))
         buffer.writeInteger(SessionMessage.ping.rawValue)
-        logger.debug("\(channel.remoteAddressDescription): send ping")
+        logger.trace("\(channel.remoteAddressDescription): send ping")
         let promise: EventLoopPromise<Void> = eventLoop.makePromise()
         promise.futureResult.whenSuccess {
             eventLoop.scheduleTask(in: Self.pingInterval) {
@@ -1014,14 +1014,14 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 let endpointID = try EndpointIdentifier(from: &buffer)
                 resumeEndpoint(endpointID)
             case .ping:
-                logger.debug("\(channel.remoteAddressDescription): ping, send pong")
+                logger.trace("\(channel.remoteAddressDescription): ping, send pong")
                 let payloadSize = MemoryLayout<SessionMessage.RawValue>.size
                 var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt32>.size + payloadSize)
                 buffer.writeInteger(UInt32(payloadSize))
                 buffer.writeInteger(SessionMessage.pong.rawValue)
                 _ = channel.writeAndFlush(buffer, promise: nil)
             case .pong:
-                logger.debug("\(channel.remoteAddressDescription): pong")
+                logger.trace("\(channel.remoteAddressDescription): pong")
             case .none:
                 logger.error("\(channel.remoteAddressDescription): unexpected session message")
             }
