@@ -15,13 +15,8 @@ import PackageConcurrencyHelpers
 
 final class DiscoveryManager {
     private final class ProcessInfo {
-        let generation: Int
         var channel: Channel?
         var services = Set<String>()
-
-        init(_ generation: Int) {
-            self.generation = generation
-        }
     }
 
     private enum ServiceAddress: Equatable {
@@ -80,7 +75,6 @@ final class DiscoveryManager {
     private var logger: Logger { loggerBox.value }
 
     private var lock = Lock()
-    private var generation: Int = 0
     private var processes: [SocketAddress: ProcessInfo] = [:]
     private var discoveries: [String: DiscoveryInfo] = [:]
 
@@ -103,7 +97,7 @@ final class DiscoveryManager {
             }
             var discover: Bool
             var addresses: [SocketAddress] = []
-            var services = [(ServiceIdentifier, ConsulServiceDiscovery.Instance, (address: SocketAddress, generation: Int, channel: Channel)?)]()
+            var services = [(ServiceIdentifier, ConsulServiceDiscovery.Instance, (address: SocketAddress, channel: Channel)?)]()
 
             if cancellationToken.cancelled {
                 return (true, false, addresses, services)
@@ -122,11 +116,10 @@ final class DiscoveryManager {
                             if let processInfo = self.processes[address] {
                                 if let channel = processInfo.channel {
                                     processInfo.services.insert(serviceName)
-                                    services.append((serviceID, serviceInfo.service, (address, processInfo.generation, channel)))
+                                    services.append((serviceID, serviceInfo.service, (address, channel)))
                                 }
                             } else {
-                                generation += 1
-                                self.processes[address] = ProcessInfo(generation)
+                                self.processes[address] = ProcessInfo()
                                 addresses.append(address)
                             }
                         }
@@ -202,7 +195,7 @@ final class DiscoveryManager {
                     _ service: NodeService,
                     _ factory: @escaping DistributedSystem.ServiceFactory) -> Bool {
         let (updateHealthStatus, services) = lock.withLock {
-            let updateHealthStatus = (self.discoveries.count == 1)
+            let updateHealthStatus = self.discoveries.isEmpty
 
             var discoveryInfo = self.discoveries[serviceName]
             if discoveryInfo == nil {
@@ -240,7 +233,7 @@ final class DiscoveryManager {
     }
 
     func setAddress(_ address: SocketAddress, for serviceName: String, _ serviceID: ServiceIdentifier, _ service: NodeService) -> Bool {
-        let (connect, process) = lock.withLock { () -> (Bool, (channel: Channel, generation: Int, connectionHandlers: [DistributedSystem.ConnectionHandler])?) in
+        let (connect, process) = lock.withLock { () -> (Bool, (channel: Channel, connectionHandlers: [DistributedSystem.ConnectionHandler])?) in
             guard let discoveryInfo = self.discoveries[serviceName] else {
                 fatalError("Internal error: service \(serviceName) not discovered")
             }
@@ -262,13 +255,12 @@ final class DiscoveryManager {
                                 connectionHandlers.append(filterInfo.connectionHandler)
                             }
                         }
-                        return (false, (channel, processInfo.generation, connectionHandlers))
+                        return (false, (channel, connectionHandlers))
                     } else {
                         return (false, nil)
                     }
                 } else {
-                    generation += 1
-                    let processInfo = ProcessInfo(generation)
+                    let processInfo = ProcessInfo()
                     processInfo.services.insert(serviceName)
                     self.processes[address] = processInfo
                     return (true, nil)
