@@ -10,6 +10,7 @@ let externalDependencies: [String: Range<Version>] = [
     "https://github.com/apple/swift-nio": .upToNextMajor(from: "2.42.0"),
     "https://github.com/apple/swift-log": .upToNextMajor(from: "1.4.4"),
     "https://github.com/ordo-one/swift-service-lifecycle_1.0": .upToNextMajor(from: "1.0.0-alpha.13"), // to remove in future
+    "https://github.com/apple/swift-service-discovery.git" : .upToNextMajor(from: "1.0.0"),
 ]
 
 let internalDependencies: [String: Range<Version>] = [
@@ -75,6 +76,8 @@ let package = Package(
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
+                .product(name: "ServiceDiscovery", package: "swift-service-discovery"),
+                .product(name: "Helpers", package: "package-concurrency-helpers"),
             ],
             swiftSettings:[
                 .enableExperimentalFeature("AccessLevelOnImport")
