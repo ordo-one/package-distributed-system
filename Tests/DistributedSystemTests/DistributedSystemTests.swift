@@ -3,11 +3,12 @@ import ConsulServiceDiscovery
 import Distributed
 @testable import DistributedSystem
 @testable import DistributedSystemConformance
-import FrostflakeKit
 import Logging
 import NIOCore
 @testable import TestMessages
 import XCTest
+
+var logger = Logger(label: "ds-test")
 
 struct Client: TestableClient {
     func snapshotDone(for stream: TestMessages.Stream) async {
@@ -71,11 +72,6 @@ class Service: TestableService {
 }
 
 final class DistributedSystemTests: XCTestCase {
-    override func setUp() {
-        super.setUp()
-        FrostflakeInitializer.initialize()
-    }
-
     class Flags {
         var serviceDeallocated = false
         var serviceConnectionClosed = false
@@ -169,7 +165,7 @@ final class DistributedSystemTests: XCTestCase {
             let processInfo = ProcessInfo.processInfo
             let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
 
-            let moduleID = DistributedSystem.ModuleIdentifier(FrostflakeIdentifier(processInfo.processIdentifier))
+            let moduleID = DistributedSystem.ModuleIdentifier(UInt64(processInfo.processIdentifier))
             let actorSystem = DistributedSystemServer(name: systemName)
             try await actorSystem.start()
             try await actorSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
@@ -255,52 +251,6 @@ final class DistributedSystemTests: XCTestCase {
         XCTAssertTrue(flags.clientConnectionClosed)
     }
 
-    func testClientDuplicate() async throws {
-        let processInfo = ProcessInfo.processInfo
-        let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
-
-        let moduleID = DistributedSystem.ModuleIdentifier(FrostflakeIdentifier(processInfo.processIdentifier))
-        let serverSystem = DistributedSystemServer(name: systemName)
-        try await serverSystem.start()
-        try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
-            try TestServiceEndpoint(Service(), in: actorSystem)
-        }
-
-        var continuation: AsyncStream<Void>.Continuation?
-        let stream = AsyncStream<Void>() { continuation = $0 }
-        guard let continuation else { fatalError("Internal error: continuation unexpectedly nil") }
-
-        let clientSystem1 = DistributedSystem(name: systemName)
-        try clientSystem1.start()
-
-        let distributedService1 = try await clientSystem1.connectToService(
-            TestServiceEndpoint.self,
-            withFilter: { _ in true },
-            clientFactory: { actorSystem in TestClientEndpoint(Client(), in: actorSystem) }
-        )
-
-        let clientSystem2 = DistributedSystem(name: systemName)
-        clientSystem2.duplicatedEndpointIdentifierHook = { endpointID in
-            print("Duplicate endpoint identifier \(endpointID)")
-            continuation.finish()
-        }
-
-        clientSystem2.duplicatedEndpointIdentifier = distributedService1.id
-        try clientSystem2.start()
-
-        _ = try await clientSystem2.connectToService(
-            TestServiceEndpoint.self,
-            withFilter: { _ in true },
-            clientFactory: { actorSystem in TestClientEndpoint(Client(), in: actorSystem) }
-        )
-
-        _ = await stream.first(where: { true })
-
-        clientSystem2.stop()
-        clientSystem1.stop()
-        serverSystem.stop()
-    }
-
     /*
     func testWaitRemoteServiceDiscoveryTimeout() async throws {
         let client = Client()
@@ -372,7 +322,7 @@ final class DistributedSystemTests: XCTestCase {
         let count = 5_000
 
         let service = ServiceImpl(count * 2)
-        let moduleID = DistributedSystem.ModuleIdentifier(FrostflakeIdentifier(processInfo.processIdentifier))
+        let moduleID = DistributedSystem.ModuleIdentifier(UInt64(processInfo.processIdentifier))
         let serverSystem = DistributedSystemServer(name: systemName)
         try await serverSystem.start()
         try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
@@ -436,8 +386,8 @@ final class DistributedSystemTests: XCTestCase {
                     guard let clientEndpoint else { fatalError("Internal error: clientEndpoint unexpectedly nil") }
                     try await clientEndpoint.streamOpened(StreamOpened(_StreamOpenedStruct(requestIdentifier: request.id)))
                     let stream = Stream(_StreamStruct(streamIdentifier: request.id))
-                    for _ in 1...count {
-                        let monster = _MonsterStruct(identifier: Frostflake.generate())
+                    for idx in 1...count {
+                        let monster = _MonsterStruct(identifier: UInt64(idx))
                         logger.info("SERVER: send monster with id \(monster.id) to \(stream.id)")
                         try await clientEndpoint.handleMonster(Monster(monster), for: stream)
                     }
@@ -511,7 +461,7 @@ final class DistributedSystemTests: XCTestCase {
         let processInfo = ProcessInfo.processInfo
         let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)"
 
-        let moduleID = DistributedSystem.ModuleIdentifier(FrostflakeIdentifier(processInfo.processIdentifier))
+        let moduleID = DistributedSystem.ModuleIdentifier(UInt64(processInfo.processIdentifier))
         let serverSystem = DistributedSystemServer(name: systemName)
         try await serverSystem.start()
         try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
@@ -554,7 +504,7 @@ final class DistributedSystemTests: XCTestCase {
         let processInfo = ProcessInfo.processInfo
         let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
 
-        let moduleID = DistributedSystem.ModuleIdentifier(FrostflakeIdentifier(processInfo.processIdentifier))
+        let moduleID = DistributedSystem.ModuleIdentifier(UInt64(processInfo.processIdentifier))
         let serverSystem = DistributedSystemServer(name: systemName)
         try await serverSystem.start()
         try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
@@ -603,7 +553,7 @@ final class DistributedSystemTests: XCTestCase {
         let processInfo = ProcessInfo.processInfo
         let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
 
-        let moduleID = DistributedSystem.ModuleIdentifier(FrostflakeIdentifier(processInfo.processIdentifier))
+        let moduleID = DistributedSystem.ModuleIdentifier(UInt64(processInfo.processIdentifier))
         let serverSystem = DistributedSystemServer(name: systemName)
         try await serverSystem.start()
         try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
@@ -643,7 +593,7 @@ final class DistributedSystemTests: XCTestCase {
         let distributedSystem = DistributedSystemServer(name: systemName)
         try await distributedSystem.start()
 
-        let moduleID = DistributedSystem.ModuleIdentifier(FrostflakeIdentifier(processInfo.processIdentifier))
+        let moduleID = DistributedSystem.ModuleIdentifier(UInt64(processInfo.processIdentifier))
         try await distributedSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
             let service = Service()
             let serviceEndpoint = try TestServiceEndpoint(service, in: actorSystem)
@@ -835,6 +785,10 @@ final class DistributedSystemTests: XCTestCase {
                 clientSystem.stop()
                 let clientEndpointID = id.makeClientEndpoint()
                 do {
+                    // client system is stopped now,
+                    // but server system at that point of time may not receive socket
+                    // close notification yet, so resolve<> call will not throw error,
+                    // but in that case handleConnectionState() should be called.
                     _ = try TestClientEndpoint.resolve(id: clientEndpointID, using: actorSystem)
                 } catch DistributedSystemErrors.unknownActor {
                     continuation.yield()
@@ -844,7 +798,7 @@ final class DistributedSystemTests: XCTestCase {
             }
 
             distributed func handleConnectionState(_ state: ConnectionState) async throws {
-                // do nothing
+                continuation.yield()
             }
         }
 

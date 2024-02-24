@@ -43,11 +43,6 @@ private distributed actor TestClientEndpoint<T>: ClientEndpoint where T: Transfe
 }
 
 final class GenericDistributedActorTests: XCTestCase {
-    override func setUp() {
-        super.setUp()
-        FrostflakeInitializer.initialize()
-    }
-
     func test1() async throws {
         // DistributedSystem.logger.logLevel = .debug
 

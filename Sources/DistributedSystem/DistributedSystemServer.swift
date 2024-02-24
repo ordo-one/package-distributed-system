@@ -8,7 +8,8 @@
 
 import ConsulServiceDiscovery
 import DistributedSystemConformance
-import class Foundation.ProcessInfo
+internal import class Foundation.ProcessInfo
+internal import struct Foundation.UUID
 import Logging
 internal import NIOCore
 internal import NIOPosix
@@ -29,7 +30,7 @@ public class DistributedSystemServer: DistributedSystem {
             .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .childChannelInitializer { channel in
                 channel.pipeline.addHandler(ByteToMessageHandler(StreamDecoder(self.loggerBox))).flatMap { _ in
-                    channel.pipeline.addHandler(ChannelHandler(self, nil))
+                    channel.pipeline.addHandler(ChannelHandler(self.nextChannelID, self, nil))
                 }
             }
             .bind(host: address.host, port: address.port)
@@ -49,7 +50,7 @@ public class DistributedSystemServer: DistributedSystem {
         logger.debug("starting server '\(systemName)' @ \(portNumber)")
     }
 
-    private func registerService(_ serviceName: String, _ serviceID: ServiceIdentifier, metadata: [String: String]) async throws {
+    private func registerService(_ serviceName: String, _ serviceID: UUID, metadata: [String: String]) async throws {
         // Use TTL type service health check
         // One could think we could use TCP,
         // but it is not a good idea when register services with dynamically allocated ports.

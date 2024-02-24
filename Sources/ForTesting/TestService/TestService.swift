@@ -4,7 +4,6 @@ import Distributed
 import DistributedSystem
 import DistributedSystemConformance
 import class Foundation.ProcessInfo
-import FrostflakeKit
 import Lifecycle
 import Logging
 import TestMessages
@@ -97,8 +96,6 @@ public class TestService: TestableService, @unchecked Sendable {
     public func stop() async {}
 
     public func run() async {
-        Frostflake.setup(sharedGenerator: .init(generatorIdentifier: 1))
-
         let signal = [ServiceLifecycle.Signal.INT]
         let lifecycle = ServiceLifecycle(configuration: .init(callbackQueue: .main,
                                                               shutdownSignal: signal, installBacktrace: true))
