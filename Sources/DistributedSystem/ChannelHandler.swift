@@ -27,28 +27,31 @@ class ChannelHandler: ChannelInboundHandler {
     typealias OutboundOut = ByteBuffer
 
     private var logger: Logger { actorSystem.logger }
+
+    private let id: UInt32
     private let actorSystem: DistributedSystem
     private let address: SocketAddress?
 
-    init(_ actorSystem: DistributedSystem, _ address: SocketAddress?) {
+    init(_ id: UInt32, _ actorSystem: DistributedSystem, _ address: SocketAddress?) {
+        self.id = id
         self.actorSystem = actorSystem
         self.address = address
     }
 
     func channelActive(context: ChannelHandlerContext) {
-        logger.debug("\(context.remoteAddressDescription): channel active")
-        actorSystem.setChannel(context.channel, forProcessAt: address)
+        logger.debug("\(context.remoteAddressDescription)/\(id): channel active")
+        actorSystem.setChannel(id, context.channel, forProcessAt: address)
     }
 
     func channelInactive(context: ChannelHandlerContext) {
-        logger.debug("\(context.remoteAddressDescription): channel inactive")
+        logger.debug("\(context.remoteAddressDescription)/\(id): channel inactive")
         actorSystem.channelInactive(context.channel)
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         var buffer = unwrapInboundIn(data)
-        logger.trace("\(context.remoteAddressDescription): received \(buffer.readableBytes) bytes")
-        actorSystem.channelRead(context.channel, &buffer)
+        logger.trace("\(context.remoteAddressDescription)/\(id): received \(buffer.readableBytes) bytes")
+        actorSystem.channelRead(id, context.channel, &buffer)
     }
 
     // Flush it out. This can make use of gathering writes if multiple buffers are pending

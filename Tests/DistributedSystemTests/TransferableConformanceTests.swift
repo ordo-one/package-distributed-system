@@ -1,7 +1,6 @@
 import Distributed
 @testable import DistributedSystem
 @testable import DistributedSystemConformance
-import FrostflakeKit
 @testable import TestMessages
 import XCTest
 
@@ -95,11 +94,6 @@ fileprivate distributed actor TestServiceEndpoint: ServiceEndpoint {
 }
 
 final class TransferableConformanceTests: XCTestCase {
-    override func setUp() {
-        super.setUp()
-        FrostflakeInitializer.initialize()
-    }
-
     func testArraySerialization() async throws {
         let processInfo = ProcessInfo.processInfo
         let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
