@@ -4,7 +4,6 @@ import Distributed
 import DistributedSystem
 import DistributedSystemConformance
 import class Foundation.ProcessInfo
-import FrostflakeKit
 import LatencyTimer
 import Logging
 import TestMessages
@@ -126,12 +125,6 @@ let benchmarks = {
         sharedData = nil
     }
 
-    Frostflake.setup(sharedGenerator: Frostflake(generatorIdentifier: 1_000))
-
-    func getFrostflake(_ forIteration: Int = 0) -> Frostflake {
-        Frostflake(generatorIdentifier: UInt16(forIteration % (Int(1 << Frostflake.generatorIdentifierBits) - 1)))
-    }
-
     Benchmark("Send Monster  #1 - facade: class, local calls",
               configuration: Benchmark.Configuration(scalingFactor: .kilo)) { benchmark in
         guard let sharedData else {
@@ -141,21 +134,20 @@ let benchmarks = {
         let serverClass = ServiceClass(sharedData.service)
         let clientClass = ClientClass(sharedData.localClient)
 
-        let frostflake = getFrostflake(benchmark.currentIteration)
-
         do {
             let openRequest = _OpenRequestStruct(requestIdentifier: 1)
 
             try await serverClass.openStream(byRequest: OpenRequest(openRequest))
-
             try await clientClass.streamOpened(StreamOpened(_StreamOpenedStruct(requestIdentifier: openRequest.id)))
 
             let stream = Stream(_StreamStruct(streamIdentifier: openRequest.id))
+            var monsterID: UInt64 = 1
 
             benchmark.startMeasurement()
             for _ in benchmark.scaledIterations {
-                let monster = _MonsterStruct(identifier: frostflake.generate())
+                let monster = _MonsterStruct(identifier: monsterID)
                 try await clientClass.handleMonster(Monster(monster), for: stream)
+                monsterID += 1
             }
 
             try await clientClass.snapshotDone(for: stream)
@@ -175,8 +167,6 @@ let benchmarks = {
         let serverActor = ServiceActor(sharedData.service)
         let clientActor = ClientActor(sharedData.localClient)
 
-        let frostflake = getFrostflake(benchmark.currentIteration)
-
         do {
             let openRequest = _OpenRequestStruct(requestIdentifier: 1)
 
@@ -185,11 +175,13 @@ let benchmarks = {
             try await clientActor.streamOpened(StreamOpened(_StreamOpenedStruct(requestIdentifier: openRequest.id)))
 
             let stream = Stream(_StreamStruct(streamIdentifier: openRequest.id))
+            var monsterID: UInt64 = 1
 
             benchmark.startMeasurement()
             for _ in benchmark.scaledIterations {
-                let monster = _MonsterStruct(identifier: frostflake.generate())
+                let monster = _MonsterStruct(identifier: monsterID)
                 try await clientActor.handleMonster(Monster(monster), for: stream)
+                monsterID += 1
             }
 
             try await clientActor.snapshotDone(for: stream)
@@ -209,8 +201,6 @@ let benchmarks = {
         let (client, endpoints) = try await sharedData.getClientAndEndpoints(remote: false)
         var service = sharedData.service
 
-        let frostflake = getFrostflake(benchmark.currentIteration)
-
         do {
             let openRequest = _OpenRequestStruct(requestIdentifier: 1)
 
@@ -221,11 +211,13 @@ let benchmarks = {
             await client.whenStreamOpened()
 
             let stream = Stream(_StreamStruct(streamIdentifier: openRequest.id))
+            var monsterID: UInt64 = 1
 
             benchmark.startMeasurement()
             for _ in benchmark.scaledIterations {
-                let monster = _MonsterStruct(identifier: frostflake.generate())
+                let monster = _MonsterStruct(identifier: monsterID)
                 try await endpoints.client.handleMonster(Monster(monster), for: stream)
+                monsterID += 1
             }
 
             try await endpoints.client.snapshotDone(for: stream)
@@ -249,8 +241,6 @@ let benchmarks = {
         let (client, endpoints) = try await sharedData.getClientAndEndpoints(remote: true)
         var service = sharedData.service
 
-        let frostflake = getFrostflake(benchmark.currentIteration)
-
         do {
             let openRequest = _OpenRequestStruct(requestIdentifier: 1)
 
@@ -261,11 +251,13 @@ let benchmarks = {
             await client.whenStreamOpened()
 
             let stream = Stream(_StreamStruct(streamIdentifier: openRequest.id))
+            var monsterID: UInt64 = 1
 
             benchmark.startMeasurement()
             for _ in benchmark.scaledIterations {
-                let monster = _MonsterStruct(identifier: frostflake.generate())
+                let monster = _MonsterStruct(identifier: monsterID)
                 try await endpoints.client.handleMonster(Monster(monster), for: stream)
+                monsterID += 1
             }
 
             try await endpoints.client.snapshotDone(for: stream)
@@ -290,8 +282,6 @@ let benchmarks = {
         client.receiveThroughput = 10_000
         var service = sharedData.service
 
-        let frostflake = getFrostflake(benchmark.currentIteration)
-
         do {
             let openRequest = _OpenRequestStruct(requestIdentifier: 1)
 
@@ -302,14 +292,16 @@ let benchmarks = {
             await client.whenStreamOpened()
 
             let stream = Stream(_StreamStruct(streamIdentifier: openRequest.id))
+            var monsterID: UInt64 = 1
 
             benchmark.startMeasurement()
             for _ in 0..<50_000 {
-                var monster = _MonsterStruct(identifier: frostflake.generate())
+                var monster = _MonsterStruct(identifier: monsterID)
                 monster.hp = 100
                 monster.mana = 50
                 monster.name = "Orc"
                 try await endpoints.client.handleMonster(Monster(monster), for: stream)
+                monsterID += 1
             }
 
             try await endpoints.client.snapshotDone(for: stream)
@@ -332,19 +324,19 @@ let benchmarks = {
         let (client, endpoints) = try await sharedData.getClientAndEndpoints(remote: true)
         var service = sharedData.service
 
-        let frostflake = getFrostflake(benchmark.currentIteration)
-
         do {
             let iterations = benchmark.scaledIterations.count / arraySize
+            var monsterID: UInt64 = 1
 
             benchmark.startMeasurement()
             for _ in 1...iterations {
                 var monsters = [Monster]()
                 for _ in 1...arraySize {
-                    let monster = _MonsterStruct(identifier: frostflake.generate())
+                    let monster = _MonsterStruct(identifier: monsterID)
                     monsters.append(Monster(monster))
                 }
                 try await endpoints.service.handleMonsters(array: monsters)
+                monsterID += 1
             }
 
             let openRequest = _OpenRequestStruct(requestIdentifier: 1)
@@ -378,8 +370,6 @@ let benchmarks = {
         let (client, endpoints) = try await sharedData.getClientAndEndpoints(remote: true)
         var service = sharedData.service
 
-        let frostflake = getFrostflake(benchmark.currentIteration)
-
         do {
             let openRequest = _OpenRequestStruct(requestIdentifier: 1)
 
@@ -396,12 +386,14 @@ let benchmarks = {
             for _ in 1 ... (900 / repeatString.count) {
                 inventory.append(contentsOf: repeatString)
             }
+            var monsterID: UInt64 = 1
 
             benchmark.startMeasurement()
             for _ in benchmark.scaledIterations {
-                var monster = _MonsterStruct(identifier: frostflake.generate())
+                var monster = _MonsterStruct(identifier: monsterID)
                 monster.inventory = inventory
                 try await endpoints.client.handleMonster(Monster(monster), for: stream)
+                monsterID += 1
             }
 
             try await endpoints.client.snapshotDone(for: stream)

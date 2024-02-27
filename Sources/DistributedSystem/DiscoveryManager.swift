@@ -11,11 +11,12 @@ import DistributedSystemConformance
 import Helpers
 import Logging
 internal import NIOCore
+internal import struct Foundation.UUID
 import PackageConcurrencyHelpers
 
 final class DiscoveryManager {
     private final class ProcessInfo {
-        var channel: Channel?
+        var channel: (UInt32, Channel)?
         var services = Set<String>()
     }
 
@@ -68,7 +69,7 @@ final class DiscoveryManager {
     private final class DiscoveryInfo {
         var discover = true
         var filters: [DistributedSystem.CancellationToken: FilterInfo] = [:]
-        var services: [ServiceIdentifier: ServiceInfo] = [:]
+        var services: [UUID: ServiceInfo] = [:]
     }
 
     private var loggerBox: Box<Logger>
@@ -97,7 +98,7 @@ final class DiscoveryManager {
             }
             var discover: Bool
             var addresses: [SocketAddress] = []
-            var services = [(ServiceIdentifier, ConsulServiceDiscovery.Instance, (address: SocketAddress, channel: Channel)?)]()
+            var services = [(ConsulServiceDiscovery.Instance, DistributedSystem.ChannelOrFactory)]()
 
             if cancellationToken.cancelled {
                 return (true, false, addresses, services)
@@ -107,16 +108,16 @@ final class DiscoveryManager {
 
             var discoveryInfo = self.discoveries[serviceName]
             if let discoveryInfo {
-                for (serviceID, serviceInfo) in discoveryInfo.services {
+                for serviceInfo in discoveryInfo.services.values {
                     if serviceFilter(serviceInfo.service) {
                         switch serviceInfo.address {
-                        case .local:
-                            services.append((serviceID, serviceInfo.service, nil))
+                        case let .local(factory):
+                            services.append((serviceInfo.service, .factory(factory)))
                         case let .remote(address):
                             if let processInfo = self.processes[address] {
-                                if let channel = processInfo.channel {
+                                if let (channelID, channel) = processInfo.channel {
                                     processInfo.services.insert(serviceName)
-                                    services.append((serviceID, serviceInfo.service, (address, channel)))
+                                    services.append((serviceInfo.service, .channel(channelID, channel)))
                                 }
                             } else {
                                 self.processes[address] = ProcessInfo()
@@ -142,8 +143,8 @@ final class DiscoveryManager {
             return .cancelled
         } else {
             logger.debug("discoverService[\(serviceName)]: \(discover) \(addresses) \(services), cancellation token \(cancellationToken.ptr)")
-            for (serviceID, service, process) in services {
-                connectionHandler(serviceID, service, process?.channel)
+            for (service, addr) in services {
+                connectionHandler(service, addr)
             }
             return .started(discover, addresses)
         }
@@ -172,26 +173,24 @@ final class DiscoveryManager {
         }
     }
 
-    func factoryFor(_ serviceName: String, _ serviceID: ServiceIdentifier) -> DistributedSystem.ServiceFactory? {
+    func factoryFor(_ serviceName: String) -> DistributedSystem.ServiceFactory? {
         lock.withLock {
             guard let discoveryInfo = self.discoveries[serviceName] else {
                 return nil
             }
 
-            guard let serviceInfo = discoveryInfo.services[serviceID] else {
-                return nil
+            for entry in discoveryInfo.services {
+                if case let .local(factory) = entry.value.address {
+                    return factory
+                }
             }
 
-            if case let .local(factory) = serviceInfo.address {
-                return factory
-            } else {
-                return nil
-            }
+            return nil
         }
     }
 
     func addService(_ serviceName: String,
-                    _ serviceID: ServiceIdentifier,
+                    _ serviceID: UUID,
                     _ service: NodeService,
                     _ factory: @escaping DistributedSystem.ServiceFactory) -> Bool {
         let (updateHealthStatus, services) = lock.withLock {
@@ -214,26 +213,25 @@ final class DiscoveryManager {
             logger.debug("addService: \(serviceName)/\(serviceID)")
             discoveryInfo.services[serviceID] = ServiceInfo(service, factory)
 
-            var services = [(ServiceIdentifier, ConsulServiceDiscovery.Instance, DistributedSystem.ConnectionHandler)]()
+            var services = [(ConsulServiceDiscovery.Instance, DistributedSystem.ConnectionHandler)]()
             for (_, filterInfo) in discoveryInfo.filters {
                 if filterInfo.filter(service) {
-                    services.append((serviceID, service, filterInfo.connectionHandler))
+                    services.append((service, filterInfo.connectionHandler))
                 }
             }
 
             return (updateHealthStatus, services)
         }
 
-        for (serviceID, service, connectionHandler) in services {
-             _ = connectionHandler(serviceID, service, nil)
-             return updateHealthStatus
+        for (service, connectionHandler) in services {
+            _ = connectionHandler(service, .factory(factory))
         }
 
         return updateHealthStatus
     }
 
-    func setAddress(_ address: SocketAddress, for serviceName: String, _ serviceID: ServiceIdentifier, _ service: NodeService) -> Bool {
-        let (connect, process) = lock.withLock { () -> (Bool, (channel: Channel, connectionHandlers: [DistributedSystem.ConnectionHandler])?) in
+    func setAddress(_ address: SocketAddress, for serviceName: String, _ serviceID: UUID, _ service: NodeService) -> Bool {
+        let (connect, process) = lock.withLock { () -> (Bool, (channel: (UInt32, Channel), connectionHandlers: [DistributedSystem.ConnectionHandler])?) in
             guard let discoveryInfo = self.discoveries[serviceName] else {
                 fatalError("Internal error: service \(serviceName) not discovered")
             }
@@ -270,30 +268,30 @@ final class DiscoveryManager {
 
         if let process {
             for connectionHandler in process.connectionHandlers {
-                connectionHandler(serviceID, service, process.channel)
+                connectionHandler(service, .channel(process.channel.0, process.channel.1))
             }
         }
 
         return connect
     }
 
-    func setChannel(_ channel: Channel, forProcessAt address: SocketAddress) {
+    func setChannel(_ channelID: UInt32,_ channel: Channel, forProcessAt address: SocketAddress) {
         let services = lock.withLock {
             guard let processInfo = processes[address] else {
                 fatalError("Internal error: process for \(address) not found")
             }
-            processInfo.channel = channel
+            processInfo.channel = (channelID, channel)
 
-            var services = [(ServiceIdentifier, ConsulServiceDiscovery.Instance, DistributedSystem.ConnectionHandler)]()
+            var services = [(ConsulServiceDiscovery.Instance, DistributedSystem.ConnectionHandler)]()
             for serviceName in processInfo.services {
                 guard let discoveryInfo = self.discoveries[serviceName] else {
                     fatalError("Internal error: service \(serviceName) not found")
                 }
-                for (serviceID, serviceInfo) in discoveryInfo.services {
+                for serviceInfo in discoveryInfo.services.values {
                     if case let .remote(serviceAddress) = serviceInfo.address, serviceAddress == address {
                         for (_, filterInfo) in discoveryInfo.filters {
                             if filterInfo.filter(serviceInfo.service) {
-                                services.append((serviceID, serviceInfo.service, filterInfo.connectionHandler))
+                                services.append((serviceInfo.service, filterInfo.connectionHandler))
                             }
                         }
                     }
@@ -302,14 +300,14 @@ final class DiscoveryManager {
             return services
         }
 
-        for (serviceID, service, connectionHandler) in services {
-            connectionHandler(serviceID, service, channel)
+        for (service, connectionHandler) in services {
+            connectionHandler(service, .channel(channelID, channel))
         }
     }
 
-    func getLocalServices() -> [ServiceIdentifier] {
+    func getLocalServices() -> [UUID] {
         lock.withLock {
-            var services: [ServiceIdentifier] = []
+            var services: [UUID] = []
             for (_, discoveryInfo) in self.discoveries {
                 for (serviceID, serviceInfo) in discoveryInfo.services {
                     if case .local = serviceInfo.address {

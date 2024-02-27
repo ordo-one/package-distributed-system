@@ -19,7 +19,6 @@ let internalDependencies: [String: Range<Version>] = [
     "package-consul": .upToNextMajor(from: "4.0.1"),
     "package-datetime": .upToNextMajor(from: "1.0.1"),
     "package-distributed-system-conformance": .upToNextMajor(from: "5.0.0"),
-    "package-frostflake-xcf": .upToNextMajor(from: "1.0.12"),
     "package-latency-tools": .upToNextMajor(from: "1.0.0"),
     "package-unsafe-retained-xcf": .upToNextMajor(from: "1.0.3"),
 ]
@@ -72,7 +71,6 @@ let package = Package(
                 .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
                 .product(name: "PackageConcurrencyHelpers", package: "package-concurrency-helpers"),
                 .product(name: "ConsulServiceDiscovery", package: "package-consul"),
-                .product(name: "FrostflakeKit", package: "package-frostflake-xcf"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "Logging", package: "swift-log"),
@@ -90,8 +88,9 @@ let package = Package(
                 .product(name: "DateTime", package: "package-datetime"),
                 .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
                 .product(name: "FlatBuffers", package: "flatbuffers"),
-                .product(name: "FrostflakeKit", package: "package-frostflake-xcf"),
-                .product(name: "UnsafeRetainedKit", package: "package-unsafe-retained-xcf")
+                .product(name: "UnsafeRetainedKit", package: "package-unsafe-retained-xcf"),
+                .product(name: "Helpers", package: "package-concurrency-helpers"),
+                .product(name: "DateTime", package: "package-datetime"),
             ],
             path: "Sources/ForTesting/TestMessages/"
         ),
@@ -144,7 +143,6 @@ let package = Package(
             dependencies: [
                 "DistributedSystem",
                 "TestMessages",
-                .product(name: "FrostflakeKit", package: "package-frostflake-xcf"),
                 .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
             ]
         ),

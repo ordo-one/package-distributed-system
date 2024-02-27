@@ -1,4 +1,4 @@
-// Copyright 2023 Ordo One AB
+// Copyright 2024 Ordo One AB
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,10 +13,10 @@ import ConsulServiceDiscovery
 import Dispatch
 import Distributed
 import DistributedSystemConformance
-import FrostflakeKit
 import Logging
 import PackageConcurrencyHelpers
 import class Helpers.Box
+internal import struct Foundation.UUID
 internal import NIOCore
 internal import NIOPosix
 
@@ -34,17 +34,17 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     public typealias SerializationRequirement = Transferable
 
     public struct ModuleIdentifier: Hashable, Codable, CustomStringConvertible {
-        public let rawValue: FrostflakeIdentifier
+        public let rawValue: UInt64
 
         public var description: String {
             String(describing: rawValue)
         }
 
-        public init(_ rawValue: FrostflakeIdentifier) {
+        public init(_ rawValue: UInt64) {
             self.rawValue = rawValue
         }
 
-        public init?(_ rawValue: FrostflakeIdentifier?) {
+        public init?(_ rawValue: UInt64?) {
             if let rawValue {
                 self.rawValue = rawValue
             } else {
@@ -53,7 +53,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
 
         public init?(_ str: String) {
-            if let rawValue = FrostflakeIdentifier(str) {
+            if let rawValue = UInt64(str) {
                 self.init(rawValue)
             } else {
                 return nil
@@ -106,17 +106,16 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
     // TODO: replace with configuration
     private static let pingInterval = TimeAmount.seconds(2)
-    private static let serviceDiscoveryTimeout = TimeAmount.seconds(5)
+    static let serviceDiscoveryTimeout = TimeAmount.seconds(5)
 
     enum SessionMessage: UInt16 {
         case createServiceInstance = 0
         case invocationEnvelope = 1
         case invocationResult = 2
-        case duplicatedEndpointIdentifier = 3
-        case suspendEndpoint = 4
-        case resumeEndpoint = 5
-        case ping = 6
-        case pong = 7
+        case suspendEndpoint = 3
+        case resumeEndpoint = 4
+        case ping = 5
+        case pong = 6
     }
 
     public let systemName: String
@@ -155,6 +154,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
         case newClient(any DistributedActor) // retain the client actor instance while it will not be linked to local or remote service
         case serviceForLocalClient(any DistributedActor) // retain the client actor until the related service actor will not be resigned
+        case localService(ServiceFactory)
         case remoteClient(Outbound)
         case remoteService(Outbound)
         case clientForRemoteService(Inbound)
@@ -172,15 +172,24 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     private var actors: [EndpointIdentifier: ActorInfo] = [:]
     private var channels: [UnsafeRawPointer: ChannelInfo] = [:]
 
+    private let _nextChannelID = ManagedAtomic<UInt32>(1) // 0 reseved for local endpoints
+    var nextChannelID: UInt32 { _nextChannelID.loadThenWrappingIncrement(ordering: .relaxed) }
+
+    private let _nextInstanceID = ManagedAtomic<UInt32>(1)
+    private var nextInstanceID: UInt32 { _nextInstanceID.loadThenWrappingIncrement(ordering: .relaxed) }
+
     private var discoveryManager: DiscoveryManager
     private var syncCallManager: SyncCallManager
 
-    public var duplicatedEndpointIdentifierHook: (EndpointIdentifier) -> Void
-    var duplicatedEndpointIdentifier: EndpointIdentifier?
-
     public typealias ServiceFilter = (NodeService) -> Bool
     public typealias ServiceFactory = (DistributedSystem) throws -> any ServiceEndpoint
-    typealias ConnectionHandler = (ServiceIdentifier, ConsulServiceDiscovery.Instance, Channel?) -> Void /*ConnectionStateHandler?*/
+
+    enum ChannelOrFactory {
+        case channel(UInt32, Channel)
+        case factory(ServiceFactory)
+    }
+
+    typealias ConnectionHandler = (ConsulServiceDiscovery.Instance, ChannelOrFactory) -> Void
 
     @TaskLocal
     private static var actorID: ActorID? // supposed to be private, but need to make it internal for tests
@@ -196,7 +205,6 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         consulServiceDiscovery = ConsulServiceDiscovery(consul)
         discoveryManager = DiscoveryManager(loggerBox)
         syncCallManager = SyncCallManager(loggerBox)
-        duplicatedEndpointIdentifierHook = Self.duplicatedEndpointIdentifier
 
         // loggerBox.value.logLevel = .debug
         // Consul.logger.logLevel = .debug
@@ -206,8 +214,9 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         logger.debug("deinit")
     }
 
-    private static func duplicatedEndpointIdentifier(_ endpointID: EndpointIdentifier) {
-        fatalError("duplicated endpoint identifier \(endpointID)")
+    func makeServiceEndpoint(_ channelID: UInt32) -> EndpointIdentifier {
+        let instanceID = (nextInstanceID << 1)
+        return EndpointIdentifier.makeServiceEndpoint(channelID, instanceID)
     }
 
     func connectToProcessAt(_ address: SocketAddress) {
@@ -217,7 +226,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .channelInitializer { channel in
                 channel.pipeline.addHandler(ByteToMessageHandler(StreamDecoder(self.loggerBox))).flatMap { _ in
-                    channel.pipeline.addHandler(ChannelHandler(self, address))
+                    channel.pipeline.addHandler(ChannelHandler(self.nextChannelID, self, address))
                 }
             }
             .connect(to: address)
@@ -228,47 +237,49 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             }
     }
 
-    private func sendCreateService(_ serviceName: String, _ endpointID: EndpointIdentifier, to channel: Channel) {
+    private func sendCreateService(_ serviceName: String, _ instanceID: UInt32, to channel: Channel) {
         let payloadSize =
             MemoryLayout<SessionMessage.RawValue>.size
                 + ULEB128.size(UInt(serviceName.count))
                 + serviceName.count
-                + endpointID.wireSize
+                + ULEB128.size(instanceID)
         var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt32>.size + payloadSize)
         buffer.writeInteger(UInt32(payloadSize))
         buffer.writeInteger(SessionMessage.createServiceInstance.rawValue)
-        buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in
-            ULEB128.encode(UInt(serviceName.count), to: ptr.baseAddress!)
-        }
+        buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(UInt(serviceName.count), to: ptr.baseAddress!) }
         buffer.writeString(serviceName)
-        endpointID.encode(to: &buffer)
-        logger.debug("\(channel.remoteAddressDescription): send create \(serviceName) \(endpointID)")
+        buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(instanceID, to: ptr.baseAddress!) }
+        logger.debug("\(channel.remoteAddressDescription): send create \(serviceName) \(instanceID)")
         _ = channel.writeAndFlush(buffer, promise: nil)
     }
 
-    private func sendSuspendEndpoint(_ endpointID: EndpointIdentifier, to channel: Channel) {
-        let payloadSize = MemoryLayout<SessionMessage.RawValue>.size + endpointID.wireSize
+    private func sendSuspendEndpoint(_ instanceID: EndpointIdentifier.InstanceIdentifier, to channel: Channel) {
+        let payloadSize = MemoryLayout<SessionMessage.RawValue>.size + MemoryLayout<EndpointIdentifier.InstanceIdentifier>.size
         var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt32>.size + payloadSize)
         buffer.writeInteger(UInt32(payloadSize))
         buffer.writeInteger(SessionMessage.suspendEndpoint.rawValue)
-        endpointID.encode(to: &buffer)
-        logger.debug("\(channel.remoteAddressDescription): send suspend endpoint \(endpointID)")
+        buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(instanceID, to: ptr.baseAddress!) }
+        logger.debug("\(channel.remoteAddressDescription): send suspend endpoint \(instanceID)")
         _ = channel.writeAndFlush(buffer, promise: nil)
     }
 
-    private func sendResumeEndpoint(_ endpointID: EndpointIdentifier, to channel: Channel) {
-        let payloadSize = MemoryLayout<SessionMessage.RawValue>.size + endpointID.wireSize
+    private func sendResumeEndpoint(_ instanceID: EndpointIdentifier.InstanceIdentifier, to channel: Channel) {
+        let payloadSize = MemoryLayout<SessionMessage.RawValue>.size + MemoryLayout<EndpointIdentifier.InstanceIdentifier>.size
         var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt32>.size + payloadSize)
         buffer.writeInteger(UInt32(payloadSize))
         buffer.writeInteger(SessionMessage.resumeEndpoint.rawValue)
-        endpointID.encode(to: &buffer)
-        logger.debug("\(channel.remoteAddressDescription): send resume endpoint \(endpointID)")
+        buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(instanceID, to: ptr.baseAddress!) }
+        logger.debug("\(channel.remoteAddressDescription): send resume endpoint \(instanceID)")
         _ = channel.writeAndFlush(buffer, promise: nil)
     }
 
-    func setChannel(_ channel: Channel, forProcessAt address: SocketAddress?) {
+    func setChannel(_ channelID: UInt32, _ channel: Channel, forProcessAt address: SocketAddress?) {
+        let ptr = Self.ptr(for: channel)
+        lock.withLockVoid {
+            self.channels[ptr] = ChannelInfo()
+        }
         if let address {
-            discoveryManager.setChannel(channel, forProcessAt: address)
+            discoveryManager.setChannel(channelID, channel, forProcessAt: address)
         }
         sendPing(to: channel, with: eventLoopGroup.next())
     }
@@ -331,6 +342,11 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         if !pendingSyncCalls.isEmpty {
             syncCallManager.resumeWithConnectionLoss(pendingSyncCalls)
         }
+
+        let ptr = Self.ptr(for: channel)
+        lock.withLockVoid {
+            self.channels.removeValue(forKey: ptr)
+        }
     }
 
     private func connectionEstablishmentFailed(_ error: Error, _ address: SocketAddress) {
@@ -384,15 +400,27 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         let serviceName = S.serviceName
         logger.debug("connectTo: \(serviceName)")
 
-        let connectionHandler = { (serviceID: ServiceIdentifier, service: ConsulServiceDiscovery.Instance, channel: Channel?) -> Void in
-            let serviceEndpointID = self.duplicatedEndpointIdentifier ?? EndpointIdentifier(serviceID)
-
-            if let channel {
-                self.lock.withLockVoid {
-                    self.actors[serviceEndpointID] = .remoteService(.init(channel))
+        let connectionHandler = { (service: ConsulServiceDiscovery.Instance, channelOrFactory: ChannelOrFactory) -> Void in
+            let serviceEndpointID = {
+                switch channelOrFactory {
+                case let .channel(channelID, channel):
+                    // remote service
+                    let serviceEndpointID = self.lock.withLock {
+                        let serviceEndpointID = self.makeServiceEndpoint(channelID)
+                        self.actors[serviceEndpointID] = .remoteService(.init(channel))
+                        return serviceEndpointID
+                    }
+                    self.sendCreateService(serviceName, serviceEndpointID.instanceID, to: channel)
+                    return serviceEndpointID
+                case let .factory(factory):
+                    let serviceEndpointID = self.makeServiceEndpoint(0)
+                    self.lock.withLockVoid {
+                        assert(self.actors[serviceEndpointID] == nil)
+                        self.actors[serviceEndpointID] = .localService(factory)
+                    }
+                    return serviceEndpointID
                 }
-                self.sendCreateService(serviceName, serviceEndpointID, to: channel)
-            }
+            }()
 
             if let clientFactory {
                 let clientEndpointID = serviceEndpointID.makeClientEndpoint()
@@ -438,7 +466,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                                     continue
                                 }
 
-                                guard let serviceID = ServiceIdentifier(service.serviceID) else {
+                                guard let serviceID = UUID(uuidString: service.serviceID) else {
                                     self.logger.debug("skip service \(serviceName)/\(service.serviceID), invalid service identifier")
                                     continue
                                 }
@@ -584,9 +612,9 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
     func addService(_ serviceName: String,
                     _ metadata: [String: String],
-                    _ factory: @escaping ServiceFactory) -> ServiceIdentifier {
-        let serviceID = ServiceIdentifier(FrostflakeIdentifier())
-        let service = NodeService(serviceID: "\(serviceID)", serviceMeta: metadata, serviceName: serviceName)
+                    _ factory: @escaping ServiceFactory) -> UUID {
+        let serviceID = UUID()
+        let service = NodeService(serviceID: "\(serviceID.uuidString)", serviceMeta: metadata, serviceName: serviceName)
         let updateHealthStatus = discoveryManager.addService(serviceName, serviceID, service, factory)
         if updateHealthStatus {
             let eventLoop = eventLoopGroup.next()
@@ -602,6 +630,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         logger.trace("update health status for \(services.count) services")
 
         for serviceID in services {
+            logger.debug("update health status for service \(serviceID)")
             let checkID = "service:\(serviceID)"
             _ = consul.agent.check(checkID, status: .passing)
         }
@@ -637,14 +666,14 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             if channelInfo.bytesReceived == channelInfo.bytesReceivedCheckpoint {
                 channelInfo.bytesReceivedTimeouts += 1
                 if channelInfo.bytesReceivedTimeouts == 2 {
-                    logger.warning("session \(channel.debugDescription) timeout")
-                    res = (.stale, actorsForChannel(channel))
+                    logger.warning("\(channel.debugDescription): session timeout")
+                    res = (.stale, actorsForChannelLocked(channel))
                 }
             } else {
                 channelInfo.bytesReceivedCheckpoint = channelInfo.bytesReceived
                 if channelInfo.bytesReceivedTimeouts > 1 {
-                    logger.warning("session \(channel.debugDescription) recovered after \(channelInfo.bytesReceivedTimeouts * Self.pingInterval)")
-                    res = (.active, actorsForChannel(channel))
+                    logger.warning("\(channel.debugDescription): session recovered after \(channelInfo.bytesReceivedTimeouts * Self.pingInterval)")
+                    res = (.active, actorsForChannelLocked(channel))
                 }
                 channelInfo.bytesReceivedTimeouts = 0
             }
@@ -653,15 +682,21 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
 
         if let res {
-            let arguments = Self.makeStateHandlerArguments(res.state)
+            let stateSize = MemoryLayout<DistributedSystemConformance.ConnectionState.RawValue>.size
+            let bufferSize = ULEB128.size(UInt(stateSize)) + stateSize
+            var buffer = ByteBufferAllocator().buffer(capacity: bufferSize)
+            buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(UInt(stateSize), to: ptr.baseAddress!) }
+            _ = res.state.rawValue.withUnsafeBytesSerialization { bytes in buffer.writeBytes(bytes) }
+
+            let envelope = InvocationEnvelope(0, "", [], buffer)
             for entry in res.actors {
-                let envelope = InvocationEnvelope(entry.0, 0, "", [], arguments)
-                dispatchInvocation(envelope, entry.1, channel, entry.2)
+                dispatchInvocation(envelope, for: entry.0, channel, entry.1, entry.2)
             }
         }
     }
 
-    private func actorsForChannel(_ channel: Channel) -> [(EndpointIdentifier, AsyncStream<InvocationEnvelope>.Continuation, ManagedAtomic<UInt64>)] {
+    private func actorsForChannelLocked(_ channel: Channel) -> [(EndpointIdentifier, AsyncStream<InvocationEnvelope>.Continuation, ManagedAtomic<UInt64>)] {
+        // lock supposed to be locked by the caller
         var actors = [(EndpointIdentifier, AsyncStream<InvocationEnvelope>.Continuation, ManagedAtomic<UInt64>)]()
         for (actorID, actorInfo) in self.actors {
             switch actorInfo {
@@ -753,66 +788,63 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         where Actor: DistributedActor,
         EndpointIdentifier == Actor.ID {
         logger.debug("resolve<\(Actor.self)>: \(id)")
-        if id.serviceID.rawValue == 0 {
-            return try lock.withLock {
-                if let actorInfo = self.actors[id] {
-                    switch actorInfo {
-                    case let .newClient(actor):
-                        // self.actors.removeValue(forKey: id)
-                        guard let actor = actor as? Actor else {
-                            fatalError("Internal error: invalid actor \(id) type")
-                        }
-                        return actor
-                    case .remoteClient:
-                        return nil
-                    default:
-                        fatalError("Internal error: invalid actor state")
-                    }
-                } else {
-                    throw DistributedSystemErrors.unknownActor
-                }
+
+        if Actor.self is any ServiceEndpoint.Type {
+            lock.lock()
+            guard let actorInfo = self.actors[id] else {
+                throw DistributedSystemErrors.unknownActor(id)
             }
-        } else {
-            guard let actorType = Actor.self as? any ServiceEndpoint.Type else {
-                fatalError("Invalid remote actor type \(Actor.self), should conform to ServiceEndpoint")
-            }
-            let serviceName = actorType.serviceName
-            let serviceFactory = discoveryManager.factoryFor(serviceName, id.serviceID)
-            if let serviceFactory {
+            if case .remoteService = actorInfo {
+                lock.unlock()
+                return nil
+            } else if case let .localService(serviceFactory) = actorInfo {
+                lock.unlock()
+                // We can't call the factory under the lock,
+                // because after actor instantiation actorReady<> will be called,
+                // and it will try to take the lock again
                 let actor = try Self.$actorID.withValue(id) { try serviceFactory(self) }
                 guard let actor = actor as? Actor else {
-                    fatalError("Factory \(serviceName)/\(id.serviceID) created not a \(Actor.self)")
+                    fatalError("internal error: factory for \(id) created not a \(Actor.self)")
                 }
                 return actor
             } else {
-                /*
-                let channel = lock.withLock {
-                    guard let actorInfo = self.actors[id] else {
-                        fatalError("Internal error: actor \(id) not registered")
-                    }
-                    if case let .remoteService(channel) = actorInfo {
-                        return channel
-                    } else {
-                        fatalError("Internal error: invalid actor state \(actorInfo)")
-                    }
-                }
-                sendCreateService(serviceName, id, to: channel)
-                */
-                return nil
+                fatalError("internal error: invalid actor state \(actorInfo)")
             }
+        } else if Actor.self is any ClientEndpoint.Type {
+            return try lock.withLock {
+                guard let actorInfo = self.actors[id] else {
+                    throw DistributedSystemErrors.unknownActor(id)
+                }
+                switch actorInfo {
+                case let .newClient(actor):
+                    // self.actors.removeValue(forKey: id)
+                    guard let actor = actor as? Actor else {
+                        fatalError("Internal error: invalid actor \(id) type")
+                    }
+                    return actor
+                case .remoteClient:
+                    return nil
+                default:
+                    fatalError("Internal error: invalid actor state \(actorInfo)")
+                }
+            }
+        } else {
+            fatalError("internal error: unsuppoted actor type '\(Actor.self)")
         }
     }
 
     public func actorReady<Actor>(_ actor: Actor) where Actor: DistributedActor, EndpointIdentifier == Actor.ID {
         logger.debug("actorReady<\(Actor.self)>: \(actor.id)")
-        lock.withLockVoid {
-            if actor.id.serviceID.rawValue == 0 {
-                if self.actors.updateValue(.newClient(actor), forKey: actor.id) != nil {
-                    fatalError("Internal error: duplicate actor id \(actor.id)")
-                }
-            } else {
-                if self.actors[actor.id] != nil {
-                    fatalError("Internal error: invalid actor state")
+        if Actor.self is any ServiceEndpoint.Type {
+            lock.withLockVoid {
+                if let actorInfo = self.actors[actor.id] {
+                    if case .localService = actorInfo {
+                        self.actors.removeValue(forKey: actor.id)
+                    } else {
+                        fatalError("internal error: invalid actor \(actor.id) state: \(actorInfo)")
+                    }
+                } else {
+                    assert(actor.id.channelID != 0)
                 }
                 let clientEndpointID = actor.id.makeClientEndpoint()
                 if let actorInfo = self.actors[clientEndpointID] {
@@ -826,12 +858,20 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                         let queueSize = ManagedAtomic<UInt64>(0)
                         let sfrc = ActorInfo.Inbound(remoteClient.channel, continuation, queueSize)
                         self.actors[actor.id] = .serviceForRemoteClient(sfrc)
-                        Task { await self.streamTask(stream, actor, remoteClient.channel, queueSize) }
+                        Task { await self.streamTask(stream, actor.id.instanceID, actor, remoteClient.channel, queueSize) }
                     default:
                         fatalError("Internal error: unexpected actor state \(actorInfo)")
                     }
                 }
             }
+        } else if Actor.self is any ClientEndpoint.Type {
+            lock.withLockVoid {
+                if self.actors.updateValue(.newClient(actor), forKey: actor.id) != nil {
+                    fatalError("Internal error: duplicate actor id \(actor.id)")
+                }
+            }
+        } else {
+            fatalError("internal error: unsuppoted actor type '\(Actor.self)")
         }
     }
 
@@ -876,21 +916,21 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         let res: Res = try await syncCallManager.waitResult(callID)
         lock.withLockVoid {
             guard let actorInfo = self.actors[actor.id] else {
-                logger.error("Internal error: actor \(actor.id) not registered")
+                logger.error("internal error: actor \(actor.id) not registered")
                 return
             }
             let channel = switch actorInfo {
             case let .remoteClient(rcs), let .remoteService(rcs):
                 rcs.channel
             default:
-                fatalError("Internal error: invalid actor state \(actorInfo)")
+                fatalError("internal error: invalid actor state \(actorInfo)")
             }
             let ptr = Self.ptr(for: channel)
             if var channelInfo = self.channels[ptr] {
                 channelInfo.pendingSyncCalls.remove(callID)
                 self.channels[ptr] = channelInfo
             } else {
-                logger.error("Channel not found")
+                logger.error("internal error: channel \(ptr) not found")
             }
         }
         return res
@@ -915,8 +955,13 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
             if callID != 0 {
                 let ptr = Self.ptr(for: channel)
-                self.channels[ptr, default: ChannelInfo()].pendingSyncCalls.insert(callID)
-                logger.trace("add sync call \(callID) for \(ptr)")
+                if var channelInfo = self.channels[ptr] {
+                    channelInfo.pendingSyncCalls.insert(callID)
+                    self.channels[ptr] = channelInfo
+                    logger.trace("add sync call \(callID) for \(ptr)")
+                } else {
+                    logger.error("internal error: channel \(ptr) not registered")
+                }
             }
 
             return (channel, suspended)
@@ -951,14 +996,18 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             }
         }
 
-        let payloadSize = MemoryLayout<SessionMessage.RawValue>.size + InvocationEnvelope.wireSize(actor.id, callID, target, invocation.genericSubstitutions, invocation.arguments)
+        let payloadSize =
+            MemoryLayout<SessionMessage.RawValue>.size
+                + ULEB128.size(actor.id.instanceID)
+                + InvocationEnvelope.wireSize(callID, target, invocation.genericSubstitutions, invocation.arguments)
         // Even if we carefully calculated the capacity of the desired buffer and know it to the nearest byte,
         // swift-nio still allocate a buffer with a storage capacity rounded up to nearest power of 2...
         // Weird...
         var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt32>.size + payloadSize)
         buffer.writeInteger(UInt32(payloadSize))
         buffer.writeInteger(SessionMessage.invocationEnvelope.rawValue)
-        InvocationEnvelope.encode(actor.id, callID, target, invocation.genericSubstitutions, &invocation.arguments, to: &buffer)
+        buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(actor.id.instanceID, to: ptr.baseAddress!) }
+        InvocationEnvelope.encode(callID, target, invocation.genericSubstitutions, &invocation.arguments, to: &buffer)
         logger.trace("\(channel.remoteAddressDescription): send \(buffer.readableBytes) bytes for \(actor.id)")
         channel.writeAndFlush(buffer, promise: nil)
     }
@@ -975,13 +1024,13 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         try await remoteCall(on: actor, target, &invocation, 0)
     }
 
-    private static func readSize<T: UnsignedInteger>(_ buffer: inout ByteBuffer, as: T.Type) throws -> T {
+    private static func readULEB128<T: UnsignedInteger>(from buffer: inout ByteBuffer, as: T.Type) throws -> T {
         let (sizeSize, size) = try buffer.withUnsafeReadableBytes { ptr in try ULEB128.decode(ptr, as: T.self) }
         buffer.moveReaderIndex(forwardBy: sizeSize)
         return size
     }
 
-    func channelRead(_ channel: Channel, _ buffer: inout ByteBuffer) {
+    func channelRead(_ channelID: UInt32, _ channel: Channel, _ buffer: inout ByteBuffer) {
         let bytesReceived = buffer.readableBytes
         guard buffer.readInteger(as: UInt32.self) != nil, // skip message size
               let messageType = buffer.readInteger(as: SessionMessage.RawValue.self)
@@ -993,25 +1042,26 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         do {
             switch SessionMessage(rawValue: messageType) {
             case .createServiceInstance:
-                let serviceNameLength = try Self.readSize(&buffer, as: UInt16.self)
+                let serviceNameLength = try Self.readULEB128(from: &buffer, as: UInt16.self)
                 guard let serviceName = buffer.readString(length: Int(serviceNameLength)) else {
                     throw DecodeError.error("failed to decode service name")
                 }
-                let endpointID = try EndpointIdentifier(from: &buffer)
-                createService(serviceName, endpointID, for: channel)
+                let instanceID = try Self.readULEB128(from: &buffer, as: EndpointIdentifier.InstanceIdentifier.self)
+                createService(serviceName, instanceID, for: channelID, channel)
             case .invocationEnvelope:
+                let instanceID = try Self.readULEB128(from: &buffer, as: EndpointIdentifier.InstanceIdentifier.self)
+                let endpointID = EndpointIdentifier(channelID, instanceID)
                 let envelope = try InvocationEnvelope(from: &buffer)
-                invokeLocalCall(envelope: envelope, for: channel)
+                try invokeLocalCall(envelope, for: endpointID, channel)
             case .invocationResult:
                 try syncCallManager.handleResult(&buffer)
-            case .duplicatedEndpointIdentifier:
-                let endpointID = try EndpointIdentifier(from: &buffer)
-                duplicatedEndpointIdentifierHook(endpointID)
             case .suspendEndpoint:
-                let endpointID = try EndpointIdentifier(from: &buffer)
+                let instanceID = try Self.readULEB128(from: &buffer, as: EndpointIdentifier.InstanceIdentifier.self)
+                let endpointID = EndpointIdentifier(channelID, instanceID)
                 suspendEndpoint(endpointID)
             case .resumeEndpoint:
-                let endpointID = try EndpointIdentifier(from: &buffer)
+                let instanceID = try Self.readULEB128(from: &buffer, as: EndpointIdentifier.InstanceIdentifier.self)
+                let endpointID = EndpointIdentifier(channelID, instanceID)
                 resumeEndpoint(endpointID)
             case .ping:
                 logger.trace("\(channel.remoteAddressDescription): ping, send pong")
@@ -1032,41 +1082,40 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
         let ptr = Self.ptr(for: channel)
         lock.withLockVoid {
-            self.channels[ptr, default: ChannelInfo()].bytesReceived += bytesReceived
+            let channelInfo = self.channels[ptr]
+            if var channelInfo {
+                channelInfo.bytesReceived += bytesReceived
+                self.channels[ptr] = channelInfo
+            } else {
+                logger.error("internal error: channel \(ptr) not registered")
+            }
         }
     }
 
-    private func createService(_ serviceName: String, _ endpointID: EndpointIdentifier, for channel: Channel) {
-        let serviceID = endpointID.serviceID
-        let serviceFactory = discoveryManager.factoryFor(serviceName, serviceID)
+    private func createService(_ serviceName: String, _ instanceID: EndpointIdentifier.InstanceIdentifier, for channelID: UInt32, _ channel: Channel) {
+        let serviceFactory = discoveryManager.factoryFor(serviceName)
         guard let serviceFactory else {
-            logger.error("\(channel.remoteAddressDescription): service \(serviceName)/\(serviceID) not registered, close connection.")
-            _ = channel.close()
+            logger.error("\(channel.remoteAddressDescription): service \(serviceName) for \(instanceID) not registered")
             return
         }
 
-        let clientEndpointID = endpointID.makeClientEndpoint()
-        let duplicatedEndpointID = lock.withLock {
+        let clientEndpointID = lock.withLock { () -> EndpointIdentifier? in
+            let serviceEndpointID = EndpointIdentifier(channelID, instanceID)
+            let clientEndpointID = serviceEndpointID.makeClientEndpoint()
             if self.actors[clientEndpointID] != nil {
-                return true
-            } else {
-                self.actors[clientEndpointID] = .remoteClient(.init(channel))
-                return false
+                logger.error("\(channel.remoteAddressDescription): duplicate endpoint identifier \(clientEndpointID)")
+                return nil
             }
+
+            self.actors[clientEndpointID] = .remoteClient(.init(channel))
+            return clientEndpointID
         }
 
-        if duplicatedEndpointID {
-            logger.error("\(channel.remoteAddressDescription): duplicated endpoint identifier \(clientEndpointID)")
-            let payloadSize = MemoryLayout<SessionMessage.RawValue>.size + clientEndpointID.wireSize
-            var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt32>.size + payloadSize)
-            buffer.writeInteger(UInt32(payloadSize))
-            buffer.writeInteger(SessionMessage.duplicatedEndpointIdentifier.rawValue)
-            clientEndpointID.encode(to: &buffer)
-            _ = channel.writeAndFlush(buffer)
-        } else {
-            logger.debug("\(channel.remoteAddressDescription): create service \(serviceName) \(endpointID)")
+        if let clientEndpointID {
+            let serviceEndpointID = clientEndpointID.makeServiceEndpoint()
+            logger.debug("\(channel.remoteAddressDescription): create service \(serviceName) \(serviceEndpointID)")
             do {
-                let _ = try Self.$actorID.withValue(endpointID) { try serviceFactory(self) }
+                let _ = try Self.$actorID.withValue(serviceEndpointID) { try serviceFactory(self) }
             } catch {
                 lock.withLockVoid {
                     self.actors.removeValue(forKey: clientEndpointID)
@@ -1079,6 +1128,10 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     private func suspendEndpoint(_ endpointID: EndpointIdentifier) {
         lock.withLockVoid {
             let actorInfo = self.actors[endpointID]
+            guard let actorInfo else {
+                logger.error("Internal error: suspend unknown enpoint \(endpointID)")
+                return
+            }
             switch actorInfo {
             case var .remoteClient(remoteClient):
                 if remoteClient.suspended {
@@ -1103,19 +1156,20 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     self.actors[endpointID] = .remoteService(remoteService)
                 }
             default:
-                if let actorInfo {
-                    logger.error("Internal error: suspend enpoint \(endpointID) \(actorInfo)")
-                } else {
-                    logger.error("Internal error: suspend unknown enpoint \(endpointID)")
-                }
+                logger.error("Internal error: suspend enpoint \(endpointID) \(actorInfo)")
             }
         }
     }
 
     private func resumeEndpoint(_ endpointID: EndpointIdentifier) {
-        let continuations = lock.withLock {
-            var continuations = [CheckedContinuation<Void, Error>]()
+        let continuations: [CheckedContinuation<Void, Error>]? = lock.withLock {
             let actorInfo = self.actors[endpointID]
+            guard let actorInfo else {
+                logger.error("internal error: endpoint \(endpointID) not registered")
+                return nil
+            }
+
+            var continuations = [CheckedContinuation<Void, Error>]()
             switch actorInfo {
             case var .remoteClient(remoteClient):
                 if remoteClient.suspended {
@@ -1136,23 +1190,25 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     logger.error("Internal error: endpoint \(endpointID) not suspended")
                 }
             default:
-                if let actorInfo {
-                    logger.error("Internal error: resume endpoint \(endpointID) \(actorInfo)")
-                } else {
-                    logger.error("Internal error: resume endpoint \(endpointID)")
-                }
+                logger.error("Internal error: resume endpoint \(endpointID) \(actorInfo)")
             }
+
             return continuations
         }
 
-        logger.debug("resume \(continuations.count) continuations for \(endpointID)")
-
-        for continuation in continuations {
-            continuation.resume()
+        if let continuations {
+            logger.debug("resume \(continuations.count) continuations for \(endpointID)")
+            for continuation in continuations {
+                continuation.resume()
+            }
         }
     }
 
-    private func streamTask(_ stream: AsyncStream<InvocationEnvelope>, _ actor: any DistributedActor, _ channel: Channel, _ queueState: ManagedAtomic<UInt64>) async {
+    private func streamTask(_ stream: AsyncStream<InvocationEnvelope>,
+                            _ instanceID: EndpointIdentifier.InstanceIdentifier,
+                            _ actor: any DistributedActor,
+                            _ channel: Channel,
+                            _ queueState: ManagedAtomic<UInt64>) async {
         let remoteAddressDescription = channel.remoteAddressDescription
         logger.debug("\(remoteAddressDescription): start stream task for \(actor.id)")
 
@@ -1199,7 +1255,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 let (exchanged, original) = queueState.compareExchange(expected: oldState, desired: newState, ordering: .relaxed)
                 if exchanged {
                     if ((oldState & Self.endpointQueueSuspendIndicator) != 0) && ((newState & Self.endpointQueueSuspendIndicator) == 0) {
-                        sendResumeEndpoint(envelope.targetID, to: channel)
+                        sendResumeEndpoint(instanceID, to: channel)
                     }
                     break
                 }
@@ -1220,25 +1276,13 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         logger.debug("\(remoteAddressDescription): streamTask for \(actor.id) done")
     }
 
-    private static func makeStateHandlerArguments(_ state: DistributedSystemConformance.ConnectionState) -> ByteBuffer {
-        let stateSize = MemoryLayout<DistributedSystemConformance.ConnectionState.RawValue>.size
-        let bufferSize = ULEB128.size(UInt(stateSize)) + stateSize
-        var buffer = ByteBufferAllocator().buffer(capacity: bufferSize)
-        buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in
-            ULEB128.encode(UInt(stateSize), to: ptr.baseAddress!)
-        }
-        _ = state.rawValue.withUnsafeBytesSerialization { bytes in buffer.writeBytes(bytes) }
-        return buffer
-    }
-
-    private func invokeLocalCall(envelope: InvocationEnvelope, for channel: Channel) {
-        let targetID = envelope.targetID
-        let res: (continuation: AsyncStream<InvocationEnvelope>.Continuation, queueState: ManagedAtomic<UInt64>)? = lock.withLock {
-            let actorInfo = self.actors[targetID]
+    private func invokeLocalCall(_ envelope: InvocationEnvelope, for endpointID: EndpointIdentifier, _ channel: Channel) throws {
+        let ret = try lock.withLock {
+            let actorInfo = self.actors[endpointID]
             guard let actorInfo else {
-                logger.error("\(channel.remoteAddressDescription): actor \(targetID) not found")
-                return nil
+                throw DistributedSystemErrors.unknownActor(endpointID)
             }
+
             switch actorInfo {
             case let .newClient(actor):
                 var continuation: AsyncStream<InvocationEnvelope>.Continuation?
@@ -1246,27 +1290,24 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 guard let continuation else { fatalError("Internal error: continuation unexpectedly nil") }
                 let queueState = ManagedAtomic<UInt64>(0)
                 let inbound = ActorInfo.Inbound(channel, continuation, queueState)
-                self.actors[targetID] = .clientForRemoteService(inbound)
-                Task { await self.streamTask(stream, actor, channel, queueState) }
+                self.actors[endpointID] = .clientForRemoteService(inbound)
+                Task { await self.streamTask(stream, endpointID.instanceID, actor, channel, queueState) }
                 return (continuation, queueState)
             case let .serviceForRemoteClient(inbound):
                 return (inbound.continuation, inbound.queueState)
             case let .clientForRemoteService(inbound):
                 return (inbound.continuation, inbound.queueState)
             default:
-                logger.error("\(channel.remoteAddressDescription): invalid actor state \(actorInfo)")
-                return nil
+                throw DistributedSystemErrors.invalidActorState("\(actorInfo)")
             }
         }
-
-        if let res {
-            dispatchInvocation(envelope, res.continuation, channel, res.queueState)
-        }
+        dispatchInvocation(envelope, for: endpointID, channel, ret.0, ret.1)
     }
 
     private func dispatchInvocation(_ envelope: InvocationEnvelope,
-                                    _ continuation: AsyncStream<InvocationEnvelope>.Continuation,
+                                    for endpointID: EndpointIdentifier,
                                     _ channel: Channel,
+                                    _ continuation: AsyncStream<InvocationEnvelope>.Continuation,
                                     _ queueState: ManagedAtomic<UInt64>) {
         let sizeBits = Self.endpointQueueSizeBits
         let sizeMask = ((UInt64(1) << sizeBits) - 1)
@@ -1291,10 +1332,10 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 if logWarning {
                     // The warning threshold multiplied by 2 each time is breached,
                     // so we will have warnings for 1, 2, 4, 8, etc megabytes
-                    logger.debug("Input queue size for \(envelope.targetID) reached \(newSize) bytes")
+                    logger.debug("Input queue size for \(endpointID) reached \(newSize) bytes")
                 }
                 if suspendEndpoint {
-                    sendSuspendEndpoint(envelope.targetID, to: channel)
+                    sendSuspendEndpoint(endpointID.instanceID, to: channel)
                 }
                 break
             }

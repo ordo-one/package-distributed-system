@@ -4,7 +4,6 @@ import Distributed
 import DistributedSystem
 import DistributedSystemConformance
 import class Foundation.ProcessInfo
-import FrostflakeKit
 import LatencyTimer
 import Lifecycle
 import Logging
@@ -86,7 +85,7 @@ public class TestClient: TestableClient, @unchecked Sendable {
                 }
             )
 
-            let openRequest = _OpenRequestStruct(requestIdentifier: serverEndpoint.id.instanceID.rawValue)
+            let openRequest = _OpenRequestStruct(requestIdentifier: 1)
             start = LatencyTimer.getTimestamp()
 
             try await serverEndpoint.openStream(byRequest: OpenRequest(openRequest))
@@ -100,8 +99,6 @@ public class TestClient: TestableClient, @unchecked Sendable {
     }
 
     public func run() async {
-        Frostflake.setup(sharedGenerator: .init(generatorIdentifier: 1))
-
         let signal = [ServiceLifecycle.Signal.INT]
         let lifecycle = ServiceLifecycle(configuration: .init(callbackQueue: .main,
                                                               shutdownSignal: signal, installBacktrace: true))

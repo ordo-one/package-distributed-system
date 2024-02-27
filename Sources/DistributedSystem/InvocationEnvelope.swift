@@ -11,9 +11,6 @@ import DistributedSystemConformance
 internal import NIOCore
 
 struct InvocationEnvelope {
-    private typealias TypeNameSizeType = UInt16
-
-    let targetID: EndpointIdentifier
     let callID: UInt64
     let targetFunc: String
     let genericSubstitutions: [Any.Type]
@@ -23,8 +20,7 @@ struct InvocationEnvelope {
         UInt64(MemoryLayout<Self>.size + targetFunc.count + arguments.readableBytes)
     }
 
-    init(_ targetID: EndpointIdentifier, _ callID: UInt64, _ targetFunc: String, _ genericSubstitutions: [Any.Type], _ arguments: ByteBuffer) {
-        self.targetID = targetID
+    init(_ callID: UInt64, _ targetFunc: String, _ genericSubstitutions: [Any.Type], _ arguments: ByteBuffer) {
         self.callID = callID
         self.targetFunc = targetFunc
         self.genericSubstitutions = genericSubstitutions
@@ -32,10 +28,9 @@ struct InvocationEnvelope {
     }
 
     init(from buffer: inout ByteBuffer) throws {
-        targetID = try EndpointIdentifier(from: &buffer)
         callID = try buffer.readWithUnsafeReadableBytes { ptr in try ULEB128.decode(ptr, as: UInt64.self) }
 
-        let targetFuncSize = try buffer.readWithUnsafeReadableBytes { ptr in try ULEB128.decode(ptr, as: TypeNameSizeType.self) }
+        let targetFuncSize = try buffer.readWithUnsafeReadableBytes { ptr in try ULEB128.decode(ptr, as: UInt.self) }
         guard let targetFunc = buffer.readString(length: Int(targetFuncSize)) else {
             throw DistributedSystemErrors.error("Failed to decode InvocationEnvelope (target func)")
         }
@@ -43,7 +38,7 @@ struct InvocationEnvelope {
 
         var genericSubstitutions = [Any.Type]()
         while true {
-            let typeNameSize = try buffer.readWithUnsafeReadableBytes { ptr in try ULEB128.decode(ptr, as: TypeNameSizeType.self) }
+            let typeNameSize = try buffer.readWithUnsafeReadableBytes { ptr in try ULEB128.decode(ptr, as: UInt.self) }
             if typeNameSize == 0 {
                 break
             }
@@ -64,12 +59,12 @@ struct InvocationEnvelope {
         self.arguments = arguments
     }
 
-    static func wireSize(_ targetID: EndpointIdentifier, _ callID: UInt64, _ targetFunc: RemoteCallTarget, _ genericSubstitutions: [String], _ arguments: ByteBuffer) -> Int {
-        var wireSize = targetID.wireSize
+    static func wireSize(_ callID: UInt64, _ targetFunc: RemoteCallTarget, _ genericSubstitutions: [String], _ arguments: ByteBuffer) -> Int {
+        var wireSize = 0
         wireSize += ULEB128.size(callID)
-        wireSize += ULEB128.size(TypeNameSizeType(targetFunc.identifier.count)) + targetFunc.identifier.count
+        wireSize += ULEB128.size(UInt(targetFunc.identifier.count)) + targetFunc.identifier.count
         for typeName in genericSubstitutions {
-            wireSize += ULEB128.size(TypeNameSizeType(typeName.count))
+            wireSize += ULEB128.size(UInt(typeName.count))
             wireSize += typeName.count
         }
         wireSize += MemoryLayout<UInt8>.size
@@ -77,17 +72,15 @@ struct InvocationEnvelope {
         return wireSize
     }
 
-    static func encode(_ targetID: EndpointIdentifier, _ callID: UInt64, _ targetFunc: RemoteCallTarget, _ genericSubstitutions: [String], _ arguments: inout ByteBuffer, to buffer: inout ByteBuffer) {
-        targetID.encode(to: &buffer)
-
+    static func encode(_ callID: UInt64, _ targetFunc: RemoteCallTarget, _ genericSubstitutions: [String], _ arguments: inout ByteBuffer, to buffer: inout ByteBuffer) {
         buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(callID, to: ptr.baseAddress!) }
 
         let targetFuncMangled = targetFunc.identifier
-        buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(TypeNameSizeType(targetFuncMangled.count), to: ptr.baseAddress!) }
+        buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(UInt(targetFuncMangled.count), to: ptr.baseAddress!) }
         buffer.writeString(targetFuncMangled)
 
         for typeName in genericSubstitutions {
-            buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(TypeNameSizeType(typeName.count), to: ptr.baseAddress!) }
+            buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(UInt(typeName.count), to: ptr.baseAddress!) }
             buffer.writeString(typeName)
         }
         buffer.writeInteger(UInt8(0))

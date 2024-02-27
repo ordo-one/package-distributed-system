@@ -12,13 +12,13 @@ import DistributedSystemConformance
 public enum DistributedSystemErrors: DistributedActorSystemError {
     case decodeError(description: String)
     case duplicatedService(String, DistributedSystem.ModuleIdentifier)
-    case duplicatedEndpointIdentifier(EndpointIdentifier)
     case error(String)
     case noConnectionForActor(EndpointIdentifier)
     case serviceDiscoveryTimeout(String)
     case unexpectedResultType(String)
     case connectionLost
-    case unknownActor
+    case unknownActor(EndpointIdentifier)
+    case invalidActorState(String)
 }
 
 public enum StreamErrors: DistributedActorSystemError {
