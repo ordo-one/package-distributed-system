@@ -1,9 +1,9 @@
 import Benchmark
-import PackageConcurrencyHelpers
-import DistributedSystemConformance
+import DistributedSystem
 import LatencyStatistics
 import LatencyTimer
 import Logging
+import PackageConcurrencyHelpers
 import TestMessages
 
 public class Client: TestableClient {

@@ -18,9 +18,7 @@ let internalDependencies: [String: Range<Version>] = [
     "package-concurrency-helpers": .upToNextMajor(from: "4.0.0"),
     "package-consul": .upToNextMajor(from: "4.0.1"),
     "package-datetime": .upToNextMajor(from: "1.0.1"),
-    "package-distributed-system-conformance": .upToNextMajor(from: "5.0.0"),
     "package-latency-tools": .upToNextMajor(from: "1.0.0"),
-    "package-unsafe-retained-xcf": .upToNextMajor(from: "1.0.3"),
 ]
 
 func makeDependencies() -> [Package.Dependency] {
@@ -68,7 +66,6 @@ let package = Package(
         .target(
             name: "DistributedSystem",
             dependencies: [
-                .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
                 .product(name: "PackageConcurrencyHelpers", package: "package-concurrency-helpers"),
                 .product(name: "ConsulServiceDiscovery", package: "package-consul"),
                 .product(name: "NIOCore", package: "swift-nio"),
@@ -86,9 +83,7 @@ let package = Package(
             dependencies: [
                 "DistributedSystem",
                 .product(name: "DateTime", package: "package-datetime"),
-                .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
                 .product(name: "FlatBuffers", package: "flatbuffers"),
-                .product(name: "UnsafeRetainedKit", package: "package-unsafe-retained-xcf"),
                 .product(name: "Helpers", package: "package-concurrency-helpers"),
                 .product(name: "DateTime", package: "package-datetime"),
             ],
@@ -99,7 +94,6 @@ let package = Package(
             dependencies: [
                 "DistributedSystem",
                 "TestMessages",
-                .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Lifecycle", package: "swift-service-lifecycle_1.0"),
             ],
@@ -113,7 +107,6 @@ let package = Package(
             dependencies: [
                 "DistributedSystem",
                 "TestMessages",
-                .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Lifecycle", package: "swift-service-lifecycle_1.0"),
             ],
@@ -127,7 +120,6 @@ let package = Package(
             dependencies: [
                 "DistributedSystem",
                 "TestMessages",
-                .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
                 .product(name: "PackageConcurrencyHelpers", package: "package-concurrency-helpers"),
                 .product(name: "Benchmark", package: "package-benchmark"),
                 .product(name: "BenchmarkPlugin", package: "package-benchmark"),
@@ -143,7 +135,6 @@ let package = Package(
             dependencies: [
                 "DistributedSystem",
                 "TestMessages",
-                .product(name: "DistributedSystemConformance", package: "package-distributed-system-conformance"),
             ]
         ),
     ]

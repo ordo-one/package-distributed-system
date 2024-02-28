@@ -7,7 +7,6 @@
 // http://www.apache.org/licenses/LICENSE-2.0
 
 import ConsulServiceDiscovery
-import DistributedSystemConformance
 internal import class Foundation.ProcessInfo
 internal import struct Foundation.UUID
 import Logging

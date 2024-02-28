@@ -8,7 +8,6 @@
 
 import Atomics
 import PackageConcurrencyHelpers
-import DistributedSystemConformance
 import Helpers
 import Logging
 internal import NIOCore

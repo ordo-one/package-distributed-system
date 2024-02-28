@@ -1,9 +1,8 @@
 import Distributed
-import DistributedSystemConformance
 internal import NIOCore
 
 public struct RemoteCallDecoder: DistributedTargetInvocationDecoder {
-    public typealias SerializationRequirement = DistributedSystemConformance.Transferable
+    public typealias SerializationRequirement = Transferable
 
     private var genericSubstitutions: [Any.Type]
     private var buffer: ByteBuffer
@@ -22,10 +21,10 @@ public struct RemoteCallDecoder: DistributedTargetInvocationDecoder {
             throw DistributedSystemErrors.decodeError(description: "Failed to decode argument")
         }
 
-        return try slice.withUnsafeReadableBytes { ptr in
+        return try slice.withUnsafeReadableBytes { bytes in
             // The 'Argument' type can do nothing but just copy data from the buffer
             // TODO: probably would worth to invent a possibility to retain the buffer for the 'Argument' instance lifetime (sc-1307)
-            let argument = try Argument(fromSerializedBuffer: ptr)
+            let argument = try Argument(fromSerializedBuffer: bytes)
             arguments.append(argument)
             return argument
         }

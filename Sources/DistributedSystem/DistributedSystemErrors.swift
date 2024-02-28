@@ -7,7 +7,6 @@
 // http://www.apache.org/licenses/LICENSE-2.0
 
 import Distributed
-import DistributedSystemConformance
 
 public enum DistributedSystemErrors: DistributedActorSystemError {
     case decodeError(description: String)

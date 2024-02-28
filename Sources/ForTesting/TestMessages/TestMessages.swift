@@ -1,9 +1,8 @@
 // swiftlint:disable all
 
 import DateTime
-import DistributedSystemConformance
+import DistributedSystem
 import FlatBuffers
-import UnsafeRetainedKit
 
 public extension Timestamp {
     var description: String {
@@ -77,18 +76,9 @@ public struct OpenRequest: Transferable, CustomStringConvertible {
         try value.withUnsafeBytes(body)
     }
 
-    public func withRetainedBytesSerialization<Result>(_ body: (UnsafeRetainedRawBuffer) throws -> Result) rethrows -> Result {
-        try value.withRetainedBytes(body)
-    }
-
     /* Transferable.Deserializable */
     public init(fromSerializedBuffer buffer: UnsafeRawBufferPointer) throws {
-        let copyPtr = UnsafeMutableRawPointer(UnsafeMutablePointer<UInt8>.allocate(capacity: buffer.count))
-        if let baseAddress = buffer.baseAddress {
-            copyPtr.copyMemory(from: baseAddress, byteCount: buffer.count)
-        }
-        let retainedBuffer = UnsafeRetainedRawBuffer(UnsafeRawBufferPointer(start: copyPtr, count: buffer.count))
-        value = .buffer(_OpenRequestBuffer(from: retainedBuffer))
+        value = .buffer(_OpenRequestBuffer(from: buffer))
     }
 
     public func _releaseBuffer() {
@@ -167,18 +157,6 @@ private enum _OpenRequestValue {
         }
     }
 
-    @inline(__always)
-    public func withRetainedBytes<Result>(_ body: (UnsafeRetainedRawBuffer) throws -> Result) rethrows -> Result {
-        switch self {
-        case let .struct(value):
-            return try value.withRetainedBytes(body)
-        case let .buffer(value):
-            return try value.withRetainedBytes(body)
-        default:
-            fatalError("Value has inconsistent state: \(self)")
-        }
-    }
-
     public var description: String {
         switch self {
         case let .struct(value):
@@ -209,12 +187,6 @@ public struct _OpenRequestStruct: Identifiable, CustomStringConvertible {
         self.requestIdentifier = requestIdentifier
     }
 
-    public init(from buffer: UnsafeRetainedRawBuffer) {
-        let message = _OpenRequestBuffer(from: buffer)
-        requestIdentifier = message.requestIdentifier
-        clientIdentifier = message.clientIdentifier
-    }
-
     // Identifiable
     public typealias ID = RequestIdentifier
     public var id: RequestIdentifier { requestIdentifier }
@@ -239,22 +211,8 @@ public struct _OpenRequestStruct: Identifiable, CustomStringConvertible {
         return try body(buffer)
     }
 
-    @inline(__always)
-    public func withRetainedBytes<Result>(_ body: (UnsafeRetainedRawBuffer) throws -> Result) rethrows -> Result {
-        var fbb = FlatBufferBuilder(initialSize: 1_024)
-        serialize(to: &fbb)
-        let fbbDataSize = Int(fbb.size)
-        let fbbDataPtr = fbb.buffer.memory.advanced(by: fbb.buffer.capacity - fbbDataSize)
-        let copyPtr = UnsafeMutableRawPointer(UnsafeMutablePointer<UInt8>.allocate(capacity: fbbDataSize))
-        copyPtr.copyMemory(from: fbbDataPtr, byteCount: fbbDataSize)
-        let buffer = UnsafeRawBufferPointer(start: copyPtr, count: fbbDataSize)
-        let retainedBuffer = UnsafeRetainedRawBuffer(buffer)
-        return try body(retainedBuffer)
-    }
-
     public var description: String {
         """
-
         Message OpenRequest {
             requestIdentifier = \(requestIdentifier)
         \(clientIdentifier != nil ? "    clientIdentifier = \(String(describing: clientIdentifier!))\n" : "")\
@@ -267,28 +225,15 @@ public struct _OpenRequestStruct: Identifiable, CustomStringConvertible {
  Flatbuffers wrapper implementing the protocol for access
  */
 public struct _OpenRequestBuffer: Identifiable, CustomStringConvertible {
-    var buffer: UnsafeRawBufferPointer
+    var buffer: ByteBuffer
     var message: DataModel_OpenRequest
-    var retained: UnsafeRetainedRawBuffer?
-
-    public init(from retained: UnsafeRetainedRawBuffer) {
-        buffer = UnsafeRawBufferPointer(start: retained.data.baseAddress, count: retained.data.count)
-        var bb = ByteBuffer(assumingMemoryBound: UnsafeMutableRawPointer(mutating: buffer.baseAddress!), capacity: buffer.count)
-        message = getRoot(byteBuffer: &bb)
-        self.retained = retained
-    }
 
     public init(from buffer: UnsafeRawBufferPointer) {
-        self.buffer = buffer
-        var bb = ByteBuffer(assumingMemoryBound: UnsafeMutableRawPointer(mutating: buffer.baseAddress!), capacity: buffer.count)
-        message = getRoot(byteBuffer: &bb)
+        self.buffer = ByteBuffer(contiguousBytes: buffer, count: buffer.count)
+        self.message = getRoot(byteBuffer: &self.buffer)
     }
 
     public mutating func _releaseBuffer() {
-        if let retained {
-            Unmanaged.passUnretained(retained).release()
-            self.retained = nil
-        }
     }
 
     @inline(__always)
@@ -307,20 +252,12 @@ public struct _OpenRequestBuffer: Identifiable, CustomStringConvertible {
 
     @inline(__always)
     public func withUnsafeBytes<Result>(_ body: (UnsafeRawBufferPointer) throws -> Result) rethrows -> Result {
-        try body(buffer)
-    }
-
-    @inline(__always)
-    public func withRetainedBytes<Result>(_ body: (UnsafeRetainedRawBuffer) throws -> Result) rethrows -> Result {
-        guard let retained else {
-            fatalError("Trying to get retained buffer for message constructed from unsafe buffer. It's not supported now")
-        }
-        return try body(retained)
+        let ptr = UnsafeRawBufferPointer(start: buffer.memory, count: buffer.capacity)
+        return try body(ptr)
     }
 
     public var description: String {
         """
-
         Message OpenRequest {
             requestIdentifier = \(requestIdentifier)
         \(clientIdentifier != nil ? "    clientIdentifier = \(String(describing: clientIdentifier!))\n" : "")\
@@ -344,18 +281,9 @@ public struct SnapshotDone: Transferable, CustomStringConvertible {
         try value.withUnsafeBytes(body)
     }
 
-    public func withRetainedBytesSerialization<Result>(_ body: (UnsafeRetainedRawBuffer) throws -> Result) rethrows -> Result {
-        try value.withRetainedBytes(body)
-    }
-
     /* Transferable.Deserializable */
     public init(fromSerializedBuffer buffer: UnsafeRawBufferPointer) throws {
-        let copyPtr = UnsafeMutableRawPointer(UnsafeMutablePointer<UInt8>.allocate(capacity: buffer.count))
-        if let baseAddress = buffer.baseAddress {
-            copyPtr.copyMemory(from: baseAddress, byteCount: buffer.count)
-        }
-        let retainedBuffer = UnsafeRetainedRawBuffer(UnsafeRawBufferPointer(start: copyPtr, count: buffer.count))
-        value = .buffer(_SnapshotDoneBuffer(from: retainedBuffer))
+        value = .buffer(_SnapshotDoneBuffer(from: buffer))
     }
 
     public func _releaseBuffer() {
@@ -422,18 +350,6 @@ private enum _SnapshotDoneValue {
         }
     }
 
-    @inline(__always)
-    public func withRetainedBytes<Result>(_ body: (UnsafeRetainedRawBuffer) throws -> Result) rethrows -> Result {
-        switch self {
-        case let .struct(value):
-            return try value.withRetainedBytes(body)
-        case let .buffer(value):
-            return try value.withRetainedBytes(body)
-        default:
-            fatalError("Value has inconsistent state: \(self)")
-        }
-    }
-
     public var description: String {
         switch self {
         case let .struct(value):
@@ -463,11 +379,6 @@ public struct _SnapshotDoneStruct: Identifiable, CustomStringConvertible {
         self.streamIdentifier = streamIdentifier
     }
 
-    public init(from buffer: UnsafeRetainedRawBuffer) {
-        let message = _SnapshotDoneBuffer(from: buffer)
-        streamIdentifier = message.streamIdentifier
-    }
-
     // Identifiable
     public typealias ID = StreamIdentifier
     public var id: StreamIdentifier { streamIdentifier }
@@ -489,23 +400,9 @@ public struct _SnapshotDoneStruct: Identifiable, CustomStringConvertible {
         return try body(buffer)
     }
 
-    @inline(__always)
-    public func withRetainedBytes<Result>(_ body: (UnsafeRetainedRawBuffer) throws -> Result) rethrows -> Result {
-        var fbb = FlatBufferBuilder(initialSize: 1_024)
-        serialize(to: &fbb)
-        let fbbDataSize = Int(fbb.size)
-        let fbbDataPtr = fbb.buffer.memory.advanced(by: fbb.buffer.capacity - fbbDataSize)
-        let copyPtr = UnsafeMutableRawPointer(UnsafeMutablePointer<UInt8>.allocate(capacity: fbbDataSize))
-        copyPtr.copyMemory(from: fbbDataPtr, byteCount: fbbDataSize)
-        let buffer = UnsafeRawBufferPointer(start: copyPtr, count: fbbDataSize)
-        let retainedBuffer = UnsafeRetainedRawBuffer(buffer)
-        return try body(retainedBuffer)
-    }
-
     public var description: String {
         """
-
-        Message SnapshotDone {
+        SnapshotDone {
             streamIdentifier = \(streamIdentifier)
         }
         """
@@ -516,28 +413,15 @@ public struct _SnapshotDoneStruct: Identifiable, CustomStringConvertible {
  Flatbuffers wrapper implementing the protocol for access
  */
 public struct _SnapshotDoneBuffer: Identifiable, CustomStringConvertible {
-    var buffer: UnsafeRawBufferPointer
+    var buffer: ByteBuffer
     var message: DataModel_SnapshotDone
-    var retained: UnsafeRetainedRawBuffer?
-
-    public init(from retained: UnsafeRetainedRawBuffer) {
-        buffer = UnsafeRawBufferPointer(start: retained.data.baseAddress, count: retained.data.count)
-        var bb = ByteBuffer(assumingMemoryBound: UnsafeMutableRawPointer(mutating: buffer.baseAddress!), capacity: buffer.count)
-        message = getRoot(byteBuffer: &bb)
-        self.retained = retained
-    }
 
     public init(from buffer: UnsafeRawBufferPointer) {
-        self.buffer = buffer
-        var bb = ByteBuffer(assumingMemoryBound: UnsafeMutableRawPointer(mutating: buffer.baseAddress!), capacity: buffer.count)
-        message = getRoot(byteBuffer: &bb)
+        self.buffer = ByteBuffer(contiguousBytes: buffer, count: buffer.count)
+        self.message = getRoot(byteBuffer: &self.buffer)
     }
 
     public mutating func _releaseBuffer() {
-        if let retained {
-            Unmanaged.passUnretained(retained).release()
-            self.retained = nil
-        }
     }
 
     @inline(__always)
@@ -551,21 +435,13 @@ public struct _SnapshotDoneBuffer: Identifiable, CustomStringConvertible {
 
     @inline(__always)
     public func withUnsafeBytes<Result>(_ body: (UnsafeRawBufferPointer) throws -> Result) rethrows -> Result {
-        try body(buffer)
-    }
-
-    @inline(__always)
-    public func withRetainedBytes<Result>(_ body: (UnsafeRetainedRawBuffer) throws -> Result) rethrows -> Result {
-        guard let retained else {
-            fatalError("Trying to get retained buffer for message constructed from unsafe buffer. It's not supported now")
-        }
-        return try body(retained)
+        let ptr = UnsafeRawBufferPointer(start: buffer.memory, count: buffer.capacity)
+        return try body(ptr)
     }
 
     public var description: String {
         """
-
-        Message SnapshotDone {
+        SnapshotDone {
             streamIdentifier = \(streamIdentifier)
         }
         """
@@ -587,18 +463,9 @@ public struct Stream: Transferable, CustomStringConvertible {
         try value.withUnsafeBytes(body)
     }
 
-    public func withRetainedBytesSerialization<Result>(_ body: (UnsafeRetainedRawBuffer) throws -> Result) rethrows -> Result {
-        try value.withRetainedBytes(body)
-    }
-
     /* Transferable.Deserializable */
     public init(fromSerializedBuffer buffer: UnsafeRawBufferPointer) throws {
-        let copyPtr = UnsafeMutableRawPointer(UnsafeMutablePointer<UInt8>.allocate(capacity: buffer.count))
-        if let baseAddress = buffer.baseAddress {
-            copyPtr.copyMemory(from: baseAddress, byteCount: buffer.count)
-        }
-        let retainedBuffer = UnsafeRetainedRawBuffer(UnsafeRawBufferPointer(start: copyPtr, count: buffer.count))
-        value = .buffer(_StreamBuffer(from: retainedBuffer))
+        value = .buffer(_StreamBuffer(from: buffer))
     }
 
     public func _releaseBuffer() {
@@ -665,18 +532,6 @@ private enum _StreamValue {
         }
     }
 
-    @inline(__always)
-    public func withRetainedBytes<Result>(_ body: (UnsafeRetainedRawBuffer) throws -> Result) rethrows -> Result {
-        switch self {
-        case let .struct(value):
-            return try value.withRetainedBytes(body)
-        case let .buffer(value):
-            return try value.withRetainedBytes(body)
-        default:
-            fatalError("Value has inconsistent state: \(self)")
-        }
-    }
-
     public var description: String {
         switch self {
         case let .struct(value):
@@ -706,11 +561,6 @@ public struct _StreamStruct: Identifiable, CustomStringConvertible {
         self.streamIdentifier = streamIdentifier
     }
 
-    public init(from buffer: UnsafeRetainedRawBuffer) {
-        let message = _StreamBuffer(from: buffer)
-        streamIdentifier = message.streamIdentifier
-    }
-
     // Identifiable
     public typealias ID = StreamIdentifier
     public var id: StreamIdentifier { streamIdentifier }
@@ -732,23 +582,9 @@ public struct _StreamStruct: Identifiable, CustomStringConvertible {
         return try body(buffer)
     }
 
-    @inline(__always)
-    public func withRetainedBytes<Result>(_ body: (UnsafeRetainedRawBuffer) throws -> Result) rethrows -> Result {
-        var fbb = FlatBufferBuilder(initialSize: 1_024)
-        serialize(to: &fbb)
-        let fbbDataSize = Int(fbb.size)
-        let fbbDataPtr = fbb.buffer.memory.advanced(by: fbb.buffer.capacity - fbbDataSize)
-        let copyPtr = UnsafeMutableRawPointer(UnsafeMutablePointer<UInt8>.allocate(capacity: fbbDataSize))
-        copyPtr.copyMemory(from: fbbDataPtr, byteCount: fbbDataSize)
-        let buffer = UnsafeRawBufferPointer(start: copyPtr, count: fbbDataSize)
-        let retainedBuffer = UnsafeRetainedRawBuffer(buffer)
-        return try body(retainedBuffer)
-    }
-
     public var description: String {
         """
-
-        Message Stream {
+        Stream {
             streamIdentifier = \(streamIdentifier)
         }
         """
@@ -759,28 +595,15 @@ public struct _StreamStruct: Identifiable, CustomStringConvertible {
  Flatbuffers wrapper implementing the protocol for access
  */
 public struct _StreamBuffer: Identifiable, CustomStringConvertible {
-    var buffer: UnsafeRawBufferPointer
+    var buffer: ByteBuffer
     var message: DataModel_Stream
-    var retained: UnsafeRetainedRawBuffer?
-
-    public init(from retained: UnsafeRetainedRawBuffer) {
-        buffer = UnsafeRawBufferPointer(start: retained.data.baseAddress, count: retained.data.count)
-        var bb = ByteBuffer(assumingMemoryBound: UnsafeMutableRawPointer(mutating: buffer.baseAddress!), capacity: buffer.count)
-        message = getRoot(byteBuffer: &bb)
-        self.retained = retained
-    }
 
     public init(from buffer: UnsafeRawBufferPointer) {
-        self.buffer = buffer
-        var bb = ByteBuffer(assumingMemoryBound: UnsafeMutableRawPointer(mutating: buffer.baseAddress!), capacity: buffer.count)
-        message = getRoot(byteBuffer: &bb)
+        self.buffer = ByteBuffer(contiguousBytes: buffer, count: buffer.count)
+        self.message = getRoot(byteBuffer: &self.buffer)
     }
 
     public mutating func _releaseBuffer() {
-        if let retained {
-            Unmanaged.passUnretained(retained).release()
-            self.retained = nil
-        }
     }
 
     @inline(__always)
@@ -794,21 +617,13 @@ public struct _StreamBuffer: Identifiable, CustomStringConvertible {
 
     @inline(__always)
     public func withUnsafeBytes<Result>(_ body: (UnsafeRawBufferPointer) throws -> Result) rethrows -> Result {
-        try body(buffer)
-    }
-
-    @inline(__always)
-    public func withRetainedBytes<Result>(_ body: (UnsafeRetainedRawBuffer) throws -> Result) rethrows -> Result {
-        guard let retained else {
-            fatalError("Trying to get retained buffer for message constructed from unsafe buffer. It's not supported now")
-        }
-        return try body(retained)
+        let ptr = UnsafeRawBufferPointer(start: buffer.memory, count: buffer.capacity)
+        return try body(ptr)
     }
 
     public var description: String {
         """
-
-        Message Stream {
+        Stream {
             streamIdentifier = \(streamIdentifier)
         }
         """
@@ -834,18 +649,9 @@ public struct StreamOpened: Transferable, CustomStringConvertible {
         try value.withUnsafeBytes(body)
     }
 
-    public func withRetainedBytesSerialization<Result>(_ body: (UnsafeRetainedRawBuffer) throws -> Result) rethrows -> Result {
-        try value.withRetainedBytes(body)
-    }
-
     /* Transferable.Deserializable */
     public init(fromSerializedBuffer buffer: UnsafeRawBufferPointer) throws {
-        let copyPtr = UnsafeMutableRawPointer(UnsafeMutablePointer<UInt8>.allocate(capacity: buffer.count))
-        if let baseAddress = buffer.baseAddress {
-            copyPtr.copyMemory(from: baseAddress, byteCount: buffer.count)
-        }
-        let retainedBuffer = UnsafeRetainedRawBuffer(UnsafeRawBufferPointer(start: copyPtr, count: buffer.count))
-        value = .buffer(_StreamOpenedBuffer(from: retainedBuffer))
+        value = .buffer(_StreamOpenedBuffer(from: buffer))
     }
 
     public func _releaseBuffer() {
@@ -924,18 +730,6 @@ private enum _StreamOpenedValue {
         }
     }
 
-    @inline(__always)
-    public func withRetainedBytes<Result>(_ body: (UnsafeRetainedRawBuffer) throws -> Result) rethrows -> Result {
-        switch self {
-        case let .struct(value):
-            return try value.withRetainedBytes(body)
-        case let .buffer(value):
-            return try value.withRetainedBytes(body)
-        default:
-            fatalError("Value has inconsistent state: \(self)")
-        }
-    }
-
     public var description: String {
         switch self {
         case let .struct(value):
@@ -966,12 +760,6 @@ public struct _StreamOpenedStruct: Identifiable, CustomStringConvertible {
         self.requestIdentifier = requestIdentifier
     }
 
-    public init(from buffer: UnsafeRetainedRawBuffer) {
-        let message = _StreamOpenedBuffer(from: buffer)
-        requestIdentifier = message.requestIdentifier
-        streamIdentifier = message.streamIdentifier
-    }
-
     // Identifiable
     public typealias ID = RequestIdentifier
     public var id: RequestIdentifier { requestIdentifier }
@@ -996,23 +784,9 @@ public struct _StreamOpenedStruct: Identifiable, CustomStringConvertible {
         return try body(buffer)
     }
 
-    @inline(__always)
-    public func withRetainedBytes<Result>(_ body: (UnsafeRetainedRawBuffer) throws -> Result) rethrows -> Result {
-        var fbb = FlatBufferBuilder(initialSize: 1_024)
-        serialize(to: &fbb)
-        let fbbDataSize = Int(fbb.size)
-        let fbbDataPtr = fbb.buffer.memory.advanced(by: fbb.buffer.capacity - fbbDataSize)
-        let copyPtr = UnsafeMutableRawPointer(UnsafeMutablePointer<UInt8>.allocate(capacity: fbbDataSize))
-        copyPtr.copyMemory(from: fbbDataPtr, byteCount: fbbDataSize)
-        let buffer = UnsafeRawBufferPointer(start: copyPtr, count: fbbDataSize)
-        let retainedBuffer = UnsafeRetainedRawBuffer(buffer)
-        return try body(retainedBuffer)
-    }
-
     public var description: String {
         """
-
-        Message StreamOpened {
+        StreamOpened {
             requestIdentifier = \(requestIdentifier)
         \(streamIdentifier != nil ? "    streamIdentifier = \(String(describing: streamIdentifier!))\n" : "")\
         }
@@ -1024,28 +798,15 @@ public struct _StreamOpenedStruct: Identifiable, CustomStringConvertible {
  Flatbuffers wrapper implementing the protocol for access
  */
 public struct _StreamOpenedBuffer: Identifiable, CustomStringConvertible {
-    var buffer: UnsafeRawBufferPointer
+    var buffer: ByteBuffer
     var message: DataModel_StreamOpened
-    var retained: UnsafeRetainedRawBuffer?
-
-    public init(from retained: UnsafeRetainedRawBuffer) {
-        buffer = UnsafeRawBufferPointer(start: retained.data.baseAddress, count: retained.data.count)
-        var bb = ByteBuffer(assumingMemoryBound: UnsafeMutableRawPointer(mutating: buffer.baseAddress!), capacity: buffer.count)
-        message = getRoot(byteBuffer: &bb)
-        self.retained = retained
-    }
 
     public init(from buffer: UnsafeRawBufferPointer) {
-        self.buffer = buffer
-        var bb = ByteBuffer(assumingMemoryBound: UnsafeMutableRawPointer(mutating: buffer.baseAddress!), capacity: buffer.count)
-        message = getRoot(byteBuffer: &bb)
+        self.buffer = ByteBuffer(contiguousBytes: buffer, count: buffer.count)
+        self.message = getRoot(byteBuffer: &self.buffer)
     }
 
     public mutating func _releaseBuffer() {
-        if let retained {
-            Unmanaged.passUnretained(retained).release()
-            self.retained = nil
-        }
     }
 
     @inline(__always)
@@ -1064,21 +825,13 @@ public struct _StreamOpenedBuffer: Identifiable, CustomStringConvertible {
 
     @inline(__always)
     public func withUnsafeBytes<Result>(_ body: (UnsafeRawBufferPointer) throws -> Result) rethrows -> Result {
-        try body(buffer)
-    }
-
-    @inline(__always)
-    public func withRetainedBytes<Result>(_ body: (UnsafeRetainedRawBuffer) throws -> Result) rethrows -> Result {
-        guard let retained else {
-            fatalError("Trying to get retained buffer for message constructed from unsafe buffer. It's not supported now")
-        }
-        return try body(retained)
+        let ptr = UnsafeRawBufferPointer(start: buffer.memory, count: buffer.capacity)
+        return try body(ptr)
     }
 
     public var description: String {
         """
-
-        Message StreamOpened {
+        StreamOpened {
             requestIdentifier = \(requestIdentifier)
         \(streamIdentifier != nil ? "    streamIdentifier = \(String(describing: streamIdentifier!))\n" : "")\
         }
@@ -1118,18 +871,9 @@ public struct Monster: Transferable, CustomStringConvertible {
         try value.withUnsafeBytes(body)
     }
 
-    public func withRetainedBytesSerialization<Result>(_ body: (UnsafeRetainedRawBuffer) throws -> Result) rethrows -> Result {
-        try value.withRetainedBytes(body)
-    }
-
     /* Transferable.Deserializable */
     public init(fromSerializedBuffer buffer: UnsafeRawBufferPointer) throws {
-        let copyPtr = UnsafeMutableRawPointer(UnsafeMutablePointer<UInt8>.allocate(capacity: buffer.count))
-        if let baseAddress = buffer.baseAddress {
-            copyPtr.copyMemory(from: baseAddress, byteCount: buffer.count)
-        }
-        let retainedBuffer = UnsafeRetainedRawBuffer(UnsafeRawBufferPointer(start: copyPtr, count: buffer.count))
-        value = .buffer(_MonsterBuffer(from: retainedBuffer))
+        value = .buffer(_MonsterBuffer(from: buffer))
     }
 
     public func _releaseBuffer() {
@@ -1248,18 +992,6 @@ private enum _MonsterValue {
         }
     }
 
-    @inline(__always)
-    public func withRetainedBytes<Result>(_ body: (UnsafeRetainedRawBuffer) throws -> Result) rethrows -> Result {
-        switch self {
-        case let .struct(value):
-            return try value.withRetainedBytes(body)
-        case let .buffer(value):
-            return try value.withRetainedBytes(body)
-        default:
-            fatalError("Value has inconsistent state: \(self)")
-        }
-    }
-
     public var description: String {
         switch self {
         case let .struct(value):
@@ -1295,17 +1027,6 @@ public struct _MonsterStruct: Identifiable, CustomStringConvertible {
         self.identifier = identifier
     }
 
-    public init(from buffer: UnsafeRetainedRawBuffer) {
-        let message = _MonsterBuffer(from: buffer)
-        identifier = message.identifier
-        name = message.name
-        pos = message.pos
-        mana = message.mana
-        hp = message.hp
-        color = message.color
-        inventory = message.inventory
-    }
-
     // Identifiable
     public typealias ID = MonsterIdentifier
     public var id: MonsterIdentifier { identifier }
@@ -1338,19 +1059,6 @@ public struct _MonsterStruct: Identifiable, CustomStringConvertible {
         return try body(buffer)
     }
 
-    @inline(__always)
-    public func withRetainedBytes<Result>(_ body: (UnsafeRetainedRawBuffer) throws -> Result) rethrows -> Result {
-        var fbb = FlatBufferBuilder(initialSize: 1_024)
-        serialize(to: &fbb)
-        let fbbDataSize = Int(fbb.size)
-        let fbbDataPtr = fbb.buffer.memory.advanced(by: fbb.buffer.capacity - fbbDataSize)
-        let copyPtr = UnsafeMutableRawPointer(UnsafeMutablePointer<UInt8>.allocate(capacity: fbbDataSize))
-        copyPtr.copyMemory(from: fbbDataPtr, byteCount: fbbDataSize)
-        let buffer = UnsafeRawBufferPointer(start: copyPtr, count: fbbDataSize)
-        let retainedBuffer = UnsafeRetainedRawBuffer(buffer)
-        return try body(retainedBuffer)
-    }
-
     public var description: String {
         """
         Monster {
@@ -1366,28 +1074,15 @@ public struct _MonsterStruct: Identifiable, CustomStringConvertible {
 }
 
 public struct _MonsterBuffer: Identifiable, CustomStringConvertible {
-    var buffer: UnsafeRawBufferPointer
+    var buffer: ByteBuffer
     var message: DataModel_Monster
-    var retained: UnsafeRetainedRawBuffer?
-
-    public init(from retained: UnsafeRetainedRawBuffer) {
-        buffer = UnsafeRawBufferPointer(start: retained.data.baseAddress, count: retained.data.count)
-        var bb = ByteBuffer(assumingMemoryBound: UnsafeMutableRawPointer(mutating: buffer.baseAddress!), capacity: buffer.count)
-        message = getRoot(byteBuffer: &bb)
-        self.retained = retained
-    }
 
     public init(from buffer: UnsafeRawBufferPointer) {
-        self.buffer = buffer
-        var bb = ByteBuffer(assumingMemoryBound: UnsafeMutableRawPointer(mutating: buffer.baseAddress!), capacity: buffer.count)
-        message = getRoot(byteBuffer: &bb)
+        self.buffer = ByteBuffer(contiguousBytes: buffer, count: buffer.count)
+        self.message = getRoot(byteBuffer: &self.buffer)
     }
 
     public mutating func _releaseBuffer() {
-        if let retained {
-            Unmanaged.passUnretained(retained).release()
-            self.retained = nil
-        }
     }
 
     @inline(__always)
@@ -1431,15 +1126,8 @@ public struct _MonsterBuffer: Identifiable, CustomStringConvertible {
 
     @inline(__always)
     public func withUnsafeBytes<Result>(_ body: (UnsafeRawBufferPointer) throws -> Result) rethrows -> Result {
-        try body(buffer)
-    }
-
-    @inline(__always)
-    public func withRetainedBytes<Result>(_ body: (UnsafeRetainedRawBuffer) throws -> Result) rethrows -> Result {
-        guard let retained else {
-            fatalError("Trying to get retained buffer for message constructed from unsafe buffer. It's not supported now")
-        }
-        return try body(retained)
+        let ptr = UnsafeRawBufferPointer(start: buffer.memory, count: buffer.capacity)
+        return try body(ptr)
     }
 
     public var description: String {

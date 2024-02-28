@@ -2,7 +2,6 @@ import Atomics
 import ConsulServiceDiscovery
 import Distributed
 @testable import DistributedSystem
-@testable import DistributedSystemConformance
 import Logging
 import NIOCore
 @testable import TestMessages
@@ -532,7 +531,7 @@ final class DistributedSystemTests: XCTestCase {
     func testThrowsErrorOnConnectionLostWhenWaitingNonVoidCall() async throws {
         distributed actor TestServiceEndpoint: ServiceEndpoint {
             public typealias ActorSystem = DistributedSystem
-            public typealias SerializationRequirement = DistributedSystemConformance.Transferable
+            public typealias SerializationRequirement = Transferable
 
             public static var serviceName: String { "test_service" }
 
