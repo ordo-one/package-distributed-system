@@ -1,10 +1,9 @@
 import Distributed
 import DistributedSystem
-import DistributedSystemConformance
 
 public distributed actor TestServiceEndpoint: ServiceEndpoint {
     public typealias ActorSystem = DistributedSystem
-    public typealias SerializationRequirement = DistributedSystemConformance.Transferable
+    public typealias SerializationRequirement = Transferable
 
     public static var serviceName: String { "test_service" }
 

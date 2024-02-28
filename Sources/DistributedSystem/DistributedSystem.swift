@@ -12,7 +12,6 @@ import Atomics
 import ConsulServiceDiscovery
 import Dispatch
 import Distributed
-import DistributedSystemConformance
 import Logging
 import PackageConcurrencyHelpers
 import class Helpers.Box
@@ -630,7 +629,6 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         logger.trace("update health status for \(services.count) services")
 
         for serviceID in services {
-            logger.debug("update health status for service \(serviceID)")
             let checkID = "service:\(serviceID)"
             _ = consul.agent.check(checkID, status: .passing)
         }
@@ -655,7 +653,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         _ = channel.writeAndFlush(buffer, promise: promise)
 
         typealias Res = (
-            state: DistributedSystemConformance.ConnectionState,
+            state: ConnectionState,
             actors: [(EndpointIdentifier, AsyncStream<InvocationEnvelope>.Continuation, ManagedAtomic<UInt64>)]
         )
 
@@ -682,7 +680,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
 
         if let res {
-            let stateSize = MemoryLayout<DistributedSystemConformance.ConnectionState.RawValue>.size
+            let stateSize = MemoryLayout<ConnectionState.RawValue>.size
             let bufferSize = ULEB128.size(UInt(stateSize)) + stateSize
             var buffer = ByteBufferAllocator().buffer(capacity: bufferSize)
             buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(UInt(stateSize), to: ptr.baseAddress!) }

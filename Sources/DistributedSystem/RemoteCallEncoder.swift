@@ -1,10 +1,9 @@
 import Distributed
-import DistributedSystemConformance
 import Helpers
 internal import NIOCore
 
 public struct RemoteCallEncoder: DistributedTargetInvocationEncoder {
-    public typealias SerializationRequirement = DistributedSystemConformance.Transferable
+    public typealias SerializationRequirement = Transferable
 
     var genericSubstitutions = [String]()
     var arguments = ByteBufferAllocator().buffer(capacity: 0)

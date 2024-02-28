@@ -1,4 +1,4 @@
-import DistributedSystemConformance
+import DistributedSystem
 
 public protocol TestableService {
     func openStream(byRequest request: OpenRequest) async

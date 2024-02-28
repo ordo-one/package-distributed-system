@@ -1,6 +1,5 @@
 import Distributed
 @testable import DistributedSystem
-@testable import DistributedSystemConformance
 @testable import TestMessages
 import XCTest
 
@@ -10,7 +9,7 @@ fileprivate enum ServiceError: Error {
 
 fileprivate distributed actor TestServiceEndpoint: ServiceEndpoint {
     public typealias ActorSystem = DistributedSystem
-    public typealias SerializationRequirement = DistributedSystemConformance.Transferable
+    public typealias SerializationRequirement = Transferable
 
     static var serviceName: String { "TestActorService" }
 
