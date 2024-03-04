@@ -85,9 +85,9 @@ let package = Package(
                 .product(name: "DateTime", package: "package-datetime"),
                 .product(name: "FlatBuffers", package: "flatbuffers"),
                 .product(name: "Helpers", package: "package-concurrency-helpers"),
-                .product(name: "DateTime", package: "package-datetime"),
             ],
-            path: "Sources/ForTesting/TestMessages/"
+            path: "Sources/ForTesting/TestMessages/",
+            exclude: ["TestMessages.fbs"]
         ),
         .executableTarget(
             name: "TestService",
