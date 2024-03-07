@@ -71,7 +71,6 @@ class ChannelHandler: ChannelInboundHandler {
     func errorCaught(context: ChannelHandlerContext, error: Error) {
         // 2024-02-20T20:14:13.570441+02:00 ERROR ds : [DistributedSystem] nil: network error: read(descriptor:pointer:size:): Operation timed out (errno: 60) ["port": 62871]
         // 2024-03-06T19:45:13.830792+02:00 ERROR ds : [DistributedSystem] nil: network error: read(descriptor:pointer:size:): Connection reset by peer (errno: 54) ["port": 55166]
-        // TODO: provide remote address
         logger.info("Network error: \(error), remote: \((self.address == nil) ? "<unknown>" : address!.description)/\(id), will try to reconnect")
         context.close(promise: nil)
     }
