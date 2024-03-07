@@ -44,7 +44,7 @@ class ChannelHandler: ChannelInboundHandler {
         logger.info("Channel is active, remote: \(context.remoteAddressDescription)/\(id)")
         actorSystem.setChannel(id, context.channel, forProcessAt: address)
         if address == nil {
-            // address is emoty for the server side,
+            // address is empty for the server side,
             // and can be changed after actorSysten.setChannel() call
             address = context.remoteAddress
         }
