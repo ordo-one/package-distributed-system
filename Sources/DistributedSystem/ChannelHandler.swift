@@ -30,7 +30,7 @@ class ChannelHandler: ChannelInboundHandler {
 
     private let id: UInt32
     private let actorSystem: DistributedSystem
-    private let address: SocketAddress?
+    private var address: SocketAddress?
 
     init(_ id: UInt32, _ actorSystem: DistributedSystem, _ address: SocketAddress?) {
         self.id = id
@@ -43,6 +43,11 @@ class ChannelHandler: ChannelInboundHandler {
         // TODO: it would be nice to know "name/type" of remote process
         logger.info("Channel is active, remote: \(context.remoteAddressDescription)/\(id)")
         actorSystem.setChannel(id, context.channel, forProcessAt: address)
+        if address == nil {
+            // address is emoty for the servier side,
+            // and can be changed after actorSysten.setChannel() call
+            address = context.remoteAddress
+        }
     }
 
     func channelInactive(context: ChannelHandlerContext) {
@@ -67,7 +72,7 @@ class ChannelHandler: ChannelInboundHandler {
         // 2024-02-20T20:14:13.570441+02:00 ERROR ds : [DistributedSystem] nil: network error: read(descriptor:pointer:size:): Operation timed out (errno: 60) ["port": 62871]
         // 2024-03-06T19:45:13.830792+02:00 ERROR ds : [DistributedSystem] nil: network error: read(descriptor:pointer:size:): Connection reset by peer (errno: 54) ["port": 55166]
         // TODO: provide remote address
-        logger.info("Network error: \(error), will try to reconnect")
+        logger.info("Network error: \(error), remote: \((self.address == nil) ? "<unknown>" : address!.description)/\(id), will try to reconnect")
         context.close(promise: nil)
     }
 }
