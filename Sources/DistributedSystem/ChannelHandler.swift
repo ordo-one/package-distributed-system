@@ -39,12 +39,16 @@ class ChannelHandler: ChannelInboundHandler {
     }
 
     func channelActive(context: ChannelHandlerContext) {
-        logger.debug("\(context.remoteAddressDescription)/\(id): channel active")
+        // 2024-03-07T12:51:20.589375+02:00 DEBUG ds : [DistributedSystem] [IPv4]192.168.0.9/192.168.0.9:58186/3: channel active ["port": 55056]
+        // TODO: it would be nice to know "name/type" of remote process
+        logger.info("Channel is active, remote: \(context.remoteAddressDescription)/\(id)")
         actorSystem.setChannel(id, context.channel, forProcessAt: address)
     }
 
     func channelInactive(context: ChannelHandlerContext) {
-        logger.debug("\(context.remoteAddressDescription)/\(id): channel inactive")
+        // 2024-03-07T12:48:24.806241+02:00 DEBUG ds : [DistributedSystem] [IPv4]192.168.0.9/192.168.0.9:53019/1: channel inactive ["port": 55056]
+        // TODO: it would be nice to know "name/type" of remote process
+        logger.info("Channel is inactive, remote: \(context.remoteAddressDescription)/\(id)")
         actorSystem.channelInactive(context.channel)
     }
 
@@ -60,7 +64,10 @@ class ChannelHandler: ChannelInboundHandler {
     }
 
     func errorCaught(context: ChannelHandlerContext, error: Error) {
-        logger.info("\(String(describing: context.remoteAddress)): network error: \(error)")
+        // 2024-02-20T20:14:13.570441+02:00 ERROR ds : [DistributedSystem] nil: network error: read(descriptor:pointer:size:): Operation timed out (errno: 60) ["port": 62871]
+        // 2024-03-06T19:45:13.830792+02:00 ERROR ds : [DistributedSystem] nil: network error: read(descriptor:pointer:size:): Connection reset by peer (errno: 54) ["port": 55166]
+        // TODO: provide remote address
+        logger.info("Network error: \(error), will try to reconnect")
         context.close(promise: nil)
     }
 }
