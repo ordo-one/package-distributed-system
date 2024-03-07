@@ -60,7 +60,7 @@ class ChannelHandler: ChannelInboundHandler {
     }
 
     func errorCaught(context: ChannelHandlerContext, error: Error) {
-        logger.debug("\(String(describing: context.remoteAddress)): network error: \(error)")
+        logger.info("\(String(describing: context.remoteAddress)): network error: \(error)")
         context.close(promise: nil)
     }
 }
