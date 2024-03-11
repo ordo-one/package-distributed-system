@@ -97,9 +97,9 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     public var loggerBox = Box<Logger>(Logger(label: "ds"))
     public var logger: Logger { loggerBox.value }
 
-    private static let endpointQueueWarningSize: UInt64 = (1024 * 1024)
-    private static let endpointQueueHighWatermark: UInt64 = (10 * 1024 * 1024)
-    private static let endpointQueueLowWatermark: UInt64 = (1024 * 1024)
+    var endpointQueueWarningSize: UInt64 = (1024 * 1024)
+    var endpointQueueHighWatermark: UInt64 = (10 * 1024 * 1024)
+    var endpointQueueLowWatermark: UInt64 = (1024 * 1024)
     private static let endpointQueueSuspendIndicator: UInt64 = 0x8000_0000_0000_0000
     private static let endpointQueueSizeBits: Int = (UInt64.bitWidth - 8)
 
@@ -248,27 +248,29 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(UInt(serviceName.count), to: ptr.baseAddress!) }
         buffer.writeString(serviceName)
         buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(instanceID, to: ptr.baseAddress!) }
-        logger.debug("\(channel.remoteAddressDescription): send create \(serviceName) \(instanceID)")
+        logger.debug("\(channel.remoteAddressDescription): send create \(serviceName) \(EndpointIdentifier.instanceIdentifierDescription(instanceID))")
         _ = channel.writeAndFlush(buffer, promise: nil)
     }
 
-    private func sendSuspendEndpoint(_ instanceID: EndpointIdentifier.InstanceIdentifier, to channel: Channel) {
-        let payloadSize = MemoryLayout<SessionMessage.RawValue>.size + MemoryLayout<EndpointIdentifier.InstanceIdentifier>.size
+    private func sendSuspendEndpoint(_ endpointID: EndpointIdentifier, to channel: Channel) {
+        let instanceID = endpointID.instanceID
+        let payloadSize = MemoryLayout<SessionMessage.RawValue>.size + ULEB128.size(instanceID)
         var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt32>.size + payloadSize)
         buffer.writeInteger(UInt32(payloadSize))
         buffer.writeInteger(SessionMessage.suspendEndpoint.rawValue)
         buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(instanceID, to: ptr.baseAddress!) }
-        logger.debug("\(channel.remoteAddressDescription): send suspend endpoint \(instanceID)")
+        logger.debug("\(channel.remoteAddressDescription): send suspend endpoint \(endpointID)")
         _ = channel.writeAndFlush(buffer, promise: nil)
     }
 
-    private func sendResumeEndpoint(_ instanceID: EndpointIdentifier.InstanceIdentifier, to channel: Channel) {
-        let payloadSize = MemoryLayout<SessionMessage.RawValue>.size + MemoryLayout<EndpointIdentifier.InstanceIdentifier>.size
+    private func sendResumeEndpoint(_ endpointID: EndpointIdentifier, to channel: Channel) {
+        let instanceID = endpointID.instanceID
+        let payloadSize = MemoryLayout<SessionMessage.RawValue>.size + ULEB128.size(instanceID)
         var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt32>.size + payloadSize)
         buffer.writeInteger(UInt32(payloadSize))
         buffer.writeInteger(SessionMessage.resumeEndpoint.rawValue)
         buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(instanceID, to: ptr.baseAddress!) }
-        logger.debug("\(channel.remoteAddressDescription): send resume endpoint \(instanceID)")
+        logger.debug("\(channel.remoteAddressDescription): send resume endpoint \(endpointID)")
         _ = channel.writeAndFlush(buffer, promise: nil)
     }
 
@@ -856,7 +858,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                         let queueSize = ManagedAtomic<UInt64>(0)
                         let sfrc = ActorInfo.Inbound(remoteClient.channel, continuation, queueSize)
                         self.actors[actor.id] = .serviceForRemoteClient(sfrc)
-                        Task { await self.streamTask(stream, actor.id.instanceID, actor, remoteClient.channel, queueSize) }
+                        Task { await self.streamTask(stream, actor.id, actor, remoteClient.channel, queueSize) }
                     default:
                         fatalError("Internal error: unexpected actor state \(actorInfo)")
                     }
@@ -1127,16 +1129,16 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         lock.withLockVoid {
             let actorInfo = self.actors[endpointID]
             guard let actorInfo else {
-                logger.error("Internal error: suspend unknown enpoint \(endpointID)")
+                logger.error("internal error: suspend unknown enpoint \(endpointID)")
                 return
             }
             switch actorInfo {
             case var .remoteClient(remoteClient):
                 if remoteClient.suspended {
-                    logger.error("Internal error: endpoint \(endpointID) already suspended")
+                    logger.error("internal error: endpoint \(endpointID) already suspended")
                 } else {
                     if !remoteClient.continuations.isEmpty {
-                        logger.error("Internal error: not suspended endpoint \(endpointID) has \(remoteClient.continuations.count) continuations")
+                        logger.error("internal error: not suspended endpoint \(endpointID) has \(remoteClient.continuations.count) continuations")
                     }
                     logger.debug("suspend enpoint \(endpointID)")
                     remoteClient.suspended = true
@@ -1144,17 +1146,17 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 }
             case var .remoteService(remoteService):
                 if remoteService.suspended {
-                    logger.error("Internal error: endpoint \(endpointID) already suspended")
+                    logger.error("internal error: endpoint \(endpointID) already suspended")
                 } else {
                     if !remoteService.continuations.isEmpty {
-                        logger.error("Internal error: not suspended endpoint \(endpointID) has \(remoteService.continuations.count) continuations")
+                        logger.error("internal error: not suspended endpoint \(endpointID) has \(remoteService.continuations.count) continuations")
                     }
-                    logger.debug("resume endpoint \(endpointID)")
+                    logger.debug("suspend endpoint \(endpointID)")
                     remoteService.suspended = true
                     self.actors[endpointID] = .remoteService(remoteService)
                 }
             default:
-                logger.error("Internal error: suspend enpoint \(endpointID) \(actorInfo)")
+                logger.error("internal error: suspend enpoint \(endpointID) \(actorInfo)")
             }
         }
     }
@@ -1176,7 +1178,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     remoteClient.continuations = []
                     self.actors[endpointID] = .remoteClient(remoteClient)
                 } else {
-                    logger.error("Internal error: endpoint \(endpointID) not suspended")
+                    logger.error("internal error: endpoint \(endpointID) not suspended")
                 }
             case var .remoteService(remoteService):
                 if remoteService.suspended {
@@ -1185,10 +1187,10 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     remoteService.continuations = []
                     self.actors[endpointID] = .remoteService(remoteService)
                 } else {
-                    logger.error("Internal error: endpoint \(endpointID) not suspended")
+                    logger.error("internal error: endpoint \(endpointID) not suspended")
                 }
             default:
-                logger.error("Internal error: resume endpoint \(endpointID) \(actorInfo)")
+                logger.error("internal error: resume endpoint \(endpointID) \(actorInfo)")
             }
 
             return continuations
@@ -1203,7 +1205,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     }
 
     private func streamTask(_ stream: AsyncStream<InvocationEnvelope>,
-                            _ instanceID: EndpointIdentifier.InstanceIdentifier,
+                            _ endpointID: EndpointIdentifier,
                             _ actor: any DistributedActor,
                             _ channel: Channel,
                             _ queueState: ManagedAtomic<UInt64>) async {
@@ -1247,13 +1249,13 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 assert(oldSize >= envelope.size)
                 var newState = (oldState - envelope.size)
                 let newSize = (newState & sizeMask)
-                if (newSize < Self.endpointQueueLowWatermark) && (oldSize >= Self.endpointQueueLowWatermark) && ((oldState & Self.endpointQueueSuspendIndicator) != 0) {
+                if (newSize < endpointQueueLowWatermark) && (oldSize >= endpointQueueLowWatermark) && ((oldState & Self.endpointQueueSuspendIndicator) != 0) {
                     newState -= Self.endpointQueueSuspendIndicator
                 }
                 let (exchanged, original) = queueState.compareExchange(expected: oldState, desired: newState, ordering: .relaxed)
                 if exchanged {
                     if ((oldState & Self.endpointQueueSuspendIndicator) != 0) && ((newState & Self.endpointQueueSuspendIndicator) == 0) {
-                        sendResumeEndpoint(instanceID, to: channel)
+                        sendResumeEndpoint(endpointID, to: channel)
                     }
                     break
                 }
@@ -1289,7 +1291,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 let queueState = ManagedAtomic<UInt64>(0)
                 let inbound = ActorInfo.Inbound(channel, continuation, queueState)
                 self.actors[endpointID] = .clientForRemoteService(inbound)
-                Task { await self.streamTask(stream, endpointID.instanceID, actor, channel, queueState) }
+                Task { await self.streamTask(stream, endpointID, actor, channel, queueState) }
                 return (continuation, queueState)
             case let .serviceForRemoteClient(inbound):
                 return (inbound.continuation, inbound.queueState)
@@ -1314,14 +1316,14 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             var newState = (oldState + envelope.size)
             let oldSize = (oldState & sizeMask)
             let newSize = (newState & sizeMask)
-            let warningSize = (Self.endpointQueueWarningSize << ((oldState >> sizeBits) & 0x7F))
+            let warningSize = (endpointQueueWarningSize << ((oldState >> sizeBits) & 0x7F))
             var logWarning = false
             if (oldSize < warningSize) && (newSize >= warningSize) {
                 newState += (UInt64(1) << sizeBits)
                 logWarning = true
             }
             var suspendEndpoint = false
-            if (oldSize < Self.endpointQueueHighWatermark) && (newSize >= Self.endpointQueueHighWatermark) && ((oldState & Self.endpointQueueSuspendIndicator) == 0) {
+            if (oldSize < endpointQueueHighWatermark) && (newSize >= endpointQueueHighWatermark) && ((oldState & Self.endpointQueueSuspendIndicator) == 0) {
                 newState |= Self.endpointQueueSuspendIndicator
                 suspendEndpoint = true
             }
@@ -1333,7 +1335,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     logger.debug("Input queue size for \(endpointID) reached \(newSize) bytes")
                 }
                 if suspendEndpoint {
-                    sendSuspendEndpoint(endpointID.instanceID, to: channel)
+                    sendSuspendEndpoint(endpointID, to: channel)
                 }
                 break
             }
