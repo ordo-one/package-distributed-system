@@ -20,6 +20,11 @@ public struct EndpointIdentifier: Hashable, Codable, CustomStringConvertible {
         return "\(side):\(channelID):\(instanceID >> 1)"
     }
 
+    static func instanceIdentifierDescription(_ instanceID: InstanceIdentifier) -> String {
+        let side = ((instanceID & Self.serviceFlag) == 0) ? "C" : "S"
+        return "\(side):X:\(instanceID >> 1)"
+    }
+
     init(_ channelID: UInt32, _ instanceID: InstanceIdentifier) {
         self.channelID = channelID
         self.instanceID = instanceID

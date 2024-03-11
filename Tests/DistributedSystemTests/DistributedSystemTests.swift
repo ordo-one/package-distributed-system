@@ -832,4 +832,89 @@ final class DistributedSystemTests: XCTestCase {
 
         serverSystem.stop()
     }
+
+    func testSuspendClientEndpoint() async throws {
+        // client send many requests while service slowly process them
+
+        distributed actor TestServiceEndpoint: ServiceEndpoint {
+            typealias ActorSystem = DistributedSystem
+            typealias SerializationRequirement = Transferable
+
+            static var serviceName: String { "test_service" }
+
+            private var requests: Int
+            private let continuation: AsyncStream<Void>.Continuation
+
+            init(_ actorSystem: DistributedSystem, _ requests: Int, _ continuation: AsyncStream<Void>.Continuation) {
+                self.actorSystem = actorSystem
+                self.requests = requests
+                self.continuation = continuation
+            }
+
+            distributed func openStream() async throws {
+                self.requests -= 1
+                if self.requests == 0 {
+                    continuation.yield()
+                }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+
+            distributed func handleConnectionState(_ state: ConnectionState) async throws {
+            }
+        }
+
+        distributed actor TestClientEndpoint: ClientEndpoint {
+            typealias ActorSystem = DistributedSystem
+            typealias SerializationRequirement = Transferable
+
+            distributed func handleConnectionState(_ state: ConnectionState) async throws {
+            }
+        }
+
+        let processInfo = ProcessInfo.processInfo
+        let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
+
+        // let run test for 3 seconds
+        let requests = 150
+
+        var continuation: AsyncStream<Void>.Continuation?
+        let stream = AsyncStream<Void>() { continuation = $0 }
+        guard let continuation else { fatalError("continuation unexpectedly nil") }
+
+        let moduleID = DistributedSystem.ModuleIdentifier(1)
+        let serverSystem = DistributedSystemServer(name: systemName)
+
+        // each invocation envelope is about 100 bytes,
+        // will trigger suspend/resume few times per test
+        serverSystem.endpointQueueHighWatermark = (2 * 1024)
+        serverSystem.endpointQueueLowWatermark = 1024
+
+        try await serverSystem.start()
+        try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+            TestServiceEndpoint(actorSystem, requests, continuation)
+        }
+
+        let clientSystem = DistributedSystem(name: systemName)
+        try clientSystem.start()
+
+        let serviceEndpoint = try await clientSystem.connectToService(
+            TestServiceEndpoint.self,
+            withFilter: { _ in true },
+            clientFactory: { actorSystem in
+                TestClientEndpoint(actorSystem: actorSystem)
+            }
+        )
+
+        for _ in 0..<5 {
+            for _ in 0..<30 {
+                try await serviceEndpoint.openStream()
+            }
+            try await Task.sleep(for: .milliseconds(600))
+        }
+
+        for await _ in stream { break }
+
+        serverSystem.stop()
+        clientSystem.stop()
+    }
 }
