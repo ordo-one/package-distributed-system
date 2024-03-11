@@ -1140,7 +1140,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     if !remoteClient.continuations.isEmpty {
                         logger.error("internal error: not suspended endpoint \(endpointID) has \(remoteClient.continuations.count) continuations")
                     }
-                    logger.debug("suspend enpoint \(endpointID)")
+                    logger.debug("suspend endpoint \(endpointID)")
                     remoteClient.suspended = true
                     self.actors[endpointID] = .remoteClient(remoteClient)
                 }
@@ -1156,7 +1156,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     self.actors[endpointID] = .remoteService(remoteService)
                 }
             default:
-                logger.error("internal error: suspend enpoint \(endpointID) \(actorInfo)")
+                logger.error("internal error: suspend endpoint \(endpointID) \(actorInfo)")
             }
         }
     }
