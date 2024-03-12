@@ -62,13 +62,11 @@ public class DistributedSystemServer: DistributedSystem {
         guard let port = localAddress.port else {
             fatalError("Unsupported socket address type")
         }
-        let deregisterTimeout = "\(criticalServiceDeregisterTimeout.nanoseconds / Self.nanosecondsInSecond)s"
-        let ttl = "\(healthStatusTTL.nanoseconds / Self.nanosecondsInSecond)s"
         let check = Check(checkID: "service:\(serviceID)",
-                          deregisterCriticalServiceAfter: deregisterTimeout,
+                          deregisterCriticalServiceAfter: "\(criticalServiceDeregisterTimeout.nanoseconds / Self.nanosecondsInSecond)s",
                           name: "service:\(serviceID)",
                           status: .passing,
-                          ttl: ttl)
+                          ttl: "\(healthStatusTTL.nanoseconds / Self.nanosecondsInSecond)s")
         let service = Service(checks: [check], id: "\(serviceID)", meta: metadata, name: serviceName, port: port)
         return consul.agent.registerService(service)
     }
