@@ -206,7 +206,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         syncCallManager = SyncCallManager(loggerBox)
 
         // loggerBox.value.logLevel = .debug
-        // Consul.logger.logLevel = .debug
+        // consul.logLevel = .debug
     }
 
     deinit {
@@ -613,31 +613,15 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
     func addService(_ serviceName: String,
                     _ metadata: [String: String],
-                    _ factory: @escaping ServiceFactory) -> UUID {
+                    _ factory: @escaping ServiceFactory) -> (UUID, Bool) {
         let serviceID = UUID()
-        let service = NodeService(serviceID: "\(serviceID.uuidString)", serviceMeta: metadata, serviceName: serviceName)
+        let service = NodeService(serviceID: "\(serviceID)", serviceMeta: metadata, serviceName: serviceName)
         let updateHealthStatus = discoveryManager.addService(serviceName, serviceID, service, factory)
-        if updateHealthStatus {
-            let eventLoop = eventLoopGroup.next()
-            eventLoop.scheduleTask(in: DistributedSystemServer.healthStatusUpdateInterval) {
-                self.updateHealthStatus(with: eventLoop)
-            }
-        }
-        return serviceID
+        return (serviceID, updateHealthStatus)
     }
 
-    private func updateHealthStatus(with eventLoop: EventLoop) {
-        let services = discoveryManager.getLocalServices()
-        logger.trace("update health status for \(services.count) services")
-
-        for serviceID in services {
-            let checkID = "service:\(serviceID)"
-            _ = consul.agent.check(checkID, status: .passing)
-        }
-
-        eventLoop.scheduleTask(in: DistributedSystemServer.healthStatusUpdateInterval) {
-            self.updateHealthStatus(with: eventLoop)
-        }
+    func getLocalServices() -> [NodeService] {
+        discoveryManager.getLocalServices()
     }
 
     private func sendPing(to channel: Channel, with eventLoop: EventLoop) {

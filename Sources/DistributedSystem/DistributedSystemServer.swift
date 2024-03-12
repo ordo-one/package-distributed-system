@@ -7,6 +7,7 @@
 // http://www.apache.org/licenses/LICENSE-2.0
 
 import ConsulServiceDiscovery
+internal import enum NIOHTTP1.HTTPResponseStatus
 internal import class Foundation.ProcessInfo
 internal import struct Foundation.UUID
 import Logging
@@ -15,11 +16,13 @@ internal import NIOPosix
 import class ServiceDiscovery.CancellationToken
 
 public class DistributedSystemServer: DistributedSystem {
-    static let healthStatusUpdateInterval = TimeAmount.seconds(10)
-    static let healthStatusTTL = "15s"
-
     private var localAddress: SocketAddress!
     private var serviceDiscoveryCancellationToken: ServiceDiscovery.CancellationToken?
+
+    private static let nanosecondsInSecond: Int64 = 1_000_000_000
+    let criticalServiceDeregisterTimeout = TimeAmount.seconds(60) // minimum in Consul is 60 seconds
+    var healthStatusUpdateInterval = TimeAmount.seconds(10)
+    var healthStatusTTL = TimeAmount.seconds(15)
 
     public func start(at address: NetworkAddress = NetworkAddress.anyAddress) async throws {
         try super.start()
@@ -49,7 +52,7 @@ public class DistributedSystemServer: DistributedSystem {
         logger.debug("starting server '\(systemName)' @ \(portNumber)")
     }
 
-    private func registerService(_ serviceName: String, _ serviceID: UUID, metadata: [String: String]) async throws {
+    private func registerService(_ serviceName: String, _ serviceID: UUID, metadata: [String: String]) -> EventLoopFuture<Void> {
         // Use TTL type service health check
         // One could think we could use TCP,
         // but it is not a good idea when register services with dynamically allocated ports.
@@ -59,10 +62,15 @@ public class DistributedSystemServer: DistributedSystem {
         guard let port = localAddress.port else {
             fatalError("Unsupported socket address type")
         }
-        let check = Check(checkID: "service:\(serviceID)", deregisterCriticalServiceAfter: "1m", status: .passing, ttl: Self.healthStatusTTL)
+        let deregisterTimeout = "\(criticalServiceDeregisterTimeout.nanoseconds / Self.nanosecondsInSecond)s"
+        let ttl = "\(healthStatusTTL.nanoseconds / Self.nanosecondsInSecond)s"
+        let check = Check(checkID: "service:\(serviceID)",
+                          deregisterCriticalServiceAfter: deregisterTimeout,
+                          name: "service:\(serviceID)",
+                          status: .passing,
+                          ttl: ttl)
         let service = Service(checks: [check], id: "\(serviceID)", meta: metadata, name: serviceName, port: port)
-        let registerFuture = consul.agent.registerService(service)
-        try await registerFuture.get()
+        return consul.agent.registerService(service)
     }
 
     override public func stop() {
@@ -80,6 +88,39 @@ public class DistributedSystemServer: DistributedSystem {
         try await addService(name: type.serviceName, toModule: moduleID, metadata: metadata, factory)
     }
 
+    private func updateHealthStatus(with eventLoop: EventLoop) {
+        let services = getLocalServices()
+        logger.debug("update health status for \(services.count) services")
+
+        for service in services {
+            let checkID = "service:\(service.serviceID)"
+            let future = consul.agent.check(checkID, status: .passing)
+            future.whenFailure { error in
+                if let error = error as? ConsulError,
+                   case let .httpResponseError(status) = error,
+                   case status = HTTPResponseStatus.notFound {
+                    if let serviceName = service.serviceName,
+                       let serviceID = UUID(uuidString: service.serviceID) {
+                        self.logger.error("check '\(checkID)' failed: \(error), register service again")
+                        let serviceMeta = service.serviceMeta ?? [:]
+                        let future = self.registerService(serviceName, serviceID, metadata: serviceMeta)
+                        future.whenFailure { error in
+                            self.logger.error("failed to register service \(serviceName)/\(serviceID): \(error)")
+                        }
+                    } else {
+                        self.logger.error("check '\(checkID)' failed: \(error), can't register service \(service)")
+                    }
+                } else {
+                    self.logger.error("check '\(checkID)' failed: \(error)")
+                }
+            }
+        }
+
+        eventLoop.scheduleTask(in: healthStatusUpdateInterval) {
+            self.updateHealthStatus(with: eventLoop)
+        }
+    }
+
     public func addService(name: String,
                            toModule moduleID: ModuleIdentifier,
                            metadata: [String: String]? = nil,
@@ -88,7 +129,14 @@ public class DistributedSystemServer: DistributedSystem {
         metadata[ServiceMetadata.systemName.rawValue] = systemName
         metadata[ServiceMetadata.processIdentifier.rawValue] = String(ProcessInfo.processInfo.processIdentifier)
         metadata[ServiceMetadata.moduleIdentifier.rawValue] = String(moduleID.rawValue)
-        let serviceID = super.addService(name, metadata, factory)
-        try await registerService(name, serviceID, metadata: metadata)
+        let (serviceID, updateHealthStatus) = super.addService(name, metadata, factory)
+        let future = registerService(name, serviceID, metadata: metadata)
+        try await future.get()
+        if updateHealthStatus {
+            let eventLoop = eventLoopGroup.next()
+            eventLoop.scheduleTask(in: healthStatusUpdateInterval) {
+                self.updateHealthStatus(with: eventLoop)
+            }
+        }
     }
 }
