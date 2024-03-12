@@ -613,7 +613,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
     func addService(_ serviceName: String,
                     _ metadata: [String: String],
-                    _ factory: @escaping ServiceFactory) -> (UUID, Bool) {
+                    _ factory: @escaping ServiceFactory) -> (serviceID: UUID, updateHealthStatus: Bool) {
         let serviceID = UUID()
         let service = NodeService(serviceID: "\(serviceID)", serviceMeta: metadata, serviceName: serviceName)
         let updateHealthStatus = discoveryManager.addService(serviceName, serviceID, service, factory)
