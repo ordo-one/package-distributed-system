@@ -917,4 +917,44 @@ final class DistributedSystemTests: XCTestCase {
         serverSystem.stop()
         clientSystem.stop()
     }
+
+    // Test implemented to validate service reregister functionality if
+    // health check update fails. The minimum time in Consul for critical
+    // service removal is 1 minute.
+    // Let's run test only manually to avoid long tests run.
+    func testReRegisterServiceIfCheckFails() async throws {
+        let processInfo = ProcessInfo.processInfo
+        let runReRegisterServiceTestEnv = "RUN_REREGISTER_SERVICE_TEST"
+        guard let runReRegisterServiceTest = processInfo.environment[runReRegisterServiceTestEnv],
+              let runReRegisterServiceTest = Bool(runReRegisterServiceTest.lowercased()),
+              runReRegisterServiceTest else {
+            throw XCTSkip("set \(runReRegisterServiceTestEnv) environment variable to run it")
+        }
+
+        distributed actor TestServiceEndpoint: ServiceEndpoint {
+            public typealias ActorSystem = DistributedSystem
+            public typealias SerializationRequirement = Transferable
+
+            public static var serviceName: String { "test_service" }
+
+            public distributed func handleConnectionState(_ state: ConnectionState) async throws {
+                // do nothing
+            }
+        }
+
+        let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
+
+        let moduleID = DistributedSystem.ModuleIdentifier(1)
+        let serverSystem = DistributedSystemServer(name: systemName)
+
+        serverSystem.healthStatusUpdateInterval = TimeAmount.seconds(90)
+        serverSystem.healthStatusTTL = TimeAmount.seconds(5)
+
+        try await serverSystem.start()
+        try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+            TestServiceEndpoint(actorSystem: actorSystem)
+        }
+
+        try await Task.sleep(for: .seconds(180))
+    }
 }

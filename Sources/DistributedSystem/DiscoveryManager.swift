@@ -304,13 +304,13 @@ final class DiscoveryManager {
         }
     }
 
-    func getLocalServices() -> [UUID] {
+    func getLocalServices() -> [NodeService] {
         lock.withLock {
-            var services: [UUID] = []
+            var services: [NodeService] = []
             for (_, discoveryInfo) in self.discoveries {
-                for (serviceID, serviceInfo) in discoveryInfo.services {
+                for serviceInfo in discoveryInfo.services.values {
                     if case .local = serviceInfo.address {
-                        services.append(serviceID)
+                        services.append(serviceInfo.service)
                     }
                 }
             }
