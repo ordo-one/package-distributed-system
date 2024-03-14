@@ -31,18 +31,26 @@ class ChannelHandler: ChannelInboundHandler {
     private let id: UInt32
     private let actorSystem: DistributedSystem
     private var address: SocketAddress?
+    private var writeBufferHighWatermark: Int
 
-    init(_ id: UInt32, _ actorSystem: DistributedSystem, _ address: SocketAddress?) {
+    init(_ id: UInt32, _ actorSystem: DistributedSystem, _ address: SocketAddress?, _ writeBufferHighWatermark: UInt64) {
         self.id = id
         self.actorSystem = actorSystem
         self.address = address
+        self.writeBufferHighWatermark = Int(writeBufferHighWatermark)
     }
 
     func channelActive(context: ChannelHandlerContext) {
         // 2024-03-07T12:51:20.589375+02:00 DEBUG ds : [DistributedSystem] [IPv4]192.168.0.9/192.168.0.9:58186/3: channel active ["port": 55056]
         // TODO: it would be nice to know "name/type" of remote process
         logger.info("Channel is active, remote: \(context.remoteAddressDescription)/\(id)")
-        actorSystem.setChannel(id, context.channel, forProcessAt: address)
+
+        let channel = context.channel
+
+        let writeBufferWaterMark = ChannelOptions.Types.WriteBufferWaterMark(low: writeBufferHighWatermark/2, high: writeBufferHighWatermark)
+        _ = channel.setOption(ChannelOptions.writeBufferWaterMark, value: writeBufferWaterMark)
+
+        actorSystem.setChannel(id, channel, forProcessAt: address)
         if address == nil {
             // address is empty for the server side,
             // and can be changed after actorSysten.setChannel() call
@@ -73,6 +81,17 @@ class ChannelHandler: ChannelInboundHandler {
         // 2024-03-06T19:45:13.830792+02:00 ERROR ds : [DistributedSystem] nil: network error: read(descriptor:pointer:size:): Connection reset by peer (errno: 54) ["port": 55166]
         logger.info("Network error: \(error), remote: \((self.address == nil) ? "<unknown>" : address!.description)/\(id), will try to reconnect")
         context.close(promise: nil)
+    }
+
+    func channelWritabilityChanged(context: ChannelHandlerContext) {
+        let channel = context.channel
+        if !channel.isWritable {
+            logger.warning("Outbound queue size for \(channel.remoteAddressDescription) reached \(writeBufferHighWatermark) bytes")
+            writeBufferHighWatermark *= 2
+
+            let writeBufferWaterMark = ChannelOptions.Types.WriteBufferWaterMark(low: writeBufferHighWatermark/2, high: writeBufferHighWatermark)
+            _ = channel.setOption(ChannelOptions.writeBufferWaterMark, value: writeBufferWaterMark)
+        }
     }
 }
 

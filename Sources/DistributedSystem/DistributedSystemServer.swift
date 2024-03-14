@@ -32,7 +32,7 @@ public class DistributedSystemServer: DistributedSystem {
             .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .childChannelInitializer { channel in
                 channel.pipeline.addHandler(ByteToMessageHandler(StreamDecoder(self.loggerBox))).flatMap { _ in
-                    channel.pipeline.addHandler(ChannelHandler(self.nextChannelID, self, nil))
+                    channel.pipeline.addHandler(ChannelHandler(self.nextChannelID, self, nil, self.endpointQueueWarningSize))
                 }
             }
             .bind(host: address.host, port: address.port)
