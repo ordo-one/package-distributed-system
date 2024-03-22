@@ -193,11 +193,11 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     @TaskLocal
     private static var actorID: ActorID? // supposed to be private, but need to make it internal for tests
 
-    public convenience init(systemName: String, logLevel: Logger.Level? = nil) {
+    public convenience init(systemName: String, logLevel: Logger.Level = .debug) {
         self.init(name: systemName, logLevel: logLevel)
     }
 
-    public init(name: String, logLevel: Logger.Level? = nil) {
+    public init(name: String, logLevel: Logger.Level = .debug) {
         systemName = name
         eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 2)
         consul = Consul()
@@ -205,10 +205,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         discoveryManager = DiscoveryManager(loggerBox)
         syncCallManager = SyncCallManager(loggerBox)
 
-        if let logLevel {
-            loggerBox.value.logLevel = logLevel
-            consul.logLevel = logLevel
-        }
+        loggerBox.value.logLevel = logLevel
+        consul.logLevel = logLevel
     }
 
     deinit {

@@ -88,7 +88,7 @@ public class DistributedSystemServer: DistributedSystem {
 
     private func updateHealthStatus(with eventLoop: EventLoop) {
         let services = getLocalServices()
-        logger.debug("update health status for \(services.count) services")
+        logger.trace("update health status for \(services.count) services")
 
         for service in services {
             let checkID = "service:\(service.serviceID)"
