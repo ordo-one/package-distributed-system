@@ -193,11 +193,11 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     @TaskLocal
     private static var actorID: ActorID? // supposed to be private, but need to make it internal for tests
 
-    public convenience init(systemName: String) {
-        self.init(name: systemName)
+    public convenience init(systemName: String, logLevel: Logger.Level = .debug) {
+        self.init(name: systemName, logLevel: logLevel)
     }
 
-    public init(name: String) {
+    public init(name: String, logLevel: Logger.Level = .debug) {
         systemName = name
         eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 2)
         consul = Consul()
@@ -205,8 +205,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         discoveryManager = DiscoveryManager(loggerBox)
         syncCallManager = SyncCallManager(loggerBox)
 
-        // loggerBox.value.logLevel = .debug
-        // consul.logLevel = .debug
+        loggerBox.value.logLevel = logLevel
+        consul.logLevel = logLevel
     }
 
     deinit {
@@ -225,7 +225,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .channelInitializer { channel in
                 channel.pipeline.addHandler(ByteToMessageHandler(StreamDecoder(self.loggerBox))).flatMap { _ in
-                    channel.pipeline.addHandler(ChannelHandler(self.nextChannelID, self, address))
+                    channel.pipeline.addHandler(ChannelHandler(self.nextChannelID, self, address, self.endpointQueueWarningSize))
                 }
             }
             .connect(to: address)
