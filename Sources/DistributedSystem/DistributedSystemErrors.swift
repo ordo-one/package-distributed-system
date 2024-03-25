@@ -18,6 +18,7 @@ public enum DistributedSystemErrors: DistributedActorSystemError {
     case connectionLost
     case unknownActor(EndpointIdentifier)
     case invalidActorState(String)
+    case cancelled(String)
 }
 
 public enum StreamErrors: DistributedActorSystemError {

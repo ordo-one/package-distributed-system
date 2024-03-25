@@ -552,7 +552,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 }
 
                 guard monitor.setValue(continuation) else {
-                    continuation.resume(throwing: DistributedSystemErrors.error("Cancelled"))
+                    continuation.resume(throwing: DistributedSystemErrors.cancelled("\(S.self)"))
                     return
                 }
 
@@ -573,14 +573,14 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 )
 
                 if !started {
-                    continuation.resume(throwing: DistributedSystemErrors.error("Cancelled"))
+                    continuation.resume(throwing: DistributedSystemErrors.cancelled("\(S.self)"))
                 }
             }
         } onCancel: {
             let continuation = monitor.cancel()
             if let continuation {
                 if cancellationToken.cancel() {
-                    continuation.resume(throwing: DistributedSystemErrors.error("Cancelled"))
+                    continuation.resume(throwing: DistributedSystemErrors.cancelled("\(S.self)"))
                 }
             }
         }
