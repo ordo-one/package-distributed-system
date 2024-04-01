@@ -118,6 +118,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     }
 
     public let systemName: String
+    private let addressTag: String?
 
     let eventLoopGroup: EventLoopGroup
     let consul: Consul
@@ -130,9 +131,9 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             var suspended: Bool
             var continuations: [CheckedContinuation<Void, Error>]
 
-            init(_ channel: Channel, _ suspended: Bool = false, _ continuations: [CheckedContinuation<Void, Error>] = []) {
+            init(_ channel: Channel, _ continuations: [CheckedContinuation<Void, Error>] = []) {
                 self.channel = channel
-                self.suspended = suspended
+                self.suspended = false
                 self.continuations = continuations
             }
         }
@@ -142,9 +143,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             let continuation: AsyncStream<InvocationEnvelope>.Continuation
             let queueState: ManagedAtomic<UInt64>
 
-            init(_ channel: Channel,
-                 _ continuation: AsyncStream<InvocationEnvelope>.Continuation,
-                 _ queueState: ManagedAtomic<UInt64>) {
+            init(_ channel: Channel, _ continuation: AsyncStream<InvocationEnvelope>.Continuation, _ queueState: ManagedAtomic<UInt64>) {
                 self.channel = channel
                 self.continuation = continuation
                 self.queueState = queueState
@@ -197,8 +196,9 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         self.init(name: systemName, logLevel: logLevel)
     }
 
-    public init(name: String, logLevel: Logger.Level = .debug) {
-        systemName = name
+    public init(name systemName: String, addressTag: String? = nil, logLevel: Logger.Level = .debug) {
+        self.systemName = systemName
+        self.addressTag = addressTag
         eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 2)
         consul = Consul()
         consulServiceDiscovery = ConsulServiceDiscovery(consul)
@@ -356,21 +356,35 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     }
 
     private func addressForService(_ service: NodeService) -> SocketAddress? {
-        let serviceAddress = service.serviceAddress.flatMap { $0.isEmpty ? nil : $0 } ?? service.address
-
-        guard let serviceAddress else {
-            logger.debug("skip service \(service.serviceID), missing address")
-            return nil
+        let serviceAddress: String
+        if let addressTag {
+            guard let taggedAddresses = service.taggedAddresses else {
+                logger.warning("skip service \(service.serviceID), missing '\(NodeService.CodingKeys.taggedAddresses)'")
+                return nil
+            }
+            guard let str = taggedAddresses[addressTag] else {
+                logger.warning("skip service \(service.serviceID), missing address for tag \(addressTag)")
+                return nil
+            }
+            serviceAddress = str
+        } else {
+            if let str = service.serviceAddress, !str.isEmpty {
+                serviceAddress = str
+            } else if let str = service.address {
+                serviceAddress = str
+            } else {
+                logger.warning("skip service \(service.serviceID), missing address")
+                return nil
+            }
         }
 
         guard let servicePort = service.servicePort else {
-            logger.debug("skip service \(service.serviceID), missing '\(NodeService.CodingKeys.servicePort)'")
+            logger.warning("skip service \(service.serviceID), missing '\(NodeService.CodingKeys.servicePort)'")
             return nil
         }
 
         do {
-            let address = try SocketAddress(ipAddress: serviceAddress, port: servicePort)
-            return address
+            return try SocketAddress(ipAddress: serviceAddress, port: servicePort)
         } catch {
             logger.error("\(error)")
             return nil
