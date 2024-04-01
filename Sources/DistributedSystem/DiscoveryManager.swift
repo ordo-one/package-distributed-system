@@ -132,7 +132,7 @@ final class DiscoveryManager {
                 discoveryInfo = DiscoveryInfo()
                 self.discoveries[serviceName] = discoveryInfo
             }
-            guard let discoveryInfo else { fatalError("Internal error: discoveryInfo unexpectedly nil") }
+            guard let discoveryInfo else { fatalError("internal error: discoveryInfo unexpectedly nil") }
             discoveryInfo.filters[cancellationToken] = FilterInfo(serviceFilter, connectionHandler)
             return (false, discover, addresses, services)
         }
