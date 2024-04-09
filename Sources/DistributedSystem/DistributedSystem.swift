@@ -32,34 +32,6 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     public typealias ResultHandler = RemoteCallResultHandler
     public typealias SerializationRequirement = Transferable
 
-    public struct ModuleIdentifier: Hashable, Codable, CustomStringConvertible {
-        public let rawValue: UInt64
-
-        public var description: String {
-            String(describing: rawValue)
-        }
-
-        public init(_ rawValue: UInt64) {
-            self.rawValue = rawValue
-        }
-
-        public init?(_ rawValue: UInt64?) {
-            if let rawValue {
-                self.rawValue = rawValue
-            } else {
-                return nil
-            }
-        }
-
-        public init?(_ str: String) {
-            if let rawValue = UInt64(str) {
-                self.init(rawValue)
-            } else {
-                return nil
-            }
-        }
-    }
-
     public final class CancellationToken: Hashable {
         private let actorSystem: DistributedSystem
         var serviceName: String?
@@ -196,7 +168,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         self.init(name: systemName, logLevel: logLevel)
     }
 
-    public init(name systemName: String, addressTag: String? = nil, logLevel: Logger.Level = .debug) {
+    public init(name systemName: String, addressTag: String? = nil, logLevel: Logger.Level = .info) {
         self.systemName = systemName
         self.addressTag = addressTag
         eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 2)
