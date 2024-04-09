@@ -164,7 +164,7 @@ final class DistributedSystemTests: XCTestCase {
             let processInfo = ProcessInfo.processInfo
             let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
 
-            let moduleID = ModuleIdentifier(UInt64(processInfo.processIdentifier))
+            let moduleID = DistributedSystem.ModuleIdentifier(UInt64(processInfo.processIdentifier))
             let actorSystem = DistributedSystemServer(name: systemName)
             try await actorSystem.start()
             try await actorSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
@@ -210,7 +210,7 @@ final class DistributedSystemTests: XCTestCase {
             let processInfo = ProcessInfo.processInfo
             let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
 
-            let moduleID = ModuleIdentifier(1)
+            let moduleID = DistributedSystem.ModuleIdentifier(1)
             let serverSystem = DistributedSystemServer(name: systemName)
             try await serverSystem.start()
             try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
@@ -321,7 +321,7 @@ final class DistributedSystemTests: XCTestCase {
         let count = 5_000
 
         let service = ServiceImpl(count * 2)
-        let moduleID = ModuleIdentifier(UInt64(processInfo.processIdentifier))
+        let moduleID = DistributedSystem.ModuleIdentifier(UInt64(processInfo.processIdentifier))
         let serverSystem = DistributedSystemServer(name: systemName)
         try await serverSystem.start()
         try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
@@ -460,7 +460,7 @@ final class DistributedSystemTests: XCTestCase {
         let processInfo = ProcessInfo.processInfo
         let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)"
 
-        let moduleID = ModuleIdentifier(UInt64(processInfo.processIdentifier))
+        let moduleID = DistributedSystem.ModuleIdentifier(UInt64(processInfo.processIdentifier))
         let serverSystem = DistributedSystemServer(name: systemName)
         try await serverSystem.start()
         try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
@@ -503,7 +503,7 @@ final class DistributedSystemTests: XCTestCase {
         let processInfo = ProcessInfo.processInfo
         let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
 
-        let moduleID = ModuleIdentifier(UInt64(processInfo.processIdentifier))
+        let moduleID = DistributedSystem.ModuleIdentifier(UInt64(processInfo.processIdentifier))
         let serverSystem = DistributedSystemServer(name: systemName)
         try await serverSystem.start()
         try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
@@ -552,7 +552,7 @@ final class DistributedSystemTests: XCTestCase {
         let processInfo = ProcessInfo.processInfo
         let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
 
-        let moduleID = ModuleIdentifier(UInt64(processInfo.processIdentifier))
+        let moduleID = DistributedSystem.ModuleIdentifier(UInt64(processInfo.processIdentifier))
         let serverSystem = DistributedSystemServer(name: systemName)
         try await serverSystem.start()
         try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
@@ -592,7 +592,7 @@ final class DistributedSystemTests: XCTestCase {
         let distributedSystem = DistributedSystemServer(name: systemName)
         try await distributedSystem.start()
 
-        let moduleID = ModuleIdentifier(UInt64(processInfo.processIdentifier))
+        let moduleID = DistributedSystem.ModuleIdentifier(UInt64(processInfo.processIdentifier))
         try await distributedSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
             let service = Service()
             let serviceEndpoint = try TestServiceEndpoint(service, in: actorSystem)
@@ -639,7 +639,7 @@ final class DistributedSystemTests: XCTestCase {
             }
         )
 
-        let moduleID = ModuleIdentifier(1)
+        let moduleID = DistributedSystem.ModuleIdentifier(1)
         try await distributedSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
             let serviceEndpoint = try TestServiceEndpoint(Service(), in: actorSystem)
             return serviceEndpoint
@@ -658,7 +658,7 @@ final class DistributedSystemTests: XCTestCase {
             let serverSystem = DistributedSystemServer(name: systemName)
             try await serverSystem.start()
 
-            let moduleID = ModuleIdentifier(1)
+            let moduleID = DistributedSystem.ModuleIdentifier(1)
             try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
                 let serviceEndpoint = try TestServiceEndpoint(Service(), in: actorSystem)
                 Task { actorSystem.stop() }
@@ -716,7 +716,7 @@ final class DistributedSystemTests: XCTestCase {
         let processInfo = ProcessInfo.processInfo
         let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
 
-        let moduleID = ModuleIdentifier(1)
+        let moduleID = DistributedSystem.ModuleIdentifier(1)
         let serverSystem = DistributedSystemServer(name: systemName)
         try await serverSystem.start()
         try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
@@ -810,7 +810,7 @@ final class DistributedSystemTests: XCTestCase {
         let stream = AsyncStream<Void>() { continuation = $0 }
         guard let continuation else { fatalError("continuation unexpectedly nil") }
 
-        let moduleID = ModuleIdentifier(1)
+        let moduleID = DistributedSystem.ModuleIdentifier(1)
         let serverSystem = DistributedSystemServer(name: systemName)
         try await serverSystem.start()
         try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
@@ -881,7 +881,7 @@ final class DistributedSystemTests: XCTestCase {
         let stream = AsyncStream<Void>() { continuation = $0 }
         guard let continuation else { fatalError("continuation unexpectedly nil") }
 
-        let moduleID = ModuleIdentifier(1)
+        let moduleID = DistributedSystem.ModuleIdentifier(1)
         let serverSystem = DistributedSystemServer(name: systemName)
 
         // each invocation envelope is about 100 bytes,
@@ -944,7 +944,7 @@ final class DistributedSystemTests: XCTestCase {
 
         let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
 
-        let moduleID = ModuleIdentifier(1)
+        let moduleID = DistributedSystem.ModuleIdentifier(1)
         let serverSystem = DistributedSystemServer(name: systemName)
 
         serverSystem.healthStatusUpdateInterval = TimeAmount.seconds(90)

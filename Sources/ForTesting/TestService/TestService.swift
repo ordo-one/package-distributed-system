@@ -102,7 +102,7 @@ public class TestService: TestableService, @unchecked Sendable {
         lifecycle.register(label: "System",
                            start: .async {
                                try await self.actorSystem.start(at: NetworkAddress(host: self.serverHost, port: self.serverPort))
-                               let moduleID = ModuleIdentifier(1)
+                               let moduleID = DistributedSystem.ModuleIdentifier(1)
                                try await self.actorSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
                                    let serviceEndpoint = try TestServiceEndpoint(self, in: actorSystem)
                                    self.clientEndpointID = serviceEndpoint.id.makeClientEndpoint()
