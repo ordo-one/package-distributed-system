@@ -170,7 +170,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     private var actors: [EndpointIdentifier: ActorInfo] = [:]
     private var channels: [UnsafeRawPointer: ChannelInfo] = [:]
 
-    private let _nextChannelID = ManagedAtomic<UInt32>(1) // 0 reseved for local endpoints
+    private let _nextChannelID = ManagedAtomic<UInt32>(1) // 0 reserved for local endpoints
     var nextChannelID: UInt32 { _nextChannelID.loadThenWrappingIncrement(ordering: .relaxed) }
 
     private let _nextInstanceID = ManagedAtomic<UInt32>(1)
@@ -192,8 +192,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     @TaskLocal
     private static var actorID: ActorID? // supposed to be private, but need to make it internal for tests
 
-    public convenience init(systemName: String, logLevel: Logger.Level = .debug) {
-        self.init(name: systemName, logLevel: logLevel)
+    public convenience init(systemName: String, addressTag: String? = nil, logLevel: Logger.Level = .debug) {
+        self.init(name: systemName, addressTag: addressTag, logLevel: logLevel)
     }
 
     public init(name systemName: String, addressTag: String? = nil, logLevel: Logger.Level = .debug) {
