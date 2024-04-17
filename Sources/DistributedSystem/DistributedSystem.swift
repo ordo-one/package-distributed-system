@@ -192,11 +192,11 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     @TaskLocal
     private static var actorID: ActorID? // supposed to be private, but need to make it internal for tests
 
-    public convenience init(systemName: String, addressTag: String? = nil, logLevel: Logger.Level = .debug) {
+    public convenience init(systemName: String, addressTag: String? = nil, logLevel: Logger.Level = .info) {
         self.init(name: systemName, addressTag: addressTag, logLevel: logLevel)
     }
 
-    public init(name systemName: String, addressTag: String? = nil, logLevel: Logger.Level = .debug) {
+    public init(name systemName: String, addressTag: String? = nil, logLevel: Logger.Level = .info) {
         self.systemName = systemName
         self.addressTag = addressTag
         eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 2)
