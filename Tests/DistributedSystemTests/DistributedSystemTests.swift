@@ -198,7 +198,7 @@ final class DistributedSystemTests: XCTestCase {
         }()
         XCTAssertTrue(flags.serviceDeallocated)
         XCTAssertFalse(flags.serviceConnectionClosed)
-        // XCTAssertTrue(flags.clientDeallocated)
+        XCTAssertTrue(flags.clientDeallocated)
         XCTAssertFalse(flags.clientConnectionClosed)
     }
 
