@@ -8,7 +8,7 @@
 
 public struct EndpointIdentifier: Hashable, Codable, CustomStringConvertible {
     // keep the side flag in the lower bits for more efficient ULEB128 encoding
-    private static let serviceFlag: UInt32 = 0x00000001
+    static let serviceFlag: UInt32 = 0x00000001
 
     typealias InstanceIdentifier = UInt32
 

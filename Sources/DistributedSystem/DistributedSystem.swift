@@ -151,7 +151,6 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
 
         case newClient(any DistributedActor) // retain the client actor instance while it will not be linked to local or remote service
-        case serviceForLocalClient(any DistributedActor) // retain the client actor until the related service actor will not be resigned
         case localService(ServiceFactory)
         case remoteClient(Outbound)
         case remoteService(Outbound)
@@ -884,13 +883,28 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             if let actorInfo = self.actors[id] {
                 switch actorInfo {
                 case .remoteClient:
-                    fatalError("Internal error: unexpected actor state")
+                    fatalError("internal error: unexpected actor state")
                 default:
                     self.actors.removeValue(forKey: id)
                     return actorInfo
                 }
             }
             return nil
+        }
+
+        if (id.channelID == 0) && ((id.instanceID & EndpointIdentifier.serviceFlag) != 0) {
+            let clientEndpointID = id.makeClientEndpoint()
+            _ = lock.withLock { () -> ActorInfo? in
+                if let actorInfo = self.actors[clientEndpointID] {
+                    if case .newClient = actorInfo {
+                        self.actors.removeValue(forKey: clientEndpointID)
+                        return actorInfo
+                    } else {
+                        logger.error("internal error: unexpected actor state for \(clientEndpointID)")
+                    }
+                }
+                return nil
+            }
         }
     }
 
