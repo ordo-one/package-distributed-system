@@ -7,6 +7,8 @@
 // http://www.apache.org/licenses/LICENSE-2.0
 
 import ConsulServiceDiscovery
+import Distributed
+
 internal import enum NIOHTTP1.HTTPResponseStatus
 internal import class Foundation.ProcessInfo
 internal import struct Foundation.UUID
