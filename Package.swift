@@ -41,6 +41,17 @@ func makeDependencies() -> [Package.Dependency] {
     return dependencies
 }
 
+func enableUpcomingFeatures() -> [SwiftSetting] {
+    [
+        .enableUpcomingFeature("BareSlashRegexLiterals"),
+        .enableUpcomingFeature("ConciseMagicFile"),
+        .enableUpcomingFeature("DeprecateApplicationMain"),
+        .enableUpcomingFeature("DisableOutwardActorInference"),
+        .enableUpcomingFeature("ForwardTrailingClosures"),
+        .enableUpcomingFeature("StrictConcurrency"),
+    ]
+}
+
 let package = Package(
     name: "package-distributed-system",
     platforms: [
@@ -76,7 +87,7 @@ let package = Package(
             ],
             swiftSettings:[
                 .enableExperimentalFeature("AccessLevelOnImport")
-            ]
+            ] + enableUpcomingFeatures()
         ),
         .target(
             name: "TestMessages",
