@@ -294,16 +294,16 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             for (actorID, actorInfo) in self.actors {
                 if actorID.channelID == channelID {
                     switch actorInfo {
-                    case let .clientForRemoteService(cfrs):
-                        streamContinuations.append(cfrs.continuation)
-                    case let .serviceForRemoteClient(sfrc):
-                        streamContinuations.append(sfrc.continuation)
-                    case let .remoteClient(rcs), let .remoteService(rcs):
+                    case let .clientForRemoteService(inbound),
+                         let .serviceForRemoteClient(inbound):
+                        streamContinuations.append(inbound.continuation)
+                    case let .remoteClient(outbound),
+                         let .remoteService(outbound):
                         actors.append(actorID)
-                        if rcs.suspended {
-                            endpointContinuations.append(contentsOf: rcs.continuations)
+                        if outbound.suspended {
+                            endpointContinuations.append(contentsOf: outbound.continuations)
                         } else {
-                            assert(rcs.continuations.isEmpty)
+                            assert(outbound.continuations.isEmpty)
                         }
                     default:
                         break
@@ -683,10 +683,9 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         for (actorID, actorInfo) in self.actors {
             if actorID.channelID == channelID {
                 switch actorInfo {
-                case let .clientForRemoteService(cfrs):
-                    actors.append((actorID, cfrs.continuation, cfrs.queueState))
-                case let .serviceForRemoteClient(sfrc):
-                    actors.append((actorID, sfrc.continuation, sfrc.queueState))
+                case let .clientForRemoteService(inbound),
+                     let .serviceForRemoteClient(inbound):
+                    actors.append((actorID, inbound.continuation, inbound.queueState))
                 default:
                     break
                 }
