@@ -104,8 +104,11 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     private static let endpointQueueSizeBits: Int = (UInt64.bitWidth - 8)
 
     // TODO: replace with configuration
-    private static let pingInterval = TimeAmount.seconds(2)
+    static let pingInterval = TimeAmount.seconds(2)
     static let serviceDiscoveryTimeout = TimeAmount.seconds(5)
+
+    static let protocolVersionMajor: UInt16 = 1
+    static let protocolVersionMinor: UInt16 = 1
 
     enum SessionMessage: UInt16 {
         case createServiceInstance = 0
@@ -224,8 +227,10 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             .channelOption(ChannelOptions.tcpOption(.tcp_nodelay), value: 1)
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .channelInitializer { channel in
-                channel.pipeline.addHandler(ByteToMessageHandler(StreamDecoder(self.loggerBox))).flatMap { _ in
-                    channel.pipeline.addHandler(ChannelHandler(self.nextChannelID, self, address, self.endpointQueueWarningSize))
+                channel.pipeline.addHandler(ChannelHandshakeClient(self.logger)).flatMap {
+                    channel.pipeline.addHandler(ByteToMessageHandler(StreamDecoder(self.loggerBox))).flatMap { _ in
+                        channel.pipeline.addHandler(ChannelHandler(self.nextChannelID, self, address, self.endpointQueueWarningSize))
+                    }
                 }
             }
             .connect(to: address)
@@ -1044,7 +1049,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         guard buffer.readInteger(as: UInt32.self) != nil, // skip message size
               let messageType = buffer.readInteger(as: SessionMessage.RawValue.self)
         else {
-            logger.error("\(String(describing: channel.remoteAddress)): invalid message received")
+            logger.error("\(channel.remoteAddressDescription): invalid message received (\(bytesReceived))")
             return
         }
 
