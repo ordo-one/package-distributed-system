@@ -918,6 +918,77 @@ final class DistributedSystemTests: XCTestCase {
         clientSystem.stop()
     }
 
+    func testConnectionStateHandlerCalledForRemoteClient() async throws {
+        let processInfo = ProcessInfo.processInfo
+        let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
+
+        distributed actor TestServiceEndpoint: ServiceEndpoint {
+            public typealias ActorSystem = DistributedSystem
+            public typealias SerializationRequirement = Transferable
+
+            public static var serviceName: String { "test_service" }
+
+            private let connectionClosed: ManagedAtomic<Int>
+
+            init(_ actorSystem: DistributedSystem, _ connectionClosed: ManagedAtomic<Int>) {
+                self.actorSystem = actorSystem
+                self.connectionClosed = connectionClosed
+            }
+
+            public distributed func handleConnectionState(_ state: ConnectionState) async throws {
+                if case .closed = state {
+                    connectionClosed.wrappingIncrement(ordering: .relaxed)
+                }
+            }
+        }
+
+        distributed actor TestClientEndpoint: ClientEndpoint {
+            public typealias ActorSystem = DistributedSystem
+            public typealias SerializationRequirement = Transferable
+
+            public static var serviceName: String { "test_service" }
+
+            private let connectionClosed: ManagedAtomic<Int>
+
+            init(_ actorSystem: DistributedSystem, _ connectionClosed: ManagedAtomic<Int>) {
+                self.actorSystem = actorSystem
+                self.connectionClosed = connectionClosed
+            }
+
+            public distributed func handleConnectionState(_ state: ConnectionState) async throws {
+                if case .closed = state {
+                    connectionClosed.wrappingIncrement(ordering: .relaxed)
+                }
+            }
+        }
+
+        let connectionClosed = ManagedAtomic<Int>(0)
+
+        let moduleID = DistributedSystem.ModuleIdentifier(1)
+        let serverSystem = DistributedSystemServer(name: systemName)
+        try await serverSystem.start()
+        try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+            let serviceEndpoint = TestServiceEndpoint(actorSystem, connectionClosed)
+            return serviceEndpoint
+        }
+
+        let clientSystem = DistributedSystem(name: systemName)
+        try clientSystem.start()
+
+        _ = try await clientSystem.connectToService(
+            TestServiceEndpoint.self,
+            withFilter: { _ in true },
+            clientFactory: { actorSystem in
+                TestClientEndpoint(actorSystem, connectionClosed)
+            }
+        )
+
+        clientSystem.stop()
+        serverSystem.stop()
+
+        XCTAssertEqual(connectionClosed.load(ordering: .relaxed), 2)
+    }
+
     // Test implemented to validate service reregister functionality if
     // health check update fails. The minimum time in Consul for critical
     // service removal is 1 minute.

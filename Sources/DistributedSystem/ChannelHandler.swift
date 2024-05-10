@@ -62,7 +62,7 @@ class ChannelHandler: ChannelInboundHandler {
         // 2024-03-07T12:48:24.806241+02:00 DEBUG ds : [DistributedSystem] [IPv4]192.168.0.9/192.168.0.9:53019/1: channel inactive ["port": 55056]
         // TODO: it would be nice to know "name/type" of remote process
         logger.info("Channel is inactive, remote: \(context.remoteAddressDescription)/\(id)")
-        actorSystem.channelInactive(context.channel)
+        actorSystem.channelInactive(id, context.channel)
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
