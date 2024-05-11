@@ -104,7 +104,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     private static let endpointQueueSizeBits: Int = (UInt64.bitWidth - 8)
 
     // TODO: replace with configuration
-    private static let pingInterval = TimeAmount.seconds(2)
+    static let pingInterval = TimeAmount.seconds(2)
     static let serviceDiscoveryTimeout = TimeAmount.seconds(5)
 
     enum SessionMessage: UInt16 {
@@ -224,8 +224,12 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             .channelOption(ChannelOptions.tcpOption(.tcp_nodelay), value: 1)
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .channelInitializer { channel in
-                channel.pipeline.addHandler(ByteToMessageHandler(StreamDecoder(self.loggerBox))).flatMap { _ in
-                    channel.pipeline.addHandler(ChannelHandler(self.nextChannelID, self, address, self.endpointQueueWarningSize))
+                let pipeline = channel.pipeline
+                let streamHandler = ByteToMessageHandler(StreamDecoder(self.loggerBox))
+                return pipeline.addHandler(ChannelCompressionHandshakeClient(self.logger, 0, streamHandler)).flatMap { _ in
+                    pipeline.addHandler(streamHandler).flatMap { _ in
+                        pipeline.addHandler(ChannelHandler(self.nextChannelID, self, address, self.endpointQueueWarningSize))
+                    }
                 }
             }
             .connect(to: address)
