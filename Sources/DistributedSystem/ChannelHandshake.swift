@@ -11,7 +11,6 @@ internal import NIOCore
 
 class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandler {
     typealias InboundIn = ByteBuffer
-    typealias OutboundOut = ByteBuffer
 
     private let logger: Logger
     private var timer: Scheduled<Void>?
@@ -24,8 +23,13 @@ class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandler {
         timer = context.eventLoop.scheduleTask(in: DistributedSystem.pingInterval*2) {
             let channel = context.channel
             self.logger.info("Session timeout for client @ \(channel.remoteAddressDescription), close connection.")
-            channel.close(promise: nil)
+            context.close(promise: nil)
         }
+    }
+
+    func channelInactive(context: ChannelHandlerContext) {
+        // override doing nothing to avoid
+        // channelInactive() call for next handler in the pipeline
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
@@ -34,7 +38,6 @@ class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandler {
             self.timer = nil
         }
         var buffer = unwrapInboundIn(data)
-        let channel = context.channel
         if let clientProtocolVersionMajor = buffer.readInteger(as: UInt16.self),
            let clientProtocolVersionMinor = buffer.readInteger(as: UInt16.self),
            buffer.readableBytes == 0 {
@@ -43,21 +46,23 @@ class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandler {
                 // handshake ok
                 var reply = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt16>.size)
                 reply.writeInteger(UInt16(0))
-                _ = channel.writeAndFlush(reply, promise: nil)
+                context.writeAndFlush(NIOAny(reply), promise: nil)
                 context.fireChannelActive()
-                _ = channel.pipeline.removeHandler(self)
+                _ = context.pipeline.removeHandler(self)
             } else {
                 logger.info("Client protocol version \(clientProtocolVersionMajor).\(clientProtocolVersionMajor) not compatible with server version \(DistributedSystem.protocolVersionMajor).\(DistributedSystem.protocolVersionMinor), close connection.")
                 var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt16>.size*3)
                 buffer.writeInteger(UInt16(MemoryLayout<UInt16>.size * 2))
                 buffer.writeInteger(DistributedSystem.protocolVersionMajor)
                 buffer.writeInteger(DistributedSystem.protocolVersionMinor)
-                _ = channel.writeAndFlush(buffer, promise: nil)
-                _ = channel.close(promise: nil)
+                context.writeAndFlush(NIOAny(buffer), promise: nil)
+                // We expect client will close TCP connection after receive this message.
+                // If we would close TCP connection now then client not necessary will receive it.
             }
         } else {
+            let channel = context.channel
             logger.info("Invalid handshake request received from client @ \(channel.remoteAddressDescription), close connection.")
-            channel.close(promise: nil)
+            context.close(promise: nil)
         }
     }
 }
@@ -77,13 +82,18 @@ class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandler {
         var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt16>.size + MemoryLayout<UInt16>.size)
         buffer.writeInteger(DistributedSystem.protocolVersionMajor)
         buffer.writeInteger(DistributedSystem.protocolVersionMinor)
-        _ = context.channel.writeAndFlush(buffer, promise: nil)
+        context.writeAndFlush(NIOAny(buffer), promise: nil)
 
         timer = context.eventLoop.scheduleTask(in: DistributedSystem.pingInterval*2) {
             let channel = context.channel
             self.logger.info("Session timeout for server @ \(channel.remoteAddressDescription), close connection.")
-            channel.close(promise: nil)
+            context.close(promise: nil)
         }
+    }
+
+    func channelInactive(context: ChannelHandlerContext) {
+        // override doing nothing to avoid
+        // channelInactive() call for next handler in the pipeline
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
@@ -92,7 +102,6 @@ class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandler {
             self.timer = nil
         }
         var buffer = unwrapInboundIn(data)
-        let channel = context.channel
         if let messageSize = buffer.readInteger(as: UInt16.self) {
             if messageSize == 0 {
                 // handshake ok
@@ -104,7 +113,7 @@ class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandler {
                         context.fireChannelRead(.init(slice))
                     }
                 }
-                _ = channel.pipeline.removeHandler(self)
+                _ = context.pipeline.removeHandler(self)
             } else {
                 if messageSize == 4,
                    let serverProtocolVersionMajor = buffer.readInteger(as: UInt16.self),
@@ -112,13 +121,15 @@ class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandler {
                    buffer.readableBytes == 0 {
                     logger.info("Client protocol version \(DistributedSystem.protocolVersionMajor).\(DistributedSystem.protocolVersionMinor) not compatible with server version \(serverProtocolVersionMajor).\(serverProtocolVersionMinor), close connection.")
                 } else {
+                    let channel = context.channel
                     logger.info("Invalid handshake response received from server @ \(channel.remoteAddressDescription), close connection.")
                 }
-                channel.close(promise: nil)
+                context.close(promise: nil)
             }
         } else {
+            let channel = context.channel
             logger.info("Invalid handshake responce received from server @ \(channel.remoteAddressDescription), close connection.")
-            channel.close(promise: nil)
+            context.close(promise: nil)
         }
     }
 }
