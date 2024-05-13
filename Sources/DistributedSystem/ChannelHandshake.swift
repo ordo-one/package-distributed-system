@@ -6,17 +6,20 @@
 //
 // http://www.apache.org/licenses/LICENSE-2.0
 
+import class Helpers.Box
 import Logging
 internal import NIOCore
 
 class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandler {
     typealias InboundIn = ByteBuffer
 
-    private let logger: Logger
+    private let loggerBox: Box<Logger>
     private var timer: Scheduled<Void>?
 
-    init(_ logger: Logger) {
-        self.logger = logger
+    private var logger: Logger { loggerBox.value }
+
+    init(_ loggerBox: Box<Logger>) {
+        self.loggerBox = loggerBox
     }
 
     func channelActive(context: ChannelHandlerContext) {
@@ -73,11 +76,13 @@ class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandler {
     typealias InboundIn = ByteBuffer
     typealias OutboundOut = ByteBuffer
 
-    private let logger: Logger
+    private let loggerBox: Box<Logger>
     private var timer: Scheduled<Void>?
 
-    init(_ logger: Logger) {
-        self.logger = logger
+    private var logger: Logger { loggerBox.value }
+
+    init(_ loggerBox: Box<Logger>) {
+        self.loggerBox = loggerBox
     }
 
     func channelActive(context: ChannelHandlerContext) {

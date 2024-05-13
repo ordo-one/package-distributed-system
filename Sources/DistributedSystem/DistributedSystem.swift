@@ -227,7 +227,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             .channelOption(ChannelOptions.tcpOption(.tcp_nodelay), value: 1)
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .channelInitializer { channel in
-                channel.pipeline.addHandler(ChannelHandshakeClient(self.logger)).flatMap {
+                channel.pipeline.addHandler(ChannelHandshakeClient(self.loggerBox)).flatMap {
                     channel.pipeline.addHandler(ByteToMessageHandler(StreamDecoder(self.loggerBox))).flatMap { _ in
                         channel.pipeline.addHandler(ChannelHandler(self.nextChannelID, self, address, self.endpointQueueWarningSize))
                     }
