@@ -107,8 +107,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     static let pingInterval = TimeAmount.seconds(2)
     static let serviceDiscoveryTimeout = TimeAmount.seconds(5)
 
-    static let protocolVersionMajor: UInt16 = 1
-    static let protocolVersionMinor: UInt16 = 1
+    static let protocolVersionMajor: UInt16 = 0
+    static let protocolVersionMinor: UInt16 = 0
 
     enum SessionMessage: UInt16 {
         case createServiceInstance = 0

@@ -10,7 +10,7 @@ import class Helpers.Box
 import Logging
 internal import NIOCore
 
-class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandler {
+final class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandler {
     typealias InboundIn = ByteBuffer
 
     private let loggerBox: Box<Logger>
@@ -72,9 +72,8 @@ class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandler {
     }
 }
 
-class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandler {
+final class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandler {
     typealias InboundIn = ByteBuffer
-    typealias OutboundOut = ByteBuffer
 
     private let loggerBox: Box<Logger>
     private var timer: Scheduled<Void>?
@@ -105,6 +104,14 @@ class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandler {
         }
     }
 
+    private static func hexDump(_ buffer: ByteBuffer) -> String {
+        if let slice = buffer.getSlice(at: buffer.readerIndex, length: max(buffer.readableBytes, 16)) {
+            return "\n\(slice.hexDump(format: .detailed))"
+        } else {
+            return ""
+        }
+    }
+
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         if let timer {
             timer.cancel()
@@ -124,20 +131,20 @@ class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandler {
                 }
                 _ = context.pipeline.removeHandler(self)
             } else {
-                if messageSize == 4,
+                if messageSize == MemoryLayout<UInt16>.size * 2,
                    let serverProtocolVersionMajor = buffer.readInteger(as: UInt16.self),
                    let serverProtocolVersionMinor = buffer.readInteger(as: UInt16.self),
                    buffer.readableBytes == 0 {
-                    logger.info("Client protocol version \(DistributedSystem.protocolVersionMajor).\(DistributedSystem.protocolVersionMinor) not compatible with server version \(serverProtocolVersionMajor).\(serverProtocolVersionMinor), close connection.")
+                    logger.info("Client protocol version \(DistributedSystem.protocolVersionMajor).\(DistributedSystem.protocolVersionMinor) is not compatible with server version \(serverProtocolVersionMajor).\(serverProtocolVersionMinor), close connection.")
                 } else {
                     let channel = context.channel
-                    logger.info("Invalid handshake response received from server @ \(channel.remoteAddressDescription), close connection.")
+                    logger.info("Invalid handshake response received from server @ \(channel.remoteAddressDescription), close connection.\(Self.hexDump(unwrapInboundIn(data)))")
                 }
                 context.close(promise: nil)
             }
         } else {
             let channel = context.channel
-            logger.info("Invalid handshake responce received from server @ \(channel.remoteAddressDescription), close connection.")
+            logger.info("Invalid handshake responce received from server @ \(channel.remoteAddressDescription), close connection.\(Self.hexDump(unwrapInboundIn(data)))")
             context.close(promise: nil)
         }
     }
