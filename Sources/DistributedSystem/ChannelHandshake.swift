@@ -28,8 +28,10 @@ class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandler {
     }
 
     func channelInactive(context: ChannelHandlerContext) {
-        // override doing nothing to avoid
-        // channelInactive() call for next handler in the pipeline
+        if let timer {
+            timer.cancel()
+            self.timer = nil
+        }
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
@@ -92,8 +94,10 @@ class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandler {
     }
 
     func channelInactive(context: ChannelHandlerContext) {
-        // override doing nothing to avoid
-        // channelInactive() call for next handler in the pipeline
+        if let timer {
+            timer.cancel()
+            self.timer = nil
+        }
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
