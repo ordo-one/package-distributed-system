@@ -152,7 +152,6 @@ final class ChannelCompressionInboundHandler: ChannelInboundHandler {
                     ptr.copyMemory(from: UnsafeRawBufferPointer(start: dstBuffer.baseAddress, count: Int(messageSize)))
                     return Int(messageSize)
                 }
-                //print("received \(unwrapInboundIn(data).readableBytes) bytes, messageSize=\(messageSize)\n\(unwrapInboundIn(data).hexDump(format: .detailed))\n\(bufferOut.hexDump(format: .detailed))")
                 context.fireChannelRead(wrapInboundOut(bufferOut))
                 return
             }
@@ -198,7 +197,6 @@ final class ChannelCompressionOutboundHandler: ChannelOutboundHandler {
             ptr.storeBytes(of: messageSize.bigEndian, toByteOffset: MemoryLayout<UInt32>.size, as: UInt32.self)
             return MemoryLayout<UInt32>.size * 2 + Int(compressedBytes)
         }
-        //print("send \(bufferOut.readableBytes) bytes, messageSize=\(messageSize)\n\(bufferOut.hexDump(format: .detailed))\n\(unwrapOutboundIn(data).hexDump(format: .detailed))")
         context.write(wrapOutboundOut(bufferOut), promise: promise)
     }
 }
