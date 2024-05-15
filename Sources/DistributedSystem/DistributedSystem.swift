@@ -178,6 +178,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
     private var discoveryManager: DiscoveryManager
     private var syncCallManager: SyncCallManager
+    private let compression: UInt8
 
     public typealias ServiceFilter = (NodeService) -> Bool
     public typealias ServiceFactory = (DistributedSystem) throws -> any ServiceEndpoint
@@ -192,11 +193,11 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     @TaskLocal
     private static var actorID: ActorID? // supposed to be private, but need to make it internal for tests
 
-    public convenience init(systemName: String, addressTag: String? = nil, logLevel: Logger.Level = .info) {
-        self.init(name: systemName, addressTag: addressTag, logLevel: logLevel)
+    public convenience init(systemName: String, addressTag: String? = nil, compression: Bool = false, logLevel: Logger.Level = .info) {
+        self.init(name: systemName, addressTag: addressTag, compression: compression, logLevel: logLevel)
     }
 
-    public init(name systemName: String, addressTag: String? = nil, logLevel: Logger.Level = .info) {
+    public init(name systemName: String, addressTag: String? = nil, compression: Bool = false, logLevel: Logger.Level = .info) {
         self.systemName = systemName
         self.addressTag = addressTag
         eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 2)
@@ -204,6 +205,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         consulServiceDiscovery = ConsulServiceDiscovery(consul)
         discoveryManager = DiscoveryManager(loggerBox)
         syncCallManager = SyncCallManager(loggerBox)
+        self.compression = (compression ? 1 : 0)
 
         loggerBox.value.logLevel = logLevel
         consul.logLevel = logLevel
@@ -226,7 +228,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             .channelInitializer { channel in
                 let pipeline = channel.pipeline
                 let streamHandler = ByteToMessageHandler(StreamDecoder(self.loggerBox))
-                return pipeline.addHandler(ChannelCompressionHandshakeClient(self.logger, 0, streamHandler)).flatMap { _ in
+                return pipeline.addHandler(ChannelCompressionHandshakeClient(self.loggerBox, self.compression, streamHandler)).flatMap { _ in
                     pipeline.addHandler(streamHandler).flatMap { _ in
                         pipeline.addHandler(ChannelHandler(self.nextChannelID, self, address, self.endpointQueueWarningSize))
                     }

@@ -77,6 +77,7 @@ let package = Package(
         .target(
             name: "DistributedSystem",
             dependencies: [
+                "lz4",
                 .product(name: "PackageConcurrencyHelpers", package: "package-concurrency-helpers"),
                 .product(name: "ConsulServiceDiscovery", package: "package-consul"),
                 .product(name: "NIOCore", package: "swift-nio"),
@@ -147,6 +148,11 @@ let package = Package(
                 "DistributedSystem",
                 "TestMessages",
             ]
+        ),
+        .systemLibrary(
+            name: "lz4",
+            pkgConfig: "liblz4",
+            providers: [.apt(["liblz4-dev"]), .brew(["lz4"])]
         ),
     ]
 )
