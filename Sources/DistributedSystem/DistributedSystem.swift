@@ -107,6 +107,9 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     static let pingInterval = TimeAmount.seconds(2)
     static let serviceDiscoveryTimeout = TimeAmount.seconds(5)
 
+    static let protocolVersionMajor: UInt16 = 1
+    static let protocolVersionMinor: UInt16 = 0
+
     enum SessionMessage: UInt16 {
         case createServiceInstance = 0
         case invocationEnvelope = 1
@@ -230,10 +233,12 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             .channelInitializer { channel in
                 let pipeline = channel.pipeline
                 let streamHandler = ByteToMessageHandler(StreamDecoder(self.loggerBox))
-                return pipeline.addHandler(ChannelCompressionHandshakeClient(self.loggerBox, self.compression, streamHandler)).flatMap { _ in
-                    pipeline.addHandler(streamHandler).flatMap { _ in
-                        pipeline.addHandler(ChannelHandler(self.nextChannelID, self, address, self.endpointQueueWarningSize)).flatMap { _ in
-                            pipeline.addHandler(ChannelOutboundCounter(self), position: .first)
+                return pipeline.addHandler(ChannelHandshakeClient(self.loggerBox)).flatMap {
+                    pipeline.addHandler(ChannelCompressionHandshakeClient(self.loggerBox, self.compression, streamHandler)).flatMap { _ in
+                        pipeline.addHandler(streamHandler).flatMap { _ in
+                            pipeline.addHandler(ChannelHandler(self.nextChannelID, self, address, self.endpointQueueWarningSize)).flatMap { _ in
+                                pipeline.addHandler(ChannelOutboundCounter(self), position: .first)
+                            }
                         }
                     }
                 }
@@ -1054,7 +1059,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         guard buffer.readInteger(as: UInt32.self) != nil, // skip message size
               let messageType = buffer.readInteger(as: SessionMessage.RawValue.self)
         else {
-            logger.error("\(String(describing: channel.remoteAddress)): invalid message received")
+            logger.error("\(channel.remoteAddressDescription): invalid message received (\(bytesReceived))")
             return
         }
 
