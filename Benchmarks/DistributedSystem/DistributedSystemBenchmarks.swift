@@ -18,37 +18,37 @@ fileprivate struct Endpoints {
 }
 
 fileprivate struct SharedData {
-    private let serviceSystem: DistributedSystem
-    private let clientSystem: DistributedSystem
+    let serviceSystem: DistributedSystem
+    let clientSystem1: DistributedSystem
+    let clientSystem2: DistributedSystem
     let service: Service
-    let localClient: Client
-    let localClientEndpoints: Endpoints
-    let remoteClient: Client
-    let remoteClientEndpoints: Endpoints
+    let client: Client
+    let localEndpoints: Endpoints
+    let remoteEndpoints1: Endpoints
+    let remoteEndpoints2: Endpoints
 
     init(_ serviceSystem: DistributedSystem,
-         _ clientSystem: DistributedSystem,
+         _ clientSystem1: DistributedSystem,
+         _ clientSystem2: DistributedSystem,
          _ service: Service,
-         _ localClient: Client,
-         _ localClientEndpoints: Endpoints,
-         _ remoteClient: Client,
-         _ remoteClientEndpoints: Endpoints) {
+         _ client: Client,
+         _ localEndpoints: Endpoints,
+         _ remoteEndpoints1: Endpoints,
+         _ remoteEndpoints2: Endpoints) {
         self.serviceSystem = serviceSystem
-        self.clientSystem = clientSystem
+        self.clientSystem1 = clientSystem1
+        self.clientSystem2 = clientSystem2
         self.service = service
-        self.localClient = localClient
-        self.localClientEndpoints = localClientEndpoints
-        self.remoteClient = remoteClient
-        self.remoteClientEndpoints = remoteClientEndpoints
-    }
-
-    func getClientAndEndpoints(remote: Bool) async throws -> (Client, Endpoints) {
-        remote ? (remoteClient, remoteClientEndpoints) : (localClient, localClientEndpoints)
+        self.client = client
+        self.localEndpoints = localEndpoints
+        self.remoteEndpoints1 = remoteEndpoints1
+        self.remoteEndpoints2 = remoteEndpoints2
     }
 
     func shutdown() {
         serviceSystem.stop()
-        clientSystem.stop()
+        clientSystem1.stop()
+        clientSystem2.stop()
     }
 }
 
@@ -64,26 +64,23 @@ let benchmarks = {
         try await serviceSystem.start()
         let service = Service(logger)
 
-        var streamContinuation: AsyncStream<TestClientEndpoint>.Continuation?
-        let stream = AsyncStream<TestClientEndpoint>() { streamContinuation = $0 }
+        let (stream, streamContinuation) = AsyncStream.makeStream(of: TestClientEndpoint.self)
         var streamIterator = stream.makeAsyncIterator()
 
         try await serviceSystem.addService(ofType: TestServiceEndpoint.self, toModule: DistributedSystem.ModuleIdentifier(1)) { actorSystem in
             let serviceEndoint = try TestServiceEndpoint(service, in: actorSystem)
             let clientEndpoint = try TestClientEndpoint.resolve(id: serviceEndoint.id.makeClientEndpoint() , using: actorSystem)
-            streamContinuation?.yield(clientEndpoint)
+            streamContinuation.yield(clientEndpoint)
             return serviceEndoint
         }
 
-        let clientSystem = DistributedSystem(systemName: systemName)
-        try clientSystem.start()
+        let client = Client(logger)
 
-        let localClient = Client(logger, label: "local")
         let localServiceEndpoint = try await serviceSystem.connectToService(
             TestServiceEndpoint.self,
             withFilter: { _ in true },
             clientFactory: { actorSystem in
-                TestClientEndpoint(localClient, in: actorSystem)
+                TestClientEndpoint(client, in: actorSystem)
             }
         )
         let localClientEndpoint = await streamIterator.next()
@@ -91,28 +88,44 @@ let benchmarks = {
             fatalError("localClientEndpoint unexpectedly nil")
         }
 
-        let remoteClient = Client(logger, label: "remote")
-        let remoteServiceEndpoint = try await clientSystem.connectToService(
+        let clientSystem1 = DistributedSystem(systemName: systemName)
+        try clientSystem1.start()
+
+        let remoteServiceEndpoint1 = try await clientSystem1.connectToService(
             TestServiceEndpoint.self,
             withFilter: { _ in true },
             clientFactory: { actorSystem in
-                TestClientEndpoint(remoteClient, in: actorSystem)
+                TestClientEndpoint(client, in: actorSystem)
             }
         )
-        let remoteClientEndpoint = await streamIterator.next()
-        guard let remoteClientEndpoint else {
+        let remoteClientEndpoint1 = await streamIterator.next()
+        guard let remoteClientEndpoint1 else {
             fatalError("remoteClientEndpoint unexpectedly nil")
         }
 
-        streamContinuation?.finish()
+        let clientSystem2 = DistributedSystem(systemName: systemName, compression: true)
+        let remoteServiceEndpoint2 = try await clientSystem2.connectToService(
+            TestServiceEndpoint.self,
+            withFilter: { _ in true },
+            clientFactory: { actorSystem in
+                TestClientEndpoint(client, in: actorSystem)
+            }
+        )
+        let remoteClientEndpoint2 = await streamIterator.next()
+        guard let remoteClientEndpoint2 else {
+            fatalError("remoteClientEndpoint unexpectedly nil")
+        }
+
+        streamContinuation.finish()
 
         sharedData = .init(serviceSystem,
-                           clientSystem,
+                           clientSystem1,
+                           clientSystem2,
                            service,
-                           localClient,
+                           client,
                            Endpoints(localClientEndpoint, localServiceEndpoint),
-                           remoteClient,
-                           Endpoints(remoteClientEndpoint, remoteServiceEndpoint))
+                           Endpoints(remoteClientEndpoint1, remoteServiceEndpoint1),
+                           Endpoints(remoteClientEndpoint2, remoteServiceEndpoint2))
     }
 
     Benchmark.shutdownHook = {
@@ -124,14 +137,58 @@ let benchmarks = {
         sharedData = nil
     }
 
+    func runBenchmark(_ benchmark: Benchmark,
+                      _ serviceSystem: DistributedSystem,
+                      _ service: Service, _ serviceEndpoint: TestServiceEndpoint,
+                      _ client: Client, _ clientEndpoint: TestClientEndpoint) async throws {
+        do {
+            let openRequest = _OpenRequestStruct(requestIdentifier: 1)
+
+            try await serviceEndpoint.openStream(byRequest: OpenRequest(openRequest))
+            await service.whenOpenStream()
+
+            try await clientEndpoint.streamOpened(StreamOpened(_StreamOpenedStruct(requestIdentifier: openRequest.id)))
+            await client.whenStreamOpened()
+
+            let stream = Stream(_StreamStruct(streamIdentifier: openRequest.id))
+            var monsterID: UInt64 = 1
+
+            let bytesSentBefore = try await serviceSystem.getBytesSent()
+
+            benchmark.startMeasurement()
+            for _ in benchmark.scaledIterations {
+                let monster = _MonsterStruct(identifier: monsterID)
+                try await clientEndpoint.handleMonster(Monster(monster), for: stream)
+                monsterID += 1
+            }
+
+            try await clientEndpoint.snapshotDone(for: stream)
+            await client.whenSnapshotDone()
+
+            benchmark.stopMeasurement()
+
+            let bytesSentAfter = try await serviceSystem.getBytesSent()
+            let bytesSent = (bytesSentAfter - bytesSentBefore)
+            benchmark.measurement(.custom("Bytes sent"), Int(bytesSent))
+        } catch {
+            fatalError("Exception handled: \(error), stopping execution for this test")
+        }
+
+        client.reset()
+        service.reset()
+    }
+
     Benchmark("Send Monster  #1 - facade: class, local calls",
               configuration: Benchmark.Configuration(scalingFactor: .kilo)) { benchmark in
         guard let sharedData else {
             fatalError("Shared data is not initialized")
         }
 
-        let serverClass = ServiceClass(sharedData.service)
-        let clientClass = ClientClass(sharedData.localClient)
+        let service = sharedData.service
+        let serverClass = ServiceClass(service)
+
+        let client = sharedData.client
+        let clientClass = ClientClass(client)
 
         do {
             let openRequest = _OpenRequestStruct(requestIdentifier: 1)
@@ -155,6 +212,9 @@ let benchmarks = {
         } catch {
             fatalError("Exception handled: \(error), stopping execution for this test")
         }
+
+        service.reset()
+        client.reset()
     }
 
     Benchmark("Send Monster  #2 - facade: actor, local calls",
@@ -163,8 +223,11 @@ let benchmarks = {
             fatalError("Shared data is not initialized")
         }
 
-        let serverActor = ServiceActor(sharedData.service)
-        let clientActor = ClientActor(sharedData.localClient)
+        let service = sharedData.service
+        let serverActor = ServiceActor(service)
+
+        let client = sharedData.client
+        let clientActor = ClientActor(client)
 
         do {
             let openRequest = _OpenRequestStruct(requestIdentifier: 1)
@@ -189,6 +252,9 @@ let benchmarks = {
         } catch {
             fatalError("Exception handled: \(error), stopping execution for this test")
         }
+
+        service.reset()
+        client.reset()
     }
 
     Benchmark("Send Monster  #3 - facade: distributed actor, local calls",
@@ -197,122 +263,39 @@ let benchmarks = {
             fatalError("Shared data is not initialized")
         }
 
-        let (client, endpoints) = try await sharedData.getClientAndEndpoints(remote: false)
-        var service = sharedData.service
-
-        do {
-            let openRequest = _OpenRequestStruct(requestIdentifier: 1)
-
-            try await endpoints.service.openStream(byRequest: OpenRequest(openRequest))
-            await service.whenOpenStream()
-
-            try await endpoints.client.streamOpened(StreamOpened(_StreamOpenedStruct(requestIdentifier: openRequest.id)))
-            await client.whenStreamOpened()
-
-            let stream = Stream(_StreamStruct(streamIdentifier: openRequest.id))
-            var monsterID: UInt64 = 1
-
-            benchmark.startMeasurement()
-            for _ in benchmark.scaledIterations {
-                let monster = _MonsterStruct(identifier: monsterID)
-                try await endpoints.client.handleMonster(Monster(monster), for: stream)
-                monsterID += 1
-            }
-
-            try await endpoints.client.snapshotDone(for: stream)
-            await client.whenSnapshotDone()
-
-            benchmark.stopMeasurement()
-
-            client.reset()
-            service.reset()
-        } catch {
-            fatalError("Exception handled: \(error), stopping execution for this test")
-        }
+        let endpoints = sharedData.localEndpoints
+        try await runBenchmark(benchmark, sharedData.serviceSystem, sharedData.service, endpoints.service, sharedData.client, endpoints.client)
     }
 
     Benchmark("Send Monster #4.1 - facade: distributed actor, remote (network) calls",
-              configuration: Benchmark.Configuration(scalingFactor: .kilo)) { benchmark in
+              configuration: Benchmark.Configuration(metrics: BenchmarkMetric.default + [.custom("Bytes sent")], scalingFactor: .kilo)) { benchmark in
         guard let sharedData else {
             fatalError("Shared data is not initialized")
         }
-
-        let (client, endpoints) = try await sharedData.getClientAndEndpoints(remote: true)
-        var service = sharedData.service
-
-        do {
-            let openRequest = _OpenRequestStruct(requestIdentifier: 1)
-
-            try await endpoints.service.openStream(byRequest: OpenRequest(openRequest))
-            await service.whenOpenStream()
-
-            try await endpoints.client.streamOpened(StreamOpened(_StreamOpenedStruct(requestIdentifier: openRequest.id)))
-            await client.whenStreamOpened()
-
-            let stream = Stream(_StreamStruct(streamIdentifier: openRequest.id))
-            var monsterID: UInt64 = 1
-
-            benchmark.startMeasurement()
-            for _ in benchmark.scaledIterations {
-                let monster = _MonsterStruct(identifier: monsterID)
-                try await endpoints.client.handleMonster(Monster(monster), for: stream)
-                monsterID += 1
-            }
-
-            try await endpoints.client.snapshotDone(for: stream)
-            await client.whenSnapshotDone()
-
-            benchmark.stopMeasurement()
-
-            client.reset()
-            service.reset()
-        } catch {
-            fatalError("Exception handled: \(error), stopping execution for this test")
-        }
+        let endpoints = sharedData.remoteEndpoints1
+        try await runBenchmark(benchmark, sharedData.serviceSystem, sharedData.service, endpoints.service, sharedData.client, endpoints.client)
     }
 
-    Benchmark("Send Monster #4.2 - facade: distributed actor, remote (network) calls (slow receiver)",
+    Benchmark("Send Monster #4.2 - facade: distributed actor, remote (network) calls, traffic compression",
+              configuration: Benchmark.Configuration(metrics: BenchmarkMetric.default + [.custom("Bytes sent")], scalingFactor: .kilo)) { benchmark in
+        guard let sharedData else {
+            fatalError("Shared data is not initialized")
+        }
+        let endpoints = sharedData.remoteEndpoints2
+        try await runBenchmark(benchmark, sharedData.serviceSystem, sharedData.service, endpoints.service, sharedData.client, endpoints.client)
+    }
+
+    Benchmark("Send Monster #4.3 - facade: distributed actor, remote (network) calls (slow receiver)",
               configuration: Benchmark.Configuration(scalingFactor: .kilo)) { benchmark in
         guard let sharedData else {
             fatalError("Shared data is not initialized")
         }
 
-        let (client, endpoints) = try await sharedData.getClientAndEndpoints(remote: true)
+        var client = sharedData.client
         client.receiveThroughput = 10_000
-        var service = sharedData.service
 
-        do {
-            let openRequest = _OpenRequestStruct(requestIdentifier: 1)
-
-            try await endpoints.service.openStream(byRequest: OpenRequest(openRequest))
-            await service.whenOpenStream()
-
-            try await endpoints.client.streamOpened(StreamOpened(_StreamOpenedStruct(requestIdentifier: openRequest.id)))
-            await client.whenStreamOpened()
-
-            let stream = Stream(_StreamStruct(streamIdentifier: openRequest.id))
-            var monsterID: UInt64 = 1
-
-            benchmark.startMeasurement()
-            for _ in 0..<50_000 {
-                var monster = _MonsterStruct(identifier: monsterID)
-                monster.hp = 100
-                monster.mana = 50
-                monster.name = "Orc"
-                try await endpoints.client.handleMonster(Monster(monster), for: stream)
-                monsterID += 1
-            }
-
-            try await endpoints.client.snapshotDone(for: stream)
-            await client.whenSnapshotDone()
-
-            benchmark.stopMeasurement()
-
-            client.reset()
-            service.reset()
-        } catch {
-            fatalError("Exception handled: \(error), stopping execution for this test")
-        }
+        let endpoints = sharedData.remoteEndpoints1
+        try await runBenchmark(benchmark, sharedData.serviceSystem, sharedData.service, endpoints.service, client, endpoints.client)
     }
 
     func arrayOfMonsters(_ benchmark: Benchmark, _ arraySize: Int) async throws {
@@ -320,8 +303,9 @@ let benchmarks = {
             fatalError("Shared data is not initialized")
         }
 
-        let (client, endpoints) = try await sharedData.getClientAndEndpoints(remote: true)
         var service = sharedData.service
+        let client = sharedData.client
+        let endpoints = sharedData.remoteEndpoints1
 
         do {
             let iterations = benchmark.scaledIterations.count / arraySize
@@ -343,12 +327,12 @@ let benchmarks = {
             await service.whenOpenStream()
 
             benchmark.stopMeasurement()
-
-            client.reset()
-            service.reset()
         } catch {
             fatalError("Exception handled: \(error), stopping execution for this test")
         }
+
+        service.reset()
+        client.reset()
     }
 
     for idx in 1...6 {
@@ -366,8 +350,9 @@ let benchmarks = {
             fatalError("Shared data is not initialized")
         }
 
-        let (client, endpoints) = try await sharedData.getClientAndEndpoints(remote: true)
         var service = sharedData.service
+        let client = sharedData.client
+        let endpoints = sharedData.remoteEndpoints1
 
         do {
             let openRequest = _OpenRequestStruct(requestIdentifier: 1)
@@ -399,12 +384,12 @@ let benchmarks = {
             await client.whenSnapshotDone()
 
             benchmark.stopMeasurement()
-
-            client.reset()
-            service.reset()
         } catch {
             fatalError("Exception handled: \(error), stopping execution for this test")
         }
+
+        service.reset()
+        client.reset()
     }
 
     Benchmark("Send Monster #12 - facade: distributed actor, local calls, 1 thread",
@@ -413,7 +398,7 @@ let benchmarks = {
             fatalError("Shared data is not initialized")
         }
 
-        let (_, endpoints) = try await sharedData.getClientAndEndpoints(remote: false)
+        let endpoints = sharedData.localEndpoints
 
         do {
             benchmark.startMeasurement()
@@ -432,7 +417,7 @@ let benchmarks = {
             fatalError("Shared data is not initialized")
         }
 
-        let (_, endpoints) = try await sharedData.getClientAndEndpoints(remote: false)
+        let endpoints = sharedData.localEndpoints
 
         benchmark.startMeasurement()
         _ = await withTaskGroup(of: Void.self, returning: Void.self, body: { taskGroup in

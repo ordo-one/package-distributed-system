@@ -33,9 +33,15 @@ public class DistributedSystemServer: DistributedSystem {
             .serverChannelOption(ChannelOptions.tcpOption(.tcp_nodelay), value: 1)
             .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .childChannelInitializer { channel in
-                channel.pipeline.addHandler(ChannelHandshakeServer(self.loggerBox)).flatMap {
-                    channel.pipeline.addHandler(ByteToMessageHandler(StreamDecoder(self.loggerBox))).flatMap { _ in
-                        channel.pipeline.addHandler(ChannelHandler(self.nextChannelID, self, nil, self.endpointQueueWarningSize))
+                let pipeline = channel.pipeline
+                let streamHandler = ByteToMessageHandler(StreamDecoder(self.loggerBox))
+                return pipeline.addHandler(ChannelHandshakeServer(self.loggerBox)).flatMap {
+                    pipeline.addHandler(ChannelCompressionHandshakeServer(self.loggerBox, streamHandler)).flatMap { _ in
+                        pipeline.addHandler(streamHandler).flatMap { _ in
+                            pipeline.addHandler(ChannelHandler(self.nextChannelID, self, nil, self.endpointQueueWarningSize)).flatMap { _ in
+                                pipeline.addHandler(ChannelOutboundCounter(self), position: .first)
+                            }
+                        }
                     }
                 }
             }

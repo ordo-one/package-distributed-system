@@ -1,0 +1,5 @@
+module lz4 [system] {
+    umbrella header "lz4shims.h"
+    link "lz4"
+    export *
+}
