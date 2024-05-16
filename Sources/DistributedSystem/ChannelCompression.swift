@@ -95,6 +95,12 @@ fileprivate struct BufferManager: ~Copyable {
     var buffers = Array(repeating: UnsafeMutableRawBufferPointer(start: nil, count: 0), count: 2)
     var nextIdx = 0
 
+    deinit {
+        for idx in 0..<buffers.count {
+            buffers[idx].deallocate()
+        }
+    }
+
     mutating func getNextBuffer(capacity: Int) -> UnsafeMutableRawBufferPointer {
         let idx = nextIdx
         nextIdx = (1 - nextIdx)
@@ -105,12 +111,6 @@ fileprivate struct BufferManager: ~Copyable {
             buffers[idx] = buffer
         }
         return buffer
-    }
-
-    mutating func reset() {
-        for idx in 0..<buffers.count {
-            buffers[idx].deallocate()
-        }
     }
 }
 
@@ -127,10 +127,6 @@ final class ChannelCompressionInboundHandler: ChannelInboundHandler {
     init(_ loggerBox: Box<Logger>) {
         self.loggerBox = loggerBox
         LZ4_setStreamDecode(&lz4Stream, nil, 0);
-    }
-
-    deinit {
-        bufferManager.reset()
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
@@ -170,10 +166,6 @@ final class ChannelCompressionOutboundHandler: ChannelOutboundHandler {
 
     init() {
         LZ4_initStream(&lz4Stream, MemoryLayout<LZ4_stream_t>.size);
-    }
-
-    deinit {
-        bufferManager.reset()
     }
 
     func write(context: ChannelHandlerContext, data: NIOAny, promise: EventLoopPromise<Void>?) {
