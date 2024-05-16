@@ -37,7 +37,9 @@ public class DistributedSystemServer: DistributedSystem {
                 let streamHandler = ByteToMessageHandler(StreamDecoder(self.loggerBox))
                 return pipeline.addHandler(ChannelCompressionHandshakeServer(self.loggerBox, streamHandler)).flatMap { _ in
                     pipeline.addHandler(streamHandler).flatMap { _ in
-                        pipeline.addHandler(ChannelHandler(self.nextChannelID, self, nil, self.endpointQueueWarningSize))
+                        pipeline.addHandler(ChannelHandler(self.nextChannelID, self, nil, self.endpointQueueWarningSize)).flatMap { _ in
+                            pipeline.addHandler(ChannelOutboundCounter(self), position: .first)
+                        }
                     }
                 }
             }

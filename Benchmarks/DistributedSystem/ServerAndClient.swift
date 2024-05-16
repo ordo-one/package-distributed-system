@@ -7,7 +7,7 @@ import PackageConcurrencyHelpers
 import TestMessages
 
 public class Client: TestableClient {
-    private let  logger: Logger
+    private let logger: Logger
 
     let lock = Lock()
 
@@ -18,8 +18,6 @@ public class Client: TestableClient {
 
     var streamOpened = false
     var streamOpenedContinuation: CheckedContinuation<Void, Never>?
-
-    let label: String
 
     private var receiveSleepIterations: Int = 0
 
@@ -37,9 +35,8 @@ public class Client: TestableClient {
         }
     }
 
-    public init(_ logger: Logger, label: String) {
+    public init(_ logger: Logger) {
         self.logger = logger
-        self.label = label
     }
 
     public func whenSnapshotDone() async {
@@ -71,6 +68,7 @@ public class Client: TestableClient {
         streamOpenedContinuation = nil
         snapshotDoneReceived = false
         streamOpened = false
+        receiveSleepIterations = 0
     }
 
     public func snapshotDone(for stream: TestMessages.Stream) {
@@ -141,9 +139,10 @@ public class Service: TestableService {
     public func whenOpenStream() async {
         await withCheckedContinuation { continuation in
             lock.withLock {
-                openStreamContinuation = continuation
                 if streamOpen {
                     continuation.resume()
+                } else {
+                    openStreamContinuation = continuation
                 }
             }
         }

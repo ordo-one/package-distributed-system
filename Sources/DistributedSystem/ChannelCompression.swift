@@ -91,7 +91,7 @@ final class ChannelCompressionHandshakeClient: ChannelInboundHandler, RemovableC
     }
 }
 
-fileprivate struct BufferManager {
+fileprivate struct BufferManager: ~Copyable {
     var buffers = Array(repeating: UnsafeMutableRawBufferPointer(start: nil, count: 0), count: 2)
     var nextIdx = 0
 

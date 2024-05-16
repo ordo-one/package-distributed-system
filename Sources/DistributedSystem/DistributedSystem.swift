@@ -180,6 +180,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     private var syncCallManager: SyncCallManager
     private let compression: UInt8
 
+    let _bytesSent = ManagedAtomic<UInt64>(0)
+
     public typealias ServiceFilter = (NodeService) -> Bool
     public typealias ServiceFactory = (DistributedSystem) throws -> any ServiceEndpoint
 
@@ -230,7 +232,9 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 let streamHandler = ByteToMessageHandler(StreamDecoder(self.loggerBox))
                 return pipeline.addHandler(ChannelCompressionHandshakeClient(self.loggerBox, self.compression, streamHandler)).flatMap { _ in
                     pipeline.addHandler(streamHandler).flatMap { _ in
-                        pipeline.addHandler(ChannelHandler(self.nextChannelID, self, address, self.endpointQueueWarningSize))
+                        pipeline.addHandler(ChannelHandler(self.nextChannelID, self, address, self.endpointQueueWarningSize)).flatMap { _ in
+                            pipeline.addHandler(ChannelOutboundCounter(self), position: .first)
+                        }
                     }
                 }
             }
@@ -1369,5 +1373,37 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
         logger.debug("close connection for \(endpointID)")
         channel.close(promise: nil)
+    }
+
+    public func getBytesSent() async throws -> UInt64 {
+        let (bytesSent, futures) = lock.withLock {
+            let bytesSent = self._bytesSent.load(ordering: .relaxed)
+            var futures = [EventLoopFuture<UInt64>]()
+            futures.reserveCapacity(self.channels.count)
+            for (_, channelInfo) in self.channels {
+                let future = channelInfo.channel.pipeline.context(handlerType: ChannelOutboundCounter.self).flatMap { context in
+                    let eventLoop = context.eventLoop
+                    if let counter = context.handler as? ChannelOutboundCounter {
+                        return eventLoop.makeSucceededFuture(counter.bytesSent)
+                    } else {
+                        return eventLoop.makeSucceededFuture(0)
+                    }
+                }
+                futures.append(future)
+            }
+            return (bytesSent, futures)
+        }
+        let eventLoop = eventLoopGroup.next()
+        let future = EventLoopFuture.whenAllComplete(futures, on: eventLoop).flatMap { results in
+            let ret = results.reduce(bytesSent, { nextResult, futureResult in
+                var nextResult = nextResult
+                if case let .success(bytesSent) = futureResult {
+                    nextResult += bytesSent
+                }
+                return nextResult
+            })
+            return eventLoop.makeSucceededFuture(ret)
+        }
+        return try await future.get()
     }
 }
