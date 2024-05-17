@@ -28,8 +28,7 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
 
     func channelActive(context: ChannelHandlerContext) {
         timer = context.eventLoop.scheduleTask(in: DistributedSystem.pingInterval*2) {
-            let channel = context.channel
-            self.logger.info("Session timeout for client @ \(channel.remoteAddressDescription), close connection.")
+            self.logger.info("\(context.channel.addressDescription): session timeout for compression client handshake, close connection")
             context.close(promise: nil)
         }
     }
@@ -39,6 +38,7 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
             timer.cancel()
             self.timer = nil
         }
+        logger.info("\(context.channel.addressDescription): connection closed")
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
@@ -58,9 +58,8 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
             }
             _ = context.pipeline.removeHandler(self)
         } else {
-            let channel = context.channel
-            logger.info("Invalid compression request received from client @ \(channel.remoteAddressDescription), close connection.")
-            channel.close(promise: nil)
+            logger.info("\(context.channel.addressDescription): invalid compression request received, close connection")
+            context.close(promise: nil)
         }
     }
 }
@@ -152,7 +151,7 @@ final class ChannelCompressionInboundHandler: ChannelInboundHandler {
                 return
             }
         }
-        logger.info("invalid compressed message received from client @ \(context.channel.remoteAddressDescription), close connection.")
+        logger.info("\(context.channel.addressDescription): invalid compressed message received, close connection")
         context.close(promise: nil)
     }
 }

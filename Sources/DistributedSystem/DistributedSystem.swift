@@ -263,7 +263,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(UInt(serviceName.count), to: ptr.baseAddress!) }
         buffer.writeString(serviceName)
         buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(instanceID, to: ptr.baseAddress!) }
-        logger.debug("\(channel.remoteAddressDescription): send create \(serviceName) \(EndpointIdentifier.instanceIdentifierDescription(instanceID))")
+        logger.debug("\(channel.addressDescription): send create \(serviceName) \(EndpointIdentifier.instanceIdentifierDescription(instanceID))")
         _ = channel.writeAndFlush(buffer, promise: nil)
     }
 
@@ -274,7 +274,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         buffer.writeInteger(UInt32(payloadSize))
         buffer.writeInteger(SessionMessage.suspendEndpoint.rawValue)
         buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(instanceID, to: ptr.baseAddress!) }
-        logger.debug("\(channel.remoteAddressDescription): send suspend endpoint \(endpointID)")
+        logger.debug("\(channel.addressDescription): send suspend endpoint \(endpointID)")
         _ = channel.writeAndFlush(buffer, promise: nil)
     }
 
@@ -285,7 +285,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         buffer.writeInteger(UInt32(payloadSize))
         buffer.writeInteger(SessionMessage.resumeEndpoint.rawValue)
         buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(instanceID, to: ptr.baseAddress!) }
-        logger.debug("\(channel.remoteAddressDescription): send resume endpoint \(endpointID)")
+        logger.debug("\(channel.addressDescription): send resume endpoint \(endpointID)")
         _ = channel.writeAndFlush(buffer, promise: nil)
     }
 
@@ -643,7 +643,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt32>.size + payloadSize)
         buffer.writeInteger(UInt32(payloadSize))
         buffer.writeInteger(SessionMessage.ping.rawValue)
-        logger.trace("\(channel.remoteAddressDescription): send ping")
+        logger.trace("\(channel.addressDescription): send ping")
         let promise: EventLoopPromise<Void> = eventLoop.makePromise()
         promise.futureResult.whenSuccess {
             eventLoop.scheduleTask(in: Self.pingInterval) {
@@ -1032,7 +1032,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         buffer.writeInteger(SessionMessage.invocationEnvelope.rawValue)
         buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(actor.id.instanceID, to: ptr.baseAddress!) }
         InvocationEnvelope.encode(callID, target, invocation.genericSubstitutions, &invocation.arguments, to: &buffer)
-        logger.trace("\(channel.remoteAddressDescription): send \(buffer.readableBytes) bytes for \(actor.id)")
+        logger.trace("\(channel.addressDescription): send \(buffer.readableBytes) bytes for \(actor.id)")
         channel.writeAndFlush(buffer, promise: nil)
     }
 
@@ -1049,9 +1049,9 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     }
 
     private static func readULEB128<T: UnsignedInteger>(from buffer: inout ByteBuffer, as: T.Type) throws -> T {
-        let (sizeSize, size) = try buffer.withUnsafeReadableBytes { ptr in try ULEB128.decode(ptr, as: T.self) }
-        buffer.moveReaderIndex(forwardBy: sizeSize)
-        return size
+        let (size, value) = try buffer.withUnsafeReadableBytes { ptr in try ULEB128.decode(ptr, as: T.self) }
+        buffer.moveReaderIndex(forwardBy: size)
+        return value
     }
 
     func channelRead(_ channelID: UInt32, _ channel: Channel, _ buffer: inout ByteBuffer) {
@@ -1059,7 +1059,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         guard buffer.readInteger(as: UInt32.self) != nil, // skip message size
               let messageType = buffer.readInteger(as: SessionMessage.RawValue.self)
         else {
-            logger.error("\(channel.remoteAddressDescription): invalid message received (\(bytesReceived))")
+            logger.error("\(channel.addressDescription): invalid message received (\(bytesReceived))")
             return
         }
 
@@ -1088,19 +1088,19 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 let endpointID = EndpointIdentifier(channelID, instanceID)
                 resumeEndpoint(endpointID)
             case .ping:
-                logger.trace("\(channel.remoteAddressDescription): ping, send pong")
+                logger.trace("\(channel.addressDescription): ping, send pong")
                 let payloadSize = MemoryLayout<SessionMessage.RawValue>.size
                 var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt32>.size + payloadSize)
                 buffer.writeInteger(UInt32(payloadSize))
                 buffer.writeInteger(SessionMessage.pong.rawValue)
                 _ = channel.writeAndFlush(buffer, promise: nil)
             case .pong:
-                logger.trace("\(channel.remoteAddressDescription): pong")
+                logger.trace("\(channel.addressDescription): pong")
             case .none:
-                logger.error("\(channel.remoteAddressDescription): unexpected session message")
+                logger.error("\(channel.addressDescription): unexpected session message")
             }
         } catch {
-            logger.error("\(channel.remoteAddressDescription): \(error), close connection")
+            logger.error("\(channel.addressDescription): \(error), close connection")
             _ = channel.close()
         }
 
@@ -1118,7 +1118,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     private func createService(_ serviceName: String, _ instanceID: EndpointIdentifier.InstanceIdentifier, for channelID: UInt32, _ channel: Channel) {
         let serviceFactory = discoveryManager.factoryFor(serviceName)
         guard let serviceFactory else {
-            logger.error("\(channel.remoteAddressDescription): service \(serviceName) for \(instanceID) not registered")
+            logger.error("\(channel.addressDescription): service \(serviceName) for \(instanceID) not registered")
             return
         }
 
@@ -1126,7 +1126,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             let serviceEndpointID = EndpointIdentifier(channelID, instanceID)
             let clientEndpointID = serviceEndpointID.makeClientEndpoint()
             if self.actors[clientEndpointID] != nil {
-                logger.error("\(channel.remoteAddressDescription): duplicate endpoint identifier \(clientEndpointID)")
+                logger.error("\(channel.addressDescription): duplicate endpoint identifier \(clientEndpointID)")
                 return nil
             }
 
@@ -1136,14 +1136,14 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
         if let clientEndpointID {
             let serviceEndpointID = clientEndpointID.makeServiceEndpoint()
-            logger.debug("\(channel.remoteAddressDescription): create service \(serviceName) \(serviceEndpointID)")
+            logger.debug("\(channel.addressDescription): create service \(serviceName) \(serviceEndpointID)")
             do {
                 let _ = try Self.$actorID.withValue(serviceEndpointID) { try serviceFactory(self) }
             } catch {
                 lock.withLockVoid {
                     self.actors.removeValue(forKey: clientEndpointID)
                 }
-                logger.error("\(channel.remoteAddressDescription): \(error)")
+                logger.error("\(channel.addressDescription): \(error)")
             }
         }
     }
@@ -1232,8 +1232,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                             _ actor: any DistributedActor,
                             _ channel: Channel,
                             _ queueState: ManagedAtomic<UInt64>) async {
-        let remoteAddressDescription = channel.remoteAddressDescription
-        logger.debug("\(remoteAddressDescription): start stream task for \(actor.id)")
+        logger.debug("\(channel.addressDescription): start stream task for \(actor.id)")
 
         let resultHandler = ResultHandler()
         for await envelope in stream {
@@ -1296,7 +1295,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             logger.error("\(error)")
         }
 
-        logger.debug("\(remoteAddressDescription): streamTask for \(actor.id) done")
+        logger.debug("\(channel.addressDescription): streamTask for \(actor.id) done")
     }
 
     private func invokeLocalCall(_ envelope: InvocationEnvelope, for endpointID: EndpointIdentifier, _ channel: Channel) throws {

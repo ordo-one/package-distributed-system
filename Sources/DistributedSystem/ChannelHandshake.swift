@@ -23,9 +23,10 @@ final class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandl
     }
 
     func channelActive(context: ChannelHandlerContext) {
+        logger.info("\(context.channel.addressDescription): connection accepted")
+
         timer = context.eventLoop.scheduleTask(in: DistributedSystem.pingInterval*2) {
-            let channel = context.channel
-            self.logger.info("Session timeout for client @ \(channel.remoteAddressDescription), close connection.")
+            self.logger.info("\(context.channel.addressDescription): client session timeout, close connection")
             context.close(promise: nil)
         }
     }
@@ -35,6 +36,7 @@ final class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandl
             timer.cancel()
             self.timer = nil
         }
+        logger.info("\(context.channel.addressDescription): connection closed")
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
@@ -55,7 +57,7 @@ final class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandl
                 context.fireChannelActive()
                 _ = context.pipeline.removeHandler(self)
             } else {
-                logger.info("Client protocol version \(clientProtocolVersionMajor).\(clientProtocolVersionMajor) not compatible with server version \(DistributedSystem.protocolVersionMajor).\(DistributedSystem.protocolVersionMinor), close connection.")
+                logger.info("\(context.channel.addressDescription): client protocol version \(clientProtocolVersionMajor).\(clientProtocolVersionMajor) not compatible with server version \(DistributedSystem.protocolVersionMajor).\(DistributedSystem.protocolVersionMinor), close connection")
                 var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt16>.size*3)
                 buffer.writeInteger(UInt16(MemoryLayout<UInt16>.size * 2))
                 buffer.writeInteger(DistributedSystem.protocolVersionMajor)
@@ -66,7 +68,7 @@ final class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandl
             }
         } else {
             let channel = context.channel
-            logger.info("Invalid handshake request received from client @ \(channel.remoteAddressDescription), close connection.")
+            logger.info("\(channel.addressDescription): invalid handshake request received, close connection")
             context.close(promise: nil)
         }
     }
@@ -85,14 +87,15 @@ final class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandl
     }
 
     func channelActive(context: ChannelHandlerContext) {
+        logger.info("\(context.channel.addressDescription): connected")
+
         var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt16>.size + MemoryLayout<UInt16>.size)
         buffer.writeInteger(DistributedSystem.protocolVersionMajor)
         buffer.writeInteger(DistributedSystem.protocolVersionMinor)
         context.writeAndFlush(NIOAny(buffer), promise: nil)
 
         timer = context.eventLoop.scheduleTask(in: DistributedSystem.pingInterval*2) {
-            let channel = context.channel
-            self.logger.info("Session timeout for server @ \(channel.remoteAddressDescription), close connection.")
+            self.logger.info("\(context.channel.addressDescription): server session timeout, close connection")
             context.close(promise: nil)
         }
     }
@@ -102,6 +105,7 @@ final class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandl
             timer.cancel()
             self.timer = nil
         }
+        logger.info("\(context.channel.addressDescription): connection closed")
     }
 
     private static func hexDump(_ buffer: ByteBuffer) -> String {
@@ -135,16 +139,14 @@ final class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandl
                    let serverProtocolVersionMajor = buffer.readInteger(as: UInt16.self),
                    let serverProtocolVersionMinor = buffer.readInteger(as: UInt16.self),
                    buffer.readableBytes == 0 {
-                    logger.info("Client protocol version \(DistributedSystem.protocolVersionMajor).\(DistributedSystem.protocolVersionMinor) is not compatible with server version \(serverProtocolVersionMajor).\(serverProtocolVersionMinor), close connection.")
+                    logger.info("\(context.channel.addressDescription): client protocol version \(DistributedSystem.protocolVersionMajor).\(DistributedSystem.protocolVersionMinor) is not compatible with server version \(serverProtocolVersionMajor).\(serverProtocolVersionMinor), close connection")
                 } else {
-                    let channel = context.channel
-                    logger.info("Invalid handshake response received from server @ \(channel.remoteAddressDescription), close connection.\(Self.hexDump(unwrapInboundIn(data)))")
+                    logger.info("\(context.channel.addressDescription): invalid handshake response received, close connection\(Self.hexDump(unwrapInboundIn(data)))")
                 }
                 context.close(promise: nil)
             }
         } else {
-            let channel = context.channel
-            logger.info("Invalid handshake responce received from server @ \(channel.remoteAddressDescription), close connection.\(Self.hexDump(unwrapInboundIn(data)))")
+            logger.info("\(context.channel.addressDescription): invalid handshake responce received, close connection\(Self.hexDump(unwrapInboundIn(data)))")
             context.close(promise: nil)
         }
     }
