@@ -162,6 +162,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         var bytesReceived = 0
         var bytesReceivedCheckpoint = 0
         var bytesReceivedTimeouts = 0
+        var targetFuncs = Box<[String: UInt32]>([:])
         var pendingSyncCalls = Set<UInt64>()
 
         init(_ channel: Channel) {
@@ -966,7 +967,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         _ invocation: inout InvocationEncoder,
         _ callID: UInt64
     ) async throws where Actor: DistributedActor, Actor.ID == ActorID {
-        let (channel, suspended): (Channel, Bool) = try lock.withLock {
+        let (channel, channelTargetFuncs, suspended) = try lock.withLock {
             guard let actorInfo = self.actors[actor.id] else {
                 throw DistributedSystemErrors.noConnectionForActor(actor.id)
             }
@@ -988,7 +989,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 logger.trace("add sync call \(callID) for \(channelID)")
             }
 
-            return (channelInfo.channel, suspended)
+            return (channelInfo.channel, channelInfo.targetFuncs, suspended)
         }
 
         if suspended {
@@ -1023,7 +1024,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         let payloadSize =
             MemoryLayout<SessionMessage.RawValue>.size
                 + ULEB128.size(actor.id.instanceID)
-                + InvocationEnvelope.wireSize(callID, target, invocation.genericSubstitutions, invocation.arguments)
+                + InvocationEnvelope.wireSize(callID, invocation.genericSubstitutions, invocation.arguments, target)
         // Even if we carefully calculated the capacity of the desired buffer and know it to the nearest byte,
         // swift-nio still allocate a buffer with a storage capacity rounded up to nearest power of 2...
         // Weird...
@@ -1031,9 +1032,19 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         buffer.writeInteger(UInt32(payloadSize))
         buffer.writeInteger(SessionMessage.invocationEnvelope.rawValue)
         buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(actor.id.instanceID, to: ptr.baseAddress!) }
-        InvocationEnvelope.encode(callID, target, invocation.genericSubstitutions, &invocation.arguments, to: &buffer)
-        logger.trace("\(channel.addressDescription): send \(buffer.readableBytes) bytes for \(actor.id)")
-        channel.writeAndFlush(buffer, promise: nil)
+        let targetOffset = InvocationEnvelope.encode(callID, invocation.genericSubstitutions, &invocation.arguments, target, to: &buffer)
+
+        channel.eventLoop.execute { [buffer] in
+            var buffer = buffer
+            if let targetIdx = channelTargetFuncs.value[target.identifier] {
+                InvocationEnvelope.setTargetIdx(targetIdx, in: &buffer, at: targetOffset)
+            } else {
+                let targetIdx = UInt32(channelTargetFuncs.value.count)
+                channelTargetFuncs.value[target.identifier] = targetIdx
+            }
+            self.logger.trace("\(channel.addressDescription): send \(buffer.readableBytes) bytes for \(actor.id)")
+            channel.writeAndFlush(buffer, promise: nil)
+        }
     }
 
     public func remoteCallVoid<Actor, Err>(
@@ -1054,7 +1065,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         return value
     }
 
-    func channelRead(_ channelID: UInt32, _ channel: Channel, _ buffer: inout ByteBuffer) {
+    func channelRead(_ channelID: UInt32, _ channel: Channel, _ buffer: inout ByteBuffer, _ targetFuncs: inout [String]) {
         let bytesReceived = buffer.readableBytes
         guard buffer.readInteger(as: UInt32.self) != nil, // skip message size
               let messageType = buffer.readInteger(as: SessionMessage.RawValue.self)
@@ -1075,7 +1086,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             case .invocationEnvelope:
                 let instanceID = try Self.readULEB128(from: &buffer, as: EndpointIdentifier.InstanceIdentifier.self)
                 let endpointID = EndpointIdentifier(channelID, instanceID)
-                let envelope = try InvocationEnvelope(from: &buffer)
+                let envelope = try InvocationEnvelope(from: &buffer, &targetFuncs)
                 try invokeLocalCall(envelope, for: endpointID, channel)
             case .invocationResult:
                 try syncCallManager.handleResult(&buffer)
