@@ -26,14 +26,8 @@ struct InvocationEnvelope {
         self.arguments = arguments
     }
 
-    init(from buffer: inout ByteBuffer) throws {
+    init(from buffer: inout ByteBuffer, _ targetFuncs: inout [String]) throws {
         callID = try buffer.readWithUnsafeReadableBytes { ptr in try ULEB128.decode(ptr, as: UInt64.self) }
-
-        let targetFuncSize = try buffer.readWithUnsafeReadableBytes { ptr in try ULEB128.decode(ptr, as: UInt.self) }
-        guard let targetFunc = buffer.readString(length: Int(targetFuncSize)) else {
-            throw DistributedSystemErrors.error("Failed to decode InvocationEnvelope (target func)")
-        }
-        self.targetFunc = targetFunc
 
         var genericSubstitutions = [Any.Type]()
         while true {
@@ -56,35 +50,65 @@ struct InvocationEnvelope {
             throw DistributedSystemErrors.error("Failed to decode InvocationEnvelope: arguments")
         }
         self.arguments = arguments
+
+        guard let targetType = buffer.readInteger(as: UInt8.self) else {
+            throw DistributedSystemErrors.error("Failed to decode InvocationEnvelope: target type")
+        }
+        if targetType == 0 {
+            let targetFuncSize = try buffer.readWithUnsafeReadableBytes { ptr in try ULEB128.decode(ptr, as: UInt.self) }
+            guard let targetFunc = buffer.readString(length: Int(targetFuncSize)) else {
+                throw DistributedSystemErrors.error("Failed to decode InvocationEnvelope (target func)")
+            }
+            self.targetFunc = targetFunc
+            targetFuncs.append(targetFunc)
+        } else {
+            let funcIdx = try buffer.readWithUnsafeReadableBytes { ptr in try ULEB128.decode(ptr, as: UInt32.self) }
+            self.targetFunc = targetFuncs[Int(funcIdx)]
+        }
     }
 
-    static func wireSize(_ callID: UInt64, _ targetFunc: RemoteCallTarget, _ genericSubstitutions: [String], _ arguments: ByteBuffer) -> Int {
+    static func wireSize(_ callID: UInt64, _ genericSubstitutions: [String], _ arguments: ByteBuffer, _ targetFunc: RemoteCallTarget) -> Int {
         var wireSize = 0
         wireSize += ULEB128.size(callID)
-        wireSize += ULEB128.size(UInt(targetFunc.identifier.count)) + targetFunc.identifier.count
         for typeName in genericSubstitutions {
             wireSize += ULEB128.size(UInt(typeName.count))
             wireSize += typeName.count
         }
         wireSize += MemoryLayout<UInt8>.size
         wireSize += ULEB128.size(UInt(arguments.readableBytes)) + arguments.readableBytes
+        wireSize += MemoryLayout<UInt8>.size // target type
+        let stringTargetSize = ULEB128.size(UInt(targetFunc.identifier.count)) + targetFunc.identifier.count
+        let idxTargetSize = ULEB128.size(UInt32.max)
+        wireSize += max(stringTargetSize, idxTargetSize)
         return wireSize
     }
 
-    static func encode(_ callID: UInt64, _ targetFunc: RemoteCallTarget, _ genericSubstitutions: [String], _ arguments: inout ByteBuffer, to buffer: inout ByteBuffer) {
+    static func encode(_ callID: UInt64, _ genericSubstitutions: [String], _ arguments: inout ByteBuffer, _ targetFunc: RemoteCallTarget, to buffer: inout ByteBuffer) -> Int {
         buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(callID, to: ptr.baseAddress!) }
-
-        let targetFuncMangled = targetFunc.identifier
-        buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(UInt(targetFuncMangled.count), to: ptr.baseAddress!) }
-        buffer.writeString(targetFuncMangled)
 
         for typeName in genericSubstitutions {
             buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(UInt(typeName.count), to: ptr.baseAddress!) }
             buffer.writeString(typeName)
         }
-        buffer.writeInteger(UInt8(0))
+        buffer.writeInteger(UInt8(0)) // generic substitution end indicator
 
         buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(UInt(arguments.readableBytes), to: ptr.baseAddress!) }
         buffer.writeBuffer(&arguments)
+
+        let targetFuncMangled = targetFunc.identifier
+        let targetOffset = buffer.writerIndex
+        buffer.writeInteger(UInt8(0)) // target type = string
+        buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(UInt(targetFuncMangled.count), to: ptr.baseAddress!) }
+        buffer.writeString(targetFuncMangled)
+
+        return targetOffset
+    }
+
+    static func setTargetIdx(_ idx: UInt32, in buffer: inout ByteBuffer, at offs: Int) {
+        buffer.moveWriterIndex(to: offs)
+        buffer.writeInteger(UInt8(1)) // target type = index
+        buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(idx, to: ptr.baseAddress!) }
+        let messageSize = buffer.readableBytes - MemoryLayout<UInt32>.size
+        buffer.setInteger(UInt32(messageSize), at: buffer.readerIndex)
     }
 }

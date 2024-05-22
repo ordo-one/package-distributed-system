@@ -38,6 +38,7 @@ class ChannelHandler: ChannelInboundHandler {
     private let actorSystem: DistributedSystem
     private var address: SocketAddress?
     private var writeBufferHighWatermark: Int
+    private var targetFuncs = [String]()
 
     init(_ id: UInt32, _ actorSystem: DistributedSystem, _ address: SocketAddress?, _ writeBufferHighWatermark: UInt64) {
         self.id = id
@@ -74,7 +75,7 @@ class ChannelHandler: ChannelInboundHandler {
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         var buffer = unwrapInboundIn(data)
         logger.trace("\(context.channel.addressDescription)/\(id): received \(buffer.readableBytes) bytes")
-        actorSystem.channelRead(id, context.channel, &buffer)
+        actorSystem.channelRead(id, context.channel, &buffer, &targetFuncs)
     }
 
     // Flush it out. This can make use of gathering writes if multiple buffers are pending
