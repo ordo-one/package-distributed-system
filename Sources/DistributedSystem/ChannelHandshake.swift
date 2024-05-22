@@ -57,7 +57,7 @@ final class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandl
                 context.fireChannelActive()
                 _ = context.pipeline.removeHandler(self)
             } else {
-                logger.info("\(context.channel.addressDescription): client protocol version \(clientProtocolVersionMajor).\(clientProtocolVersionMajor) not compatible with server version \(DistributedSystem.protocolVersionMajor).\(DistributedSystem.protocolVersionMinor), close connection")
+                logger.info("\(context.channel.addressDescription): client protocol version \(clientProtocolVersionMajor).\(clientProtocolVersionMinor) not compatible with server version \(DistributedSystem.protocolVersionMajor).\(DistributedSystem.protocolVersionMinor), close connection")
                 var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt16>.size*3)
                 buffer.writeInteger(UInt16(MemoryLayout<UInt16>.size * 2))
                 buffer.writeInteger(DistributedSystem.protocolVersionMajor)
@@ -139,14 +139,14 @@ final class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandl
                    let serverProtocolVersionMajor = buffer.readInteger(as: UInt16.self),
                    let serverProtocolVersionMinor = buffer.readInteger(as: UInt16.self),
                    buffer.readableBytes == 0 {
-                    logger.info("\(context.channel.addressDescription): client protocol version \(DistributedSystem.protocolVersionMajor).\(DistributedSystem.protocolVersionMinor) is not compatible with server version \(serverProtocolVersionMajor).\(serverProtocolVersionMinor), close connection")
+                    logger.warning("\(context.channel.addressDescription): client protocol version \(DistributedSystem.protocolVersionMajor).\(DistributedSystem.protocolVersionMinor) is not compatible with server version \(serverProtocolVersionMajor).\(serverProtocolVersionMinor), close connection")
                 } else {
-                    logger.info("\(context.channel.addressDescription): invalid handshake response received, close connection\(Self.hexDump(unwrapInboundIn(data)))")
+                    logger.warning("\(context.channel.addressDescription): invalid handshake response received, close connection\(Self.hexDump(unwrapInboundIn(data)))")
                 }
                 context.close(promise: nil)
             }
         } else {
-            logger.info("\(context.channel.addressDescription): invalid handshake responce received, close connection\(Self.hexDump(unwrapInboundIn(data)))")
+            logger.warning("\(context.channel.addressDescription): invalid handshake responce received, close connection\(Self.hexDump(unwrapInboundIn(data)))")
             context.close(promise: nil)
         }
     }
