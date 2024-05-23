@@ -14,9 +14,11 @@ final class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandl
     typealias InboundIn = ByteBuffer
 
     private let loggerBox: Box<Logger>
+    private var logger: Logger { loggerBox.value }
+
     private var timer: Scheduled<Void>?
 
-    private var logger: Logger { loggerBox.value }
+    static let hexDumpMaxBytes = 32
 
     init(_ loggerBox: Box<Logger>) {
         self.loggerBox = loggerBox
@@ -67,8 +69,7 @@ final class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandl
                 // If we would close TCP connection now then client not necessary will receive it.
             }
         } else {
-            let channel = context.channel
-            logger.info("\(channel.addressDescription): invalid handshake request received, close connection")
+            logger.info("\(context.channel.addressDescription): invalid handshake request received, close connection\n\(unwrapInboundIn(data).hexDump(format: ByteBuffer.HexDumpFormat.detailed(maxBytes: Self.hexDumpMaxBytes)))")
             context.close(promise: nil)
         }
     }
@@ -78,9 +79,11 @@ final class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandl
     typealias InboundIn = ByteBuffer
 
     private let loggerBox: Box<Logger>
+    private var logger: Logger { loggerBox.value }
+
     private var timer: Scheduled<Void>?
 
-    private var logger: Logger { loggerBox.value }
+    static let hexDumpMaxBytes = ChannelHandshakeServer.hexDumpMaxBytes
 
     init(_ loggerBox: Box<Logger>) {
         self.loggerBox = loggerBox
@@ -108,14 +111,6 @@ final class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandl
         logger.info("\(context.channel.addressDescription): connection closed")
     }
 
-    private static func hexDump(_ buffer: ByteBuffer) -> String {
-        if let slice = buffer.getSlice(at: buffer.readerIndex, length: max(buffer.readableBytes, 16)) {
-            return "\n\(slice.hexDump(format: .detailed))"
-        } else {
-            return ""
-        }
-    }
-
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         if let timer {
             timer.cancel()
@@ -141,12 +136,12 @@ final class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandl
                    buffer.readableBytes == 0 {
                     logger.warning("\(context.channel.addressDescription): client protocol version \(DistributedSystem.protocolVersionMajor).\(DistributedSystem.protocolVersionMinor) is not compatible with server version \(serverProtocolVersionMajor).\(serverProtocolVersionMinor), close connection")
                 } else {
-                    logger.warning("\(context.channel.addressDescription): invalid handshake response received, close connection\(Self.hexDump(unwrapInboundIn(data)))")
+                    logger.warning("\(context.channel.addressDescription): invalid handshake response received, close connection\(unwrapInboundIn(data).hexDump(format: ByteBuffer.HexDumpFormat.detailed(maxBytes: Self.hexDumpMaxBytes)))")
                 }
                 context.close(promise: nil)
             }
         } else {
-            logger.warning("\(context.channel.addressDescription): invalid handshake responce received, close connection\(Self.hexDump(unwrapInboundIn(data)))")
+            logger.warning("\(context.channel.addressDescription): invalid handshake responce received, close connection\(unwrapInboundIn(data).hexDump(format: ByteBuffer.HexDumpFormat.detailed(maxBytes: Self.hexDumpMaxBytes)))")
             context.close(promise: nil)
         }
     }
