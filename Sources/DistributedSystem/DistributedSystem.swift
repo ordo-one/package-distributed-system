@@ -25,6 +25,43 @@ extension Channel {
     }
 }
 
+public enum CompressionMode {
+    public struct Dictionary {
+        let data: UnsafeRawBufferPointer
+        let checksum: UInt32
+
+        // very simple checksum calculation
+        // would use Hasher() but it use random seeds in the different processes
+        private static func crc32(_ ptr: UnsafeRawBufferPointer) -> UInt32 {
+            let polynomial: UInt32 = 0xEDB88320
+            var crc: UInt32 = 0xFFFFFFFF
+
+            for byte in ptr {
+                var currentByte = UInt32(byte)
+                for _ in 0..<8 {
+                    let mix = (crc ^ currentByte) & 1
+                    crc >>= 1
+                    if mix != 0 {
+                        crc ^= polynomial
+                    }
+                    currentByte >>= 1
+                }
+            }
+
+            return ~crc
+        }
+
+        public init(_ data: UnsafeRawBufferPointer) {
+            self.data = data
+            self.checksum = Self.crc32(data)
+        }
+    }
+
+    case disabled
+    case streaming
+    case dictionary(Dictionary)
+}
+
 public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     public typealias ActorID = EndpointIdentifier
     public typealias InvocationEncoder = RemoteCallEncoder
@@ -107,7 +144,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     static let pingInterval = TimeAmount.seconds(2)
     static let serviceDiscoveryTimeout = TimeAmount.seconds(5)
 
-    static let protocolVersionMajor: UInt16 = 2
+    static let protocolVersionMajor: UInt16 = 3
     static let protocolVersionMinor: UInt16 = 0
 
     enum SessionMessage: UInt16 {
@@ -173,6 +210,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     private var lock = Lock()
     private var actors: [EndpointIdentifier: ActorInfo] = [:]
     private var channels: [UInt32: ChannelInfo] = [:]
+    private var stats: [String: UInt64] = [:]
 
     private let _nextChannelID = ManagedAtomic<UInt32>(1) // 0 reserved for local endpoints
     var nextChannelID: UInt32 { _nextChannelID.loadThenWrappingIncrement(ordering: .relaxed) }
@@ -182,9 +220,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
     private var discoveryManager: DiscoveryManager
     private var syncCallManager: SyncCallManager
-    private let compression: UInt8
-
-    let _bytesSent = ManagedAtomic<UInt64>(0)
+    var compressionMode: CompressionMode
 
     public typealias ServiceFilter = (NodeService) -> Bool
     public typealias ServiceFactory = (DistributedSystem) throws -> any ServiceEndpoint
@@ -199,11 +235,11 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     @TaskLocal
     private static var actorID: ActorID? // supposed to be private, but need to make it internal for tests
 
-    public convenience init(systemName: String, addressTag: String? = nil, compression: Bool = false, logLevel: Logger.Level = .info) {
-        self.init(name: systemName, addressTag: addressTag, compression: compression, logLevel: logLevel)
+    public convenience init(systemName: String, addressTag: String? = nil, compressionMode: CompressionMode = .disabled, logLevel: Logger.Level = .info) {
+        self.init(name: systemName, addressTag: addressTag, compressionMode: compressionMode, logLevel: logLevel)
     }
 
-    public init(name systemName: String, addressTag: String? = nil, compression: Bool = false, logLevel: Logger.Level = .info) {
+    public init(name systemName: String, addressTag: String? = nil, compressionMode: CompressionMode = .disabled, logLevel: Logger.Level = .info) {
         self.systemName = systemName
         self.addressTag = addressTag
         eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 2)
@@ -211,7 +247,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         consulServiceDiscovery = ConsulServiceDiscovery(consul)
         discoveryManager = DiscoveryManager(loggerBox)
         syncCallManager = SyncCallManager(loggerBox)
-        self.compression = (compression ? 1 : 0)
+        self.compressionMode = compressionMode
 
         loggerBox.value.logLevel = logLevel
         consul.logLevel = logLevel
@@ -233,12 +269,12 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .channelInitializer { channel in
                 let pipeline = channel.pipeline
-                let streamHandler = ByteToMessageHandler(StreamDecoder(self.loggerBox))
-                return pipeline.addHandler(ChannelHandshakeClient(self.loggerBox)).flatMap {
-                    pipeline.addHandler(ChannelCompressionHandshakeClient(self.loggerBox, self.compression, streamHandler)).flatMap { _ in
-                        pipeline.addHandler(streamHandler).flatMap { _ in
-                            pipeline.addHandler(ChannelHandler(self.nextChannelID, self, address, self.endpointQueueWarningSize)).flatMap { _ in
-                                pipeline.addHandler(ChannelOutboundCounter(self), position: .first)
+                let channelHandler = ChannelHandler(self.nextChannelID, self, address, self.endpointQueueWarningSize)
+                return pipeline.addHandler(ChannelCounters(self), name: ChannelCounters.name).flatMap { _ in
+                    pipeline.addHandler(ChannelHandshakeClient(self.loggerBox), name: "handshake").flatMap {
+                        pipeline.addHandler(ChannelCompressionHandshakeClient(self, channelHandler), name: "compressionHandshake").flatMap { _ in
+                            pipeline.addHandler(ByteToMessageHandler(StreamDecoder(self.loggerBox)), name: "streamDecoder").flatMap { _ in
+                                pipeline.addHandler(channelHandler, name: "messageHandler")
                             }
                         }
                     }
@@ -767,6 +803,24 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         continuations.forEach { $0.finish() }
 
         logger.debug("stopped")
+
+        let str = lock.withLock {
+            var str = ""
+            if let bytesSent = stats[ChannelCounters.keyBytesSent] {
+                str += "bytes_sent=\(bytesSent)"
+                if let bytesCompressed = stats[ChannelCompressionOutboundHandler.statsKey] {
+                    str += ", bytes_compressed=\(bytesCompressed), outbound compression ratio=\(Double(bytesCompressed)/Double(bytesSent))"
+                }
+            }
+            if let bytesReceived = stats[ChannelCounters.keyBytesReceived] {
+                str += ", bytes_received=\(bytesReceived)"
+                if let bytesDecompressed = stats[ChannelCompressionInboundHandler.statsKey] {
+                    str += ", bytes_decompressed=\(bytesDecompressed), inbound compression ratio=\(Double(bytesDecompressed)/Double(bytesReceived))"
+                }
+            }
+            return str
+        }
+        logger.info("stats: \(str)")
     }
 
     public func assignID<Actor>(_: Actor.Type) -> EndpointIdentifier
@@ -1392,14 +1446,16 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
     public func getBytesSent() async throws -> UInt64 {
         let (bytesSent, futures) = lock.withLock {
-            let bytesSent = self._bytesSent.load(ordering: .relaxed)
+            let bytesSent = self.stats[ChannelCounters.keyBytesSent, default: 0]
             var futures = [EventLoopFuture<UInt64>]()
             futures.reserveCapacity(self.channels.count)
             for (_, channelInfo) in self.channels {
-                let future = channelInfo.channel.pipeline.context(handlerType: ChannelOutboundCounter.self).flatMap { context in
+                let future = channelInfo.channel.pipeline.context(handlerType: ChannelCounters.self).flatMap { context in
                     let eventLoop = context.eventLoop
-                    if let counter = context.handler as? ChannelOutboundCounter {
-                        return eventLoop.makeSucceededFuture(counter.bytesSent)
+                    if let counter = context.handler as? ChannelCounters {
+                        let counterStats = counter.stats
+                        let channelBytesSent = counterStats[ChannelCounters.keyBytesSent, default: 0]
+                        return eventLoop.makeSucceededFuture(channelBytesSent)
                     } else {
                         return eventLoop.makeSucceededFuture(0)
                     }
@@ -1420,5 +1476,13 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             return eventLoop.makeSucceededFuture(ret)
         }
         return try await future.get()
+    }
+
+    func incrementStats(_ stats: [String: UInt64]) {
+        lock.withLock {
+            for (key, value) in stats {
+                self.stats[key, default: 0] += value
+            }
+        }
     }
 }

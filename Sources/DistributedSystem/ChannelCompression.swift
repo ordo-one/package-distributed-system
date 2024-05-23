@@ -11,19 +11,25 @@ import Logging
 import lz4
 internal import NIOCore
 
+private enum RequestedCompressionMode: UInt8 {
+    case disabled = 0
+    case streaming = 1
+    case dictionary = 2
+}
+
 final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableChannelHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
 
-    private let loggerBox: Box<Logger>
-    private let streamHandler: NIOCore.ChannelHandler
+    private let distributedSystem: DistributedSystem
+    private let channelHandler: ChannelHandler
     private var timer: Scheduled<Void>?
 
-    private var logger: Logger { loggerBox.value }
+    private var logger: Logger { distributedSystem.loggerBox.value }
 
-    init(_ loggerBox: Box<Logger>, _ streamHandler: NIOCore.ChannelHandler) {
-        self.loggerBox = loggerBox
-        self.streamHandler = streamHandler
+    init(_ distributedSystem: DistributedSystem, _ channelHandler: ChannelHandler) {
+        self.distributedSystem = distributedSystem
+        self.channelHandler = channelHandler
     }
 
     func channelActive(context: ChannelHandlerContext) {
@@ -47,10 +53,42 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
             self.timer = nil
         }
         var buffer = unwrapInboundIn(data)
-        if let compression = buffer.readInteger(as: UInt8.self) {
-            if compression != 0 {
-                _ = context.pipeline.addHandler(ChannelCompressionInboundHandler(loggerBox), position: .after(streamHandler))
-                _ = context.pipeline.addHandler(ChannelCompressionOutboundHandler(), position: .last)
+        if let compressionMode = buffer.readInteger(as: RequestedCompressionMode.RawValue.self) {
+            if compressionMode == RequestedCompressionMode.disabled.rawValue {
+                // not required
+            } else if compressionMode == RequestedCompressionMode.streaming.rawValue {
+                // streaming
+                let emptyDictionary = UnsafeRawBufferPointer(start: nil, count: 0)
+                var name = ChannelCompressionInboundHandler.name
+                _ = context.pipeline.addHandler(ChannelCompressionInboundHandler(distributedSystem, emptyDictionary), name: name, position: .before(channelHandler))
+                name = ChannelCompressionOutboundHandler.name
+                _ = context.pipeline.addHandler(ChannelCompressionOutboundHandler(distributedSystem, emptyDictionary), name: name, position: .after(self))
+            } else if compressionMode == RequestedCompressionMode.dictionary.rawValue {
+                if case let .dictionary(dictionary) = distributedSystem.compressionMode {
+                    if let checksum = buffer.readInteger(as: UInt32.self) {
+                        if checksum != dictionary.checksum {
+                            logger.info("\(context.channel.addressDescription): client/server compression dictionary mismatch, close connection")
+                            context.close(promise: nil)
+                            return
+                        }
+                        var name = ChannelCompressionInboundHandler.name
+                        _ = context.pipeline.addHandler(ChannelCompressionInboundHandler(distributedSystem, dictionary.data), name: name, position: .before(channelHandler))
+                        name = ChannelCompressionOutboundHandler.name
+                        _ = context.pipeline.addHandler(ChannelCompressionOutboundHandler(distributedSystem, dictionary.data), name: name, position: .after(self))
+                    } else {
+                        logger.info("\(context.channel.addressDescription): invalid compression request received, close connection")
+                        context.close(promise: nil)
+                        return
+                    }
+                } else {
+                    logger.info("\(context.channel.addressDescription): no compression dictionary configured, close connection")
+                    context.close(promise: nil)
+                    return
+                }
+            } else {
+                logger.info("\(context.channel.addressDescription): unsupported compression mode '\(compressionMode)' received, close connection")
+                context.close(promise: nil)
+                return
             }
             context.fireChannelActive()
             if buffer.readableBytes > 0 {
@@ -67,23 +105,40 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
 final class ChannelCompressionHandshakeClient: ChannelInboundHandler, RemovableChannelHandler {
     typealias InboundIn = ByteBuffer
 
-    private let loggerBox: Box<Logger>
-    private let compression: UInt8
-    private let streamHandler: NIOCore.ChannelHandler
+    private let distributedSystem: DistributedSystem
+    private let channelHandler: ChannelHandler
 
-    init(_ loggerBox: Box<Logger>, _ compression: UInt8, _ streamHandler: NIOCore.ChannelHandler) {
-        self.loggerBox = loggerBox
-        self.compression = compression
-        self.streamHandler = streamHandler
+    init(_ distributedSystem: DistributedSystem, _ channelHandler: ChannelHandler) {
+        self.distributedSystem = distributedSystem
+        self.channelHandler = channelHandler
     }
 
     func channelActive(context: ChannelHandlerContext) {
-        var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt8>.size)
-        buffer.writeInteger(compression, as: UInt8.self)
-        context.writeAndFlush(NIOAny(buffer), promise: nil)
-        if compression != 0 {
-            _ = context.pipeline.addHandler(ChannelCompressionInboundHandler(loggerBox), position: .after(streamHandler))
-            _ = context.pipeline.addHandler(ChannelCompressionOutboundHandler(), position: .last)
+        let compressionMode = distributedSystem.compressionMode
+        switch compressionMode {
+        case .disabled:
+            var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt8>.size)
+            buffer.writeInteger(RequestedCompressionMode.disabled.rawValue)
+            context.writeAndFlush(NIOAny(buffer), promise: nil)
+        case .streaming:
+            var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt8>.size)
+            buffer.writeInteger(RequestedCompressionMode.streaming.rawValue)
+            context.writeAndFlush(NIOAny(buffer), promise: nil)
+            let emptyDictionary = UnsafeRawBufferPointer(start: nil, count: 0)
+            var name = ChannelCompressionInboundHandler.name
+            _ = context.pipeline.addHandler(ChannelCompressionInboundHandler(distributedSystem, emptyDictionary), name: name, position: .before(channelHandler))
+            name = ChannelCompressionOutboundHandler.name
+            _ = context.pipeline.addHandler(ChannelCompressionOutboundHandler(distributedSystem, emptyDictionary), name: name, position: .after(self))
+        case let .dictionary(dictionary):
+            // send dictionary checksum to server for sanity check to be sure both client and server use same dictionary
+            var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt8>.size + MemoryLayout<UInt64>.size)
+            buffer.writeInteger(RequestedCompressionMode.dictionary.rawValue)
+            buffer.writeInteger(dictionary.checksum)
+            context.writeAndFlush(NIOAny(buffer), promise: nil)
+            var name = ChannelCompressionInboundHandler.name
+            _ = context.pipeline.addHandler(ChannelCompressionInboundHandler(distributedSystem, dictionary.data), name: name, position: .before(channelHandler))
+            name = ChannelCompressionOutboundHandler.name
+            _ = context.pipeline.addHandler(ChannelCompressionOutboundHandler(distributedSystem, dictionary.data), name: name, position: .after(self))
         }
         context.fireChannelActive()
         _ = context.pipeline.removeHandler(self)
@@ -117,15 +172,23 @@ final class ChannelCompressionInboundHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
 
-    private let loggerBox: Box<Logger>
+    private let distributedSystem: DistributedSystem
     private var bufferManager = BufferManager()
     private var lz4Stream = LZ4_streamDecode_t()
+    private var bytesDecompressed = UInt64(0)
 
-    private var logger: Logger { loggerBox.value }
+    private var logger: Logger { distributedSystem.loggerBox.value }
 
-    init(_ loggerBox: Box<Logger>) {
-        self.loggerBox = loggerBox
-        LZ4_setStreamDecode(&lz4Stream, nil, 0);
+    static let statsKey = "bytes_decompressed"
+    static let name = "inboundDecompression"
+
+    init(_ distributedSystem: DistributedSystem, _ dictionary: UnsafeRawBufferPointer) {
+        self.distributedSystem = distributedSystem
+        LZ4_setStreamDecode(&lz4Stream, dictionary.baseAddress, Int32(dictionary.count))
+    }
+
+    deinit {
+        distributedSystem.incrementStats([Self.statsKey: bytesDecompressed])
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
@@ -148,6 +211,7 @@ final class ChannelCompressionInboundHandler: ChannelInboundHandler {
                     return Int(messageSize)
                 }
                 context.fireChannelRead(wrapInboundOut(bufferOut))
+                bytesDecompressed += UInt64(messageSize)
                 return
             }
         }
@@ -160,11 +224,24 @@ final class ChannelCompressionOutboundHandler: ChannelOutboundHandler {
     typealias OutboundIn = ByteBuffer
     typealias OutboundOut = ByteBuffer
 
+    private let distributedSystem: DistributedSystem
     private var bufferManager = BufferManager()
     private var lz4Stream = LZ4_stream_t()
+    private var bytesCompressed = UInt64(0)
 
-    init() {
-        LZ4_initStream(&lz4Stream, MemoryLayout<LZ4_stream_t>.size);
+    static let statsKey = "bytes_compressed"
+    static let name = "outboundCompression"
+
+    init(_ distributedSystem: DistributedSystem, _ dictionary: UnsafeRawBufferPointer) {
+        self.distributedSystem = distributedSystem
+        LZ4_initStream(&lz4Stream, MemoryLayout<LZ4_stream_t>.size)
+        if dictionary.count > 0 {
+            LZ4_loadDict(&lz4Stream, dictionary.baseAddress!, Int32(dictionary.count))
+        }
+    }
+
+    deinit {
+        distributedSystem.incrementStats([Self.statsKey: bytesCompressed])
     }
 
     func write(context: ChannelHandlerContext, data: NIOAny, promise: EventLoopPromise<Void>?) {
@@ -189,5 +266,6 @@ final class ChannelCompressionOutboundHandler: ChannelOutboundHandler {
             return MemoryLayout<UInt32>.size * 2 + Int(compressedBytes)
         }
         context.write(wrapOutboundOut(bufferOut), promise: promise)
+        bytesCompressed += UInt64(messageSize)
     }
 }

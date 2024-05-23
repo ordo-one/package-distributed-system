@@ -1,0 +1,51 @@
+// Copyright 2024 Ordo One AB
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+
+import Atomics
+internal import NIOCore
+
+final class ChannelCounters: ChannelInboundHandler, ChannelOutboundHandler {
+    typealias InboundIn = ByteBuffer
+    typealias InboundOut = ByteBuffer
+    typealias OutboundIn = ByteBuffer
+    typealias OutboundOut = ByteBuffer
+
+    private var distributedSystem: DistributedSystem
+    private var bytesReceived = ManagedAtomic<UInt64>(0)
+    private var bytesSent = ManagedAtomic<UInt64>(0)
+
+    static let name = "channelCounters"
+    static let keyBytesReceived = "bytes_received"
+    static let keyBytesSent = "bytes_sent"
+
+    var stats: [String: UInt64] { [
+            Self.keyBytesReceived: bytesReceived.load(ordering: .relaxed),
+            Self.keyBytesSent: bytesSent.load(ordering: .relaxed)
+        ]
+    }
+
+    init(_ distributedSystem: DistributedSystem) {
+        self.distributedSystem = distributedSystem
+    }
+
+    deinit {
+        distributedSystem.incrementStats(stats)
+    }
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        let buffer = unwrapInboundIn(data)
+        bytesReceived.wrappingIncrement(by: UInt64(buffer.readableBytes), ordering: .relaxed)
+        context.fireChannelRead(data)
+    }
+
+    func write(context: ChannelHandlerContext, data: NIOAny, promise: EventLoopPromise<Void>?) {
+        let buffer = unwrapOutboundIn(data)
+        bytesSent.wrappingIncrement(by: UInt64(buffer.readableBytes), ordering: .relaxed)
+        context.write(wrapOutboundOut(buffer), promise: promise)
+    }
+}
