@@ -32,26 +32,28 @@ public enum CompressionMode {
 
         // very simple checksum calculation
         // would use Hasher() but it use random seeds in the different processes
-        private static func calculateChecksum<T: BinaryInteger>(_ ptr: UnsafeRawBufferPointer, _ checksum: inout UInt32, as: T.Type) -> UnsafeRawBufferPointer {
-            let size = MemoryLayout<T>.size
-            var count = ptr.count
-            var ptr = ptr.baseAddress!
-            while count >= size {
-                checksum &+= UInt32(ptr.loadUnaligned(fromByteOffset: 0, as: T.self))
-                ptr += size
-                count -= size
+        private static func crc32(_ ptr: UnsafeRawBufferPointer) -> UInt32 {
+            let polynomial: UInt32 = 0xEDB88320
+            var crc: UInt32 = 0xFFFFFFFF
+
+            for byte in ptr {
+                var currentByte = UInt32(byte)
+                for _ in 0..<8 {
+                    let mix = (crc ^ currentByte) & 1
+                    crc >>= 1
+                    if mix != 0 {
+                        crc ^= polynomial
+                    }
+                    currentByte >>= 1
+                }
             }
-            return UnsafeRawBufferPointer(start: ptr, count: count)
+
+            return ~crc
         }
 
         public init(_ data: UnsafeRawBufferPointer) {
             self.data = data
-            var ptr = data
-            var checksum: UInt32 = 0
-            ptr = Self.calculateChecksum(ptr, &checksum, as: UInt32.self)
-            ptr = Self.calculateChecksum(ptr, &checksum, as: UInt16.self)
-            ptr = Self.calculateChecksum(ptr, &checksum, as: UInt8.self)
-            self.checksum = checksum
+            self.checksum = Self.crc32(data)
         }
     }
 
