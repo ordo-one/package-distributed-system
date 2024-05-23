@@ -103,7 +103,7 @@ let benchmarks = {
             fatalError("remoteClientEndpoint unexpectedly nil")
         }
 
-        let clientSystem2 = DistributedSystem(systemName: systemName, compression: true)
+        let clientSystem2 = DistributedSystem(systemName: systemName, compressionMode: .streaming)
         let remoteServiceEndpoint2 = try await clientSystem2.connectToService(
             TestServiceEndpoint.self,
             withFilter: { _ in true },
