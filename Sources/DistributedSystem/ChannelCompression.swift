@@ -11,6 +11,12 @@ import Logging
 import lz4
 internal import NIOCore
 
+private enum RequestedCompressionMode: UInt8 {
+    case disabled = 0
+    case streaming = 1
+    case dictionary = 2
+}
+
 final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableChannelHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
@@ -47,17 +53,17 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
             self.timer = nil
         }
         var buffer = unwrapInboundIn(data)
-        if let compressionMode = buffer.readInteger(as: UInt8.self) {
-            if compressionMode == 0 {
+        if let compressionMode = buffer.readInteger(as: RequestedCompressionMode.RawValue.self) {
+            if compressionMode == RequestedCompressionMode.disabled.rawValue {
                 // not required
-            } else if compressionMode == 1 {
+            } else if compressionMode == RequestedCompressionMode.streaming.rawValue {
                 // streaming
                 let emptyDictionary = UnsafeRawBufferPointer(start: nil, count: 0)
                 var name = ChannelCompressionInboundHandler.name
                 _ = context.pipeline.addHandler(ChannelCompressionInboundHandler(distributedSystem, emptyDictionary), name: name, position: .before(channelHandler))
                 name = ChannelCompressionOutboundHandler.name
                 _ = context.pipeline.addHandler(ChannelCompressionOutboundHandler(distributedSystem, emptyDictionary), name: name, position: .after(self))
-            } else if compressionMode == 2 {
+            } else if compressionMode == RequestedCompressionMode.dictionary.rawValue {
                 if case let .dictionary(dictionary) = distributedSystem.compressionMode {
                     if let checksum = buffer.readInteger(as: UInt32.self) {
                         if checksum != dictionary.checksum {
@@ -112,11 +118,11 @@ final class ChannelCompressionHandshakeClient: ChannelInboundHandler, RemovableC
         switch compressionMode {
         case .disabled:
             var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt8>.size)
-            buffer.writeInteger(UInt8(0))
+            buffer.writeInteger(RequestedCompressionMode.disabled.rawValue)
             context.writeAndFlush(NIOAny(buffer), promise: nil)
         case .streaming:
             var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt8>.size)
-            buffer.writeInteger(UInt8(1))
+            buffer.writeInteger(RequestedCompressionMode.streaming.rawValue)
             context.writeAndFlush(NIOAny(buffer), promise: nil)
             let emptyDictionary = UnsafeRawBufferPointer(start: nil, count: 0)
             var name = ChannelCompressionInboundHandler.name
@@ -126,7 +132,7 @@ final class ChannelCompressionHandshakeClient: ChannelInboundHandler, RemovableC
         case let .dictionary(dictionary):
             // send dictionary checksum to server for sanity check to be sure both client and server use same dictionary
             var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt8>.size + MemoryLayout<UInt64>.size)
-            buffer.writeInteger(UInt8(2))
+            buffer.writeInteger(RequestedCompressionMode.dictionary.rawValue)
             buffer.writeInteger(dictionary.checksum)
             context.writeAndFlush(NIOAny(buffer), promise: nil)
             var name = ChannelCompressionInboundHandler.name

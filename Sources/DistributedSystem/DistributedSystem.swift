@@ -1479,8 +1479,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     func incrementStats(_ stats: [String: UInt64]) {
         lock.withLock {
             for (key, value) in stats {
-                let currentValue = self.stats[key, default: 0]
-                self.stats[key] = (currentValue + value)
+                self.stats[key, default: 0] += value
             }
         }
     }
