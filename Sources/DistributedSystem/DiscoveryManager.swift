@@ -10,7 +10,7 @@ import ConsulServiceDiscovery
 import Helpers
 import Logging
 internal import NIOCore
-internal import struct Foundation.UUID
+import struct Foundation.UUID
 import PackageConcurrencyHelpers
 
 final class DiscoveryManager {

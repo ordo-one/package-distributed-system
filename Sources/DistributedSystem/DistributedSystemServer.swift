@@ -10,8 +10,8 @@ import ConsulServiceDiscovery
 import Distributed
 
 internal import enum NIOHTTP1.HTTPResponseStatus
-internal import class Foundation.ProcessInfo
-internal import struct Foundation.UUID
+import class Foundation.ProcessInfo
+import struct Foundation.UUID
 import Logging
 internal import NIOCore
 internal import NIOPosix
