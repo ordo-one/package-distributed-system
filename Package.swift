@@ -81,7 +81,7 @@ let package = Package(
                 .product(name: "ConsulServiceDiscovery", package: "package-consul"),
                 .product(name: "Helpers", package: "package-concurrency-helpers"),
                 .product(name: "Logging", package: "swift-log"),
-                .product(name: "lz4", package: "package-system-libs"),
+                .product(name: "lz4", package: "package-system-libs", condition: .when(platforms: [.macOS, .linux])),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "PackageConcurrencyHelpers", package: "package-concurrency-helpers"),
