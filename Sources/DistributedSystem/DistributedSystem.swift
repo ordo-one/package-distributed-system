@@ -26,9 +26,23 @@ extension Channel {
     }
 }
 
+class BoxEx<Value> {
+    let value: Value
+    let deinitCallback: () -> Void
+
+    init(_ value: Value, _ deinitCallback: @escaping () -> Void) {
+        self.value = value
+        self.deinitCallback = deinitCallback
+    }
+
+    deinit {
+        deinitCallback()
+    }
+}
+
 public enum CompressionMode {
     public final class DictionaryData {
-        let data: UnsafeRawBufferPointer
+        let data: BoxEx<UnsafeRawBufferPointer>
         let checksum: UInt32
 
         // very simple checksum calculation
@@ -55,12 +69,8 @@ public enum CompressionMode {
         public init(_ data: Data) {
             let ptr = UnsafeMutableRawBufferPointer.allocate(byteCount: data.count, alignment: 0)
             _ = ptr.initializeMemory(as: UInt8.self, from: data)
-            self.data = UnsafeRawBufferPointer(ptr)
-            self.checksum = Self.crc32(self.data)
-        }
-
-        deinit {
-            data.deallocate()
+            self.data = BoxEx(UnsafeRawBufferPointer(ptr)) { ptr.deallocate() }
+            self.checksum = Self.crc32(self.data.value)
         }
     }
 

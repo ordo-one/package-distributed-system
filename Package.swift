@@ -148,6 +148,9 @@ let package = Package(
             dependencies: [
                 "DistributedSystem",
                 "TestMessages",
+            ],
+            resources: [
+                .process("Resources")
             ]
         ),
     ]

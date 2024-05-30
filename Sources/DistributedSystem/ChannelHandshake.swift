@@ -26,10 +26,11 @@ final class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandl
 
     func channelActive(context: ChannelHandlerContext) {
         logger.info("\(context.channel.addressDescription): connection accepted")
-
-        timer = context.eventLoop.scheduleTask(in: DistributedSystem.pingInterval*2) {
-            self.logger.info("\(context.channel.addressDescription): client session timeout, close connection")
-            context.close(promise: nil)
+        if DistributedSystem.pingInterval.nanoseconds > 0 {
+            timer = context.eventLoop.scheduleTask(in: DistributedSystem.pingInterval*2) {
+                self.logger.info("\(context.channel.addressDescription): client session timeout, close connection")
+                context.close(promise: nil)
+            }
         }
     }
 
@@ -97,9 +98,11 @@ final class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandl
         buffer.writeInteger(DistributedSystem.protocolVersionMinor)
         context.writeAndFlush(NIOAny(buffer), promise: nil)
 
-        timer = context.eventLoop.scheduleTask(in: DistributedSystem.pingInterval*2) {
-            self.logger.info("\(context.channel.addressDescription): server session timeout, close connection")
-            context.close(promise: nil)
+        if DistributedSystem.pingInterval.nanoseconds > 0 {
+            timer = context.eventLoop.scheduleTask(in: DistributedSystem.pingInterval*2) {
+                self.logger.info("\(context.channel.addressDescription): server session timeout, close connection")
+                context.close(promise: nil)
+            }
         }
     }
 

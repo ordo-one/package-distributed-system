@@ -202,6 +202,21 @@ final class DistributedSystemTests: XCTestCase {
         XCTAssertFalse(flags.clientConnectionClosed)
     }
 
+    struct ResourceLoadError: Error {
+        let description: String
+        init(_ description: String) {
+            self.description = description
+        }
+    }
+
+    func loadResource(_ resourceName: String) throws -> Data {
+        let bundle = Bundle.module
+        guard let resourceURL = bundle.url(forResource: resourceName, withExtension: nil) else {
+            throw ResourceLoadError("Missing resource '\(resourceName)'")
+        }
+        return try Data(contentsOf: resourceURL)
+    }
+
     func testRemoteService() async throws {
         // Checking the distributed actors do not leak,
         // use a closure here to be sure at the check point all references will be released
@@ -211,7 +226,9 @@ final class DistributedSystemTests: XCTestCase {
             let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
 
             let moduleID = DistributedSystem.ModuleIdentifier(1)
-            let serverSystem = DistributedSystemServer(name: systemName)
+            let serverDictionary = try loadResource("dict4Kb-mix")
+            let serverCompressionMode: CompressionMode = .dictionary(.init(serverDictionary))
+            let serverSystem = DistributedSystemServer(name: systemName, compressionMode: serverCompressionMode)
             try await serverSystem.start()
             try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
                 let service = ServiceWithLeakCheckImpl(flags)
@@ -221,7 +238,9 @@ final class DistributedSystemTests: XCTestCase {
                 return serviceEndpoint
             }
 
-            let clientSystem = DistributedSystem(name: systemName)
+            let clientDictionary = try loadResource("dict4Kb-pt")
+            let clientCompressionMode: CompressionMode = .dictionary(.init(clientDictionary))
+            let clientSystem = DistributedSystem(name: systemName, compressionMode: clientCompressionMode)
             try clientSystem.start()
 
             var client: ClientWithLeakCheckImpl? = ClientWithLeakCheckImpl(flags)
