@@ -611,6 +611,10 @@ class ChannelCompressionOutboundHandler: ChannelOutboundHandler {
         self.distributedSystem = distributedSystem
     }
 
+    deinit {
+        distributedSystem.incrementStats([Self.statsKey: bytesCompressed])
+    }
+
     func write(context: ChannelHandlerContext, data: NIOAny, promise: EventLoopPromise<Void>?) {
         fatalError("should never be called")
     }

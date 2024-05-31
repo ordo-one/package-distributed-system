@@ -826,18 +826,24 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             if let bytesSent = stats[ChannelCounters.keyBytesSent] {
                 str += "bytes_sent=\(bytesSent)"
                 if let bytesCompressed = stats[ChannelCompressionOutboundHandler.statsKey] {
-                    str += ", bytes_compressed=\(bytesCompressed), outbound compression ratio=\(Double(bytesCompressed)/Double(bytesSent))"
+                    str += ", bytes_compressed=\(bytesCompressed), "
+                    str += "outbound compression ratio=\(Self.calculateCompressionRatio(dataSize: bytesCompressed, compressedSize: bytesSent))%"
                 }
             }
             if let bytesReceived = stats[ChannelCounters.keyBytesReceived] {
                 str += ", bytes_received=\(bytesReceived)"
                 if let bytesDecompressed = stats[ChannelCompressionInboundHandler.statsKey] {
-                    str += ", bytes_decompressed=\(bytesDecompressed), inbound compression ratio=\(Double(bytesDecompressed)/Double(bytesReceived))"
+                    str += ", bytes_decompressed=\(bytesDecompressed), "
+                    str += "inbound compression ratio=\(Self.calculateCompressionRatio(dataSize: bytesDecompressed, compressedSize: bytesReceived))%"
                 }
             }
             return str
         }
         logger.info("stats: \(str)")
+    }
+
+    private static func calculateCompressionRatio(dataSize: UInt64, compressedSize: UInt64) -> Int {
+        Int((1.0 - Double(compressedSize)/Double(dataSize)) * 100)
     }
 
     public func assignID<Actor>(_: Actor.Type) -> EndpointIdentifier
