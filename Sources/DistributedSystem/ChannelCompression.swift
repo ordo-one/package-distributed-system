@@ -103,6 +103,10 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
                 sendResponse(.noCompression, to: context)
             case .streaming:
                 sendResponse(.streamingCompression, to: context)
+                _ = context.pipeline.addHandler(
+                    ChannelStreamCompressionOutboundHandler(distributedSystem),
+                    name: ChannelCompressionOutboundHandler.name,
+                    position: .after(self))
             case let .dictionary(dictionaryData):
                 sendDictionaryResponse(dictionaryData.data.value, to: context)
                 _ = context.pipeline.addHandler(
@@ -121,6 +125,10 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
                 sendResponse(.noCompression, to: context)
             case .streaming:
                 sendResponse(.streamingCompression, to: context)
+                _ = context.pipeline.addHandler(
+                    ChannelStreamCompressionOutboundHandler(distributedSystem),
+                    name: ChannelCompressionOutboundHandler.name,
+                    position: .after(self))
             case let .dictionary(dictionaryData):
                 sendDictionaryResponse(dictionaryData.data.value, to: context)
                 _ = context.pipeline.addHandler(
@@ -250,7 +258,7 @@ final class DictionaryReceiver: ChannelInboundHandler, RemovableChannelHandler {
             } catch {
                 // Is there any probability to receive less than 5 bytes?
                 // Let's just close connection for now in such case.
-                self.logger.info("\(context.channel.addressDescription): session timeout for dictionary receiver, close connection")
+                self.logger.info("\(context.channel.addressDescription): invalid dictionary block received, close connection")
                 context.close(promise: nil)
                 return
             }
@@ -312,15 +320,15 @@ final class ChannelCompressionHandshakeClient: ChannelInboundHandler, RemovableC
         let compressionMode = distributedSystem.compressionMode
         switch compressionMode {
         case .disabled:
-            var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt8>.size)
+            var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<HandshakeRequest.RawValue>.size)
             buffer.writeInteger(HandshakeRequest.noCompression.rawValue)
             context.writeAndFlush(NIOAny(buffer), promise: nil)
         case .streaming:
-            var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt8>.size)
+            var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<HandshakeRequest.RawValue>.size)
             buffer.writeInteger(HandshakeRequest.streamingCompression.rawValue)
             context.writeAndFlush(NIOAny(buffer), promise: nil)
         case let .dictionary(dictionary):
-            var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt8>.size + MemoryLayout<UInt32>.size)
+            var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<HandshakeRequest.RawValue>.size + MemoryLayout<UInt32>.size)
             buffer.writeInteger(HandshakeRequest.dictionaryCompression.rawValue)
             buffer.writeInteger(dictionary.checksum)
             context.writeAndFlush(NIOAny(buffer), promise: nil)
