@@ -320,7 +320,6 @@ final class ChannelCompressionHandshakeClient: ChannelInboundHandler, RemovableC
             buffer.writeInteger(HandshakeRequest.streamingCompression.rawValue)
             context.writeAndFlush(NIOAny(buffer), promise: nil)
         case let .dictionary(dictionary):
-            // send dictionary checksum to server for sanity check to be sure both client and server use same dictionary
             var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt8>.size + MemoryLayout<UInt32>.size)
             buffer.writeInteger(HandshakeRequest.dictionaryCompression.rawValue)
             buffer.writeInteger(dictionary.checksum)
@@ -329,7 +328,7 @@ final class ChannelCompressionHandshakeClient: ChannelInboundHandler, RemovableC
 
         if DistributedSystem.pingInterval.nanoseconds > 0 {
             timer = context.eventLoop.scheduleTask(in: DistributedSystem.pingInterval*2) {
-                self.logger.info("\(context.channel.addressDescription): session timeout for dictionary receiver, close connection")
+                self.logger.info("\(context.channel.addressDescription): session timeout for compression client handshake, close connection")
                 context.close(promise: nil)
             }
         }

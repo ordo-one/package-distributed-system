@@ -26,7 +26,7 @@ extension Channel {
     }
 }
 
-class BoxEx<Value> {
+final class BoxEx<Value> {
     let value: Value
     let deinitCallback: () -> Void
 
@@ -41,7 +41,7 @@ class BoxEx<Value> {
 }
 
 public enum CompressionMode {
-    public final class DictionaryData {
+    public struct DictionaryData {
         let data: BoxEx<UnsafeRawBufferPointer>
         let checksum: UInt32
 
@@ -822,27 +822,27 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         logger.debug("stopped")
 
         let str = lock.withLock {
-            var str = ""
+            var strs = [String]()
             if let bytesSent = stats[ChannelCounters.keyBytesSent] {
-                str += "bytes_sent=\(bytesSent)"
+                strs.append("bytes_sent=\(bytesSent)")
                 if let bytesCompressed = stats[ChannelCompressionOutboundHandler.statsKey] {
-                    str += ", bytes_compressed=\(bytesCompressed), "
-                    str += "outbound compression ratio=\(Self.calculateCompressionRatio(dataSize: bytesCompressed, compressedSize: bytesSent))%"
+                    strs.append(", bytes_compressed=\(bytesCompressed), ")
+                    strs.append("outbound space saving=\(Self.calculateSpaceSaving(dataSize: bytesCompressed, compressedSize: bytesSent))%")
                 }
             }
             if let bytesReceived = stats[ChannelCounters.keyBytesReceived] {
-                str += ", bytes_received=\(bytesReceived)"
+                strs.append(", bytes_received=\(bytesReceived)")
                 if let bytesDecompressed = stats[ChannelCompressionInboundHandler.statsKey] {
-                    str += ", bytes_decompressed=\(bytesDecompressed), "
-                    str += "inbound compression ratio=\(Self.calculateCompressionRatio(dataSize: bytesDecompressed, compressedSize: bytesReceived))%"
+                    strs.append(", bytes_decompressed=\(bytesDecompressed), ")
+                    strs.append("inbound compression ratio=\(Self.calculateSpaceSaving(dataSize: bytesDecompressed, compressedSize: bytesReceived))%")
                 }
             }
-            return str
+            return strs.joined()
         }
         logger.info("stats: \(str)")
     }
 
-    private static func calculateCompressionRatio(dataSize: UInt64, compressedSize: UInt64) -> Int {
+    private static func calculateSpaceSaving(dataSize: UInt64, compressedSize: UInt64) -> Int {
         Int((1.0 - Double(compressedSize)/Double(dataSize)) * 100)
     }
 
