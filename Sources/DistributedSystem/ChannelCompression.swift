@@ -69,7 +69,7 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
         let size = MemoryLayout<HandshakeResponse.RawValue>.size + ULEB128.size(UInt32(dictionary.count)) + dictionary.count
         var buffer = ByteBufferAllocator().buffer(capacity: size)
         buffer.writeInteger(HandshakeResponse.dictionary.rawValue)
-        buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(UInt32(dictionary.count), to: ptr.baseAddress!) }
+        buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ULEB128.encode(UInt32(dictionary.count), to: $0.baseAddress!) }
         buffer.writeBytes(dictionary)
         context.write(NIOAny(buffer), promise: nil)
     }
