@@ -15,7 +15,8 @@ import Distributed
 import Logging
 import PackageConcurrencyHelpers
 import class Helpers.Box
-internal import struct Foundation.UUID
+import struct Foundation.Data
+import struct Foundation.UUID
 internal import NIOCore
 internal import NIOPosix
 
@@ -25,9 +26,23 @@ extension Channel {
     }
 }
 
+final class BoxEx<Value> {
+    let value: Value
+    let deinitCallback: () -> Void
+
+    init(_ value: Value, _ deinitCallback: @escaping () -> Void) {
+        self.value = value
+        self.deinitCallback = deinitCallback
+    }
+
+    deinit {
+        deinitCallback()
+    }
+}
+
 public enum CompressionMode {
-    public struct Dictionary {
-        let data: UnsafeRawBufferPointer
+    public struct DictionaryData {
+        let data: BoxEx<UnsafeRawBufferPointer>
         let checksum: UInt32
 
         // very simple checksum calculation
@@ -51,15 +66,17 @@ public enum CompressionMode {
             return ~crc
         }
 
-        public init(_ data: UnsafeRawBufferPointer) {
-            self.data = data
-            self.checksum = Self.crc32(data)
+        public init(_ data: Data) {
+            let ptr = UnsafeMutableRawBufferPointer.allocate(byteCount: data.count, alignment: 0)
+            _ = ptr.initializeMemory(as: UInt8.self, from: data)
+            self.data = BoxEx(UnsafeRawBufferPointer(ptr)) { ptr.deallocate() }
+            self.checksum = Self.crc32(self.data.value)
         }
     }
 
     case disabled
     case streaming
-    case dictionary(Dictionary)
+    case dictionary(DictionaryData)
 }
 
 public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
@@ -805,22 +822,28 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         logger.debug("stopped")
 
         let str = lock.withLock {
-            var str = ""
+            var strs = [String]()
             if let bytesSent = stats[ChannelCounters.keyBytesSent] {
-                str += "bytes_sent=\(bytesSent)"
+                strs.append("bytes_sent=\(bytesSent)")
                 if let bytesCompressed = stats[ChannelCompressionOutboundHandler.statsKey] {
-                    str += ", bytes_compressed=\(bytesCompressed), outbound compression ratio=\(Double(bytesCompressed)/Double(bytesSent))"
+                    strs.append(", bytes_compressed=\(bytesCompressed), ")
+                    strs.append("outbound space saving=\(Self.calculateSpaceSaving(dataSize: bytesCompressed, compressedSize: bytesSent))%")
                 }
             }
             if let bytesReceived = stats[ChannelCounters.keyBytesReceived] {
-                str += ", bytes_received=\(bytesReceived)"
+                strs.append(", bytes_received=\(bytesReceived)")
                 if let bytesDecompressed = stats[ChannelCompressionInboundHandler.statsKey] {
-                    str += ", bytes_decompressed=\(bytesDecompressed), inbound compression ratio=\(Double(bytesDecompressed)/Double(bytesReceived))"
+                    strs.append(", bytes_decompressed=\(bytesDecompressed), ")
+                    strs.append("inbound compression ratio=\(Self.calculateSpaceSaving(dataSize: bytesDecompressed, compressedSize: bytesReceived))%")
                 }
             }
-            return str
+            return strs.joined()
         }
         logger.info("stats: \(str)")
+    }
+
+    private static func calculateSpaceSaving(dataSize: UInt64, compressedSize: UInt64) -> Int {
+        Int((1.0 - Double(compressedSize)/Double(dataSize)) * 100)
     }
 
     public func assignID<Actor>(_: Actor.Type) -> EndpointIdentifier

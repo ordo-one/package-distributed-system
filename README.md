@@ -39,4 +39,11 @@ where
 
 Calling the function starts the procedure for searching for services in the same system. For each service found, filter closure will be called, and if it returns true, then the distributed system will establish a connection with the process in which the service is running. After the connection is established, the factory will be called to create a response handler from the service, and then a serviceHandler in which you can start working with the service.
 
+## Traffic compression
+Distributed system can compress traffic using LZ4 library. There are 3 compression modes:
+- disabled
+- streaming compression, using LZ4 double buffer
+- dictionary compression
+The compression mode set for a distributed system instance defines the compression for outbound data. Therefore, when two distributed system instances with different compression modes connect, each data direction will use a different compression mode.
+
 ## Work is in progress!
