@@ -359,6 +359,11 @@ final class ChannelCompressionHandshakeClient: ChannelInboundHandler, RemovableC
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        if let timer {
+            timer.cancel()
+            self.timer = nil
+        }
+
         var buffer = unwrapInboundIn(data)
         guard let handshakeResponseRaw = buffer.readInteger(as: HandshakeResponse.RawValue.self) else {
             logger.info("\(context.channel.addressDescription): invalid compression response received, close connection")

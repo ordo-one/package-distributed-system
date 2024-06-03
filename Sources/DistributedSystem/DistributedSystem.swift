@@ -285,6 +285,10 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             .channelOption(ChannelOptions.tcpOption(.tcp_nodelay), value: 1)
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .channelInitializer { channel in
+                let writeBufferWaterMark = ChannelOptions.Types.WriteBufferWaterMark(
+                    low: Int(self.endpointQueueWarningSize/2),
+                    high: Int(self.endpointQueueWarningSize))
+                _ = channel.setOption(ChannelOptions.writeBufferWaterMark, value: writeBufferWaterMark)
                 let pipeline = channel.pipeline
                 let channelHandler = ChannelHandler(self.nextChannelID, self, address, self.endpointQueueWarningSize)
                 return pipeline.addHandler(ChannelCounters(self), name: ChannelCounters.name).flatMap { _ in

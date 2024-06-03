@@ -44,6 +44,7 @@ Distributed system can compress traffic using LZ4 library. There are 3 compressi
 - disabled
 - streaming compression, using LZ4 double buffer
 - dictionary compression
+
 The compression mode set for a distributed system instance defines the compression for outbound data. Therefore, when two distributed system instances with different compression modes connect, each data direction will use a different compression mode.
 
 ## Work is in progress!
