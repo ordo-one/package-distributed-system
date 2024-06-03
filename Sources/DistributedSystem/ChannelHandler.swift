@@ -50,12 +50,8 @@ class ChannelHandler: ChannelInboundHandler {
     func channelActive(context: ChannelHandlerContext) {
         // 2024-03-07T12:51:20.589375+02:00 DEBUG ds : [DistributedSystem] [IPv4]192.168.0.9/192.168.0.9:58186/3: channel active ["port": 55056]
         // TODO: it would be nice to know "name/type" of remote process
-        logger.debug("\(context.channel.addressDescription): channel active")
-
         let channel = context.channel
-
-        let writeBufferWaterMark = ChannelOptions.Types.WriteBufferWaterMark(low: writeBufferHighWatermark/2, high: writeBufferHighWatermark)
-        _ = channel.setOption(ChannelOptions.writeBufferWaterMark, value: writeBufferWaterMark)
+        logger.debug("\(channel.addressDescription): channel active")
 
         actorSystem.setChannel(id, channel, forProcessAt: address)
         if address == nil {

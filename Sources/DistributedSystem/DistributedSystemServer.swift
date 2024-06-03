@@ -33,6 +33,10 @@ public class DistributedSystemServer: DistributedSystem {
             .serverChannelOption(ChannelOptions.tcpOption(.tcp_nodelay), value: 1)
             .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .childChannelInitializer { channel in
+                let writeBufferWaterMark = ChannelOptions.Types.WriteBufferWaterMark(
+                    low: Int(self.endpointQueueWarningSize/2),
+                    high: Int(self.endpointQueueWarningSize))
+                _ = channel.setOption(ChannelOptions.writeBufferWaterMark, value: writeBufferWaterMark)
                 let pipeline = channel.pipeline
                 let channelHandler = ChannelHandler(self.nextChannelID, self, nil, self.endpointQueueWarningSize)
                 return pipeline.addHandler(ChannelCounters(self), name: ChannelCounters.name).flatMap { _ in
@@ -59,7 +63,7 @@ public class DistributedSystemServer: DistributedSystem {
         }
 
         loggerBox.value[metadataKey: "port"] = Logger.MetadataValue(stringLiteral: "\(portNumber)")
-        logger.debug("starting server '\(systemName)' @ \(portNumber)")
+        logger.info("starting server '\(systemName)' @ \(portNumber) (compression mode = \(compressionMode))")
     }
 
     private func registerService(_ serviceName: String, _ serviceID: UUID, metadata: [String: String]) -> EventLoopFuture<Void> {
