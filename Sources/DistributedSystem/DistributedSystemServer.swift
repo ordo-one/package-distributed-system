@@ -63,7 +63,7 @@ public class DistributedSystemServer: DistributedSystem {
         }
 
         loggerBox.value[metadataKey: "port"] = Logger.MetadataValue(stringLiteral: "\(portNumber)")
-        logger.debug("starting server '\(systemName)' @ \(portNumber)")
+        logger.info("starting server '\(systemName)' @ \(portNumber) (compression mode = \(compressionMode))")
     }
 
     private func registerService(_ serviceName: String, _ serviceID: UUID, metadata: [String: String]) -> EventLoopFuture<Void> {

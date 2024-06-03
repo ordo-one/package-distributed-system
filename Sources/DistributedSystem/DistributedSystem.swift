@@ -40,7 +40,7 @@ final class BoxEx<Value> {
     }
 }
 
-public enum CompressionMode {
+public enum CompressionMode: CustomStringConvertible {
     public struct DictionaryData {
         let data: BoxEx<UnsafeRawBufferPointer>
         let checksum: UInt32
@@ -77,6 +77,14 @@ public enum CompressionMode {
     case disabled
     case streaming
     case dictionary(DictionaryData)
+
+    public var description: String {
+        switch self {
+        case .disabled: "disabled"
+        case .streaming: "streaming"
+        case .dictionary: "dictionary"
+        }
+    }
 }
 
 public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
@@ -770,13 +778,13 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     /// Service lifecycle start
     public func start() throws {
         if type(of: self) == DistributedSystem.self {
-            logger.debug("starting system '\(systemName)'")
+            logger.info("starting system '\(systemName)' (compression mode=\(compressionMode))")
         }
     }
 
     /// Service lifecycle stop
     public func stop() {
-        logger.debug("stop")
+        logger.info("stop")
 
         let services = discoveryManager.getLocalServices()
         for serviceID in services {
@@ -823,7 +831,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
         continuations.forEach { $0.finish() }
 
-        logger.debug("stopped")
+        logger.info("stopped")
 
         let str = lock.withLock {
             var strs = [String]()
