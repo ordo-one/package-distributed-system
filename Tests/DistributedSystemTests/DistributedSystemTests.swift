@@ -294,6 +294,67 @@ final class DistributedSystemTests: XCTestCase {
     }
     */
 
+    func testReconnect() async throws {
+        // Checking the distributed actors do not leak,
+        // use a closure here to be sure at the check point all references will be released
+        let flags = Flags()
+        _ = try await {
+            let processInfo = ProcessInfo.processInfo
+            let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
+
+            let moduleID = DistributedSystem.ModuleIdentifier(1)
+            let serverSystem = DistributedSystemServer(name: systemName)
+            try await serverSystem.start()
+            try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+                let service = ServiceWithLeakCheckImpl(flags)
+                let serviceEndpoint = try TestServiceEndpoint(service, in: actorSystem)
+                let clientEndpointID = serviceEndpoint.id.makeClientEndpoint()
+                service.clientEndpoint = try TestClientEndpoint.resolve(id: clientEndpointID, using: actorSystem)
+                return serviceEndpoint
+            }
+
+            let clientSystem = DistributedSystem(name: systemName)
+            try clientSystem.start()
+
+            let clientIdAtomic = ManagedAtomic<Int>(0)
+            var client: ClientWithLeakCheckImpl? = ClientWithLeakCheckImpl(flags)
+
+            clientSystem.connectToServices(
+                TestServiceEndpoint.self,
+                withFilter: { _ in true },
+                clientFactory: { actorSystem, _ in TestClientEndpoint(client!, in: actorSystem) },
+                serviceHandler: { serviceEndpoint, _ in
+                    Task {
+                        do {
+                            let clientId = clientIdAtomic.wrappingIncrementThenLoad(ordering: .relaxed)
+                            if clientId == 1 {
+                                try serverSystem.closeConnectionFor(serviceEndpoint.id)
+                            } else if clientId == 2 {
+                                let openRequest = _OpenRequestStruct(requestIdentifier: 1)
+                                try await serviceEndpoint.openStream(byRequest: OpenRequest(openRequest))
+                            } else {
+                                fatalError("internal error")
+                            }
+                        } catch {
+                            logger.error("\(error)")
+                        }
+                    }
+                }
+            )
+
+            for await _ in client!.stream { break }
+            client = nil
+
+            clientSystem.stop()
+            serverSystem.stop()
+        }()
+
+        XCTAssertTrue(flags.serviceDeallocated)
+        XCTAssertTrue(flags.serviceConnectionClosed)
+        XCTAssertTrue(flags.clientDeallocated)
+        XCTAssertTrue(flags.clientConnectionClosed)
+    }
+
     func testConcurrentRemoteCalls() async throws {
         class ServiceImpl: TestableService {
             private let totalCount: Int

@@ -14,7 +14,7 @@ import struct Foundation.UUID
 import PackageConcurrencyHelpers
 
 final class DiscoveryManager {
-    private final class ProcessInfo {
+    private struct ProcessInfo {
         var channel: (UInt32, Channel)?
         var services = Set<String>()
     }
@@ -77,6 +77,7 @@ final class DiscoveryManager {
     private var lock = Lock()
     private var processes: [SocketAddress: ProcessInfo] = [:]
     private var discoveries: [String: DiscoveryInfo] = [:]
+    private var stop = false
 
     init(_ loggerBox: Box<Logger>) {
         self.loggerBox = loggerBox
@@ -113,9 +114,10 @@ final class DiscoveryManager {
                         case let .local(factory):
                             services.append((serviceInfo.service, .factory(factory)))
                         case let .remote(address):
-                            if let processInfo = self.processes[address] {
+                            if var processInfo = self.processes[address] {
                                 if let (channelID, channel) = processInfo.channel {
                                     processInfo.services.insert(serviceName)
+                                    self.processes[address] = processInfo
                                     services.append((serviceInfo.service, .channel(channelID, channel)))
                                 }
                             } else {
@@ -201,9 +203,7 @@ final class DiscoveryManager {
                 self.discoveries[serviceName] = discoveryInfo
             }
 
-            guard let discoveryInfo else {
-                fatalError("Internal error: service \(serviceName) not discovered")
-            }
+            guard let discoveryInfo else { fatalError("discoveryInfo unexpectedly nil") }
 
             if discoveryInfo.services[serviceID] != nil {
                 fatalError("Internal error: duplicated service \(serviceName)/\(serviceID)")
@@ -239,16 +239,18 @@ final class DiscoveryManager {
                 if case .remote = serviceInfo.address {
                     serviceInfo.service = service
                     serviceInfo.address = .remote(address)
+                    discoveryInfo.services[serviceID] = serviceInfo
                 }
                 return (false, nil)
             } else {
                 discoveryInfo.services[serviceID] = ServiceInfo(service, address)
-                if let processInfo = self.processes[address] {
+                if var processInfo = self.processes[address] {
                     if let channel = processInfo.channel {
                         var connectionHandlers: [DistributedSystem.ConnectionHandler] = []
                         for (_, filterInfo) in discoveryInfo.filters {
                             if filterInfo.filter(service) {
                                 processInfo.services.insert(serviceName)
+                                self.processes[address] = processInfo
                                 connectionHandlers.append(filterInfo.connectionHandler)
                             }
                         }
@@ -257,7 +259,7 @@ final class DiscoveryManager {
                         return (false, nil)
                     }
                 } else {
-                    let processInfo = ProcessInfo()
+                    var processInfo = ProcessInfo()
                     processInfo.services.insert(serviceName)
                     self.processes[address] = processInfo
                     return (true, nil)
@@ -274,14 +276,50 @@ final class DiscoveryManager {
         return connect
     }
 
+    private static func anyServiceWithAddress(_ address: SocketAddress, in discoveryInfo: DiscoveryInfo) -> Bool {
+        for serviceInfo in discoveryInfo.services.values {
+            if case let .remote(serviceAddress) = serviceInfo.address,
+               serviceAddress == address {
+                return true
+            }
+        }
+        return false
+    }
+
+    func removeService(_ serviceName: String, _ serviceID: UUID) {
+        lock.withLockVoid {
+            logger.trace("remove service \(serviceName)/\(serviceID)")
+            guard let discoveryInfo = self.discoveries[serviceName] else { return }
+            let serviceInfo = discoveryInfo.services.removeValue(forKey: serviceID)
+            guard let serviceInfo else { return }
+            if case let .remote(serviceAddress) = serviceInfo.address {
+                if var processInfo = self.processes[serviceAddress] {
+                    if !Self.anyServiceWithAddress(serviceAddress, in: discoveryInfo) {
+                        processInfo.services.remove(serviceName)
+                        self.processes[serviceAddress] = processInfo
+                    }
+                }
+            } else {
+                logger.error("internal error: service \(serviceName)/\(serviceID) has unexpected address \(serviceInfo.address)")
+            }
+        }
+    }
+
     func setChannel(_ channelID: UInt32,_ channel: Channel, forProcessAt address: SocketAddress) {
         let services = lock.withLock {
-            guard let processInfo = processes[address] else {
-                fatalError("Internal error: process for \(address) not found")
+            var services = [(ConsulServiceDiscovery.Instance, DistributedSystem.ConnectionHandler)]()
+
+            guard var processInfo = processes[address] else {
+                logger.error("internal error: process for \(address) not found")
+                return services
             }
+
+            if processInfo.channel != nil {
+                logger.error("internal error: already connected to process @ \(address)")
+            }
+
             processInfo.channel = (channelID, channel)
 
-            var services = [(ConsulServiceDiscovery.Instance, DistributedSystem.ConnectionHandler)]()
             for serviceName in processInfo.services {
                 guard let discoveryInfo = self.discoveries[serviceName] else {
                     fatalError("Internal error: service \(serviceName) not found")
@@ -296,6 +334,7 @@ final class DiscoveryManager {
                     }
                 }
             }
+
             return services
         }
 
@@ -304,7 +343,7 @@ final class DiscoveryManager {
         }
     }
 
-    func getLocalServices() -> [NodeService] {
+    func getLocalServices(stop: Bool) -> [NodeService] {
         lock.withLock {
             var services: [NodeService] = []
             for (_, discoveryInfo) in self.discoveries {
@@ -314,26 +353,65 @@ final class DiscoveryManager {
                     }
                 }
             }
+
+            if stop {
+                self.stop = true
+            }
+
             return services
         }
     }
 
-    func connectionEstablishmentFailed(_ address: SocketAddress) {
-        lock.withLockVoid {
-            let processInfo = self.processes.removeValue(forKey: address)
-            if let processInfo {
-                assert(processInfo.channel == nil)
+    func connectionEstablishmentFailed(_ address: SocketAddress) -> Bool {
+        lock.withLock {
+            if self.stop {
+                return false
+            }
+
+            let processInfo = self.processes[address]
+            guard let processInfo else { return false }
+
+            if processInfo.services.isEmpty {
+                self.processes.removeValue(forKey: address)
+                return false
+            } else {
+                return true
             }
         }
     }
 
-    func channelInactive(_ channel: Channel) {
-        guard let address = channel.remoteAddress else {
-            fatalError("Internal error: channel not connected")
-        }
+    func channelInactive(_ address: SocketAddress) -> SocketAddress? {
+        lock.withLock {
+            if self.stop {
+                return nil
+            }
 
-        lock.withLockVoid {
-            self.processes.removeValue(forKey: address)
+            let processInfo = self.processes[address]
+            guard var processInfo else { return nil }
+
+            if processInfo.services.isEmpty {
+                self.processes.removeValue(forKey: address)
+                return nil
+            }
+
+            for serviceName in processInfo.services {
+                if let discoveryInfo = self.discoveries[serviceName] {
+                    for serviceInfo in discoveryInfo.services.values {
+                        if case let .remote(serviceAddress) = serviceInfo.address,
+                           serviceAddress == address {
+                            // service with the same address still in the consul,
+                            // let's try to reconnect
+                            processInfo.channel = nil
+                            self.processes[address] = processInfo
+                            return address
+                        }
+                    }
+                } else {
+                    logger.error("internal error: service \(serviceName) for process at \(address) not discovered")
+                }
+            }
+
+            return nil
         }
     }
 }

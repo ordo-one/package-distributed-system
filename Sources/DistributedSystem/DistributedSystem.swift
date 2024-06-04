@@ -168,6 +168,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     // TODO: replace with configuration
     static let pingInterval = TimeAmount.seconds(2)
     static let serviceDiscoveryTimeout = TimeAmount.seconds(5)
+    static let reconnectInterval = TimeAmount.seconds(5)
 
     static let protocolVersionMajor: UInt16 = 3
     static let protocolVersionMinor: UInt16 = 0
@@ -365,8 +366,9 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         sendPing(to: channelID, channel, with: eventLoopGroup.next())
     }
 
-    func channelInactive(_ channelID: UInt32, _ channel: Channel) {
-        discoveryManager.channelInactive(channel)
+    func channelInactive(_ channelID: UInt32, _ address: SocketAddress?) {
+        var address = address
+        address = address.map { discoveryManager.channelInactive($0) } ?? nil
 
         let (streamContinuations, endpointContinuations, pendingSyncCalls) = lock.withLock {
             var streamContinuations = [AsyncStream<InvocationEnvelope>.Continuation]()
@@ -414,11 +416,27 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         if !pendingSyncCalls.isEmpty {
             syncCallManager.resumeWithConnectionLoss(pendingSyncCalls)
         }
+
+        if let address {
+            connectToProcessAt(address)
+        }
     }
 
     private func connectionEstablishmentFailed(_ error: Error, _ address: SocketAddress) {
-        logger.debug("failed to connect to process @ \(address): \(error)")
-        discoveryManager.connectionEstablishmentFailed(address)
+        let reconnect = discoveryManager.connectionEstablishmentFailed(address)
+        if reconnect {
+            logger.info("failed to connect to process @ \(address): \(error), reconnect in \(Self.reconnectInterval)")
+            eventLoopGroup.next().scheduleTask(in: Self.reconnectInterval) {
+                let reconnect = self.discoveryManager.connectionEstablishmentFailed(address)
+                if reconnect {
+                    self.connectToProcessAt(address)
+                } else {
+                    self.logger.info("connection to process @ \(address) not needed")
+                }
+            }
+        } else {
+            logger.info("failed to connect to process @ \(address): \(error)")
+        }
     }
 
     private func addressForService(_ service: NodeService) -> SocketAddress? {
@@ -525,6 +543,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             return false
         case let .started(discover, addresses):
             if discover {
+                let lastServices = Box(Array<NodeService>())
                 _ = consulServiceDiscovery.subscribe(
                     to: serviceName,
                     onNext: { result in
@@ -552,12 +571,25 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                                     continue
                                 }
 
+                                if let idx = lastServices.value.firstIndex(where: { $0.serviceID == service.serviceID }) {
+                                    lastServices.value.remove(at: idx)
+                                }
+
                                 let connect = self.discoveryManager.setAddress(address, for: serviceName, serviceID, service)
                                 self.logger.debug("setAddress \(address) for \(serviceName)/\(service.serviceID), connect=\(connect)")
                                 if connect {
                                     self.connectToProcessAt(address)
                                 }
                             }
+
+                            for service in lastServices.value {
+                                if let serviceID = UUID(uuidString: service.serviceID) {
+                                    self.discoveryManager.removeService(serviceName, serviceID)
+                                }
+                            }
+
+                            lastServices.value = services
+
                         case let .failure(error):
                             self.logger.debug("\(error)")
                         }
@@ -701,7 +733,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     }
 
     func getLocalServices() -> [NodeService] {
-        discoveryManager.getLocalServices()
+        discoveryManager.getLocalServices(stop: false)
     }
 
     private func sendPing(to channelID: UInt32, _ channel: Channel, with eventLoop: EventLoop) {
@@ -786,7 +818,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     public func stop() {
         logger.info("stop")
 
-        let services = discoveryManager.getLocalServices()
+        let services = discoveryManager.getLocalServices(stop: true)
         for serviceID in services {
             do {
                 try consul.agent.deregisterServiceID("\(serviceID)").wait()
@@ -799,7 +831,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             }
         }
 
-        // consul should be stopped before the even loops,
+        // consul should be stopped before the event loops,
         // otherwise consul could trigger some events which
         // will be scheduled to the stopped event loop
         do {
@@ -1332,7 +1364,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                             _ actor: any DistributedActor,
                             _ channel: Channel,
                             _ queueState: ManagedAtomic<UInt64>) async {
-        logger.debug("\(channel.addressDescription): start stream task for \(actor.id)")
+        let channelAddressDescription = channel.addressDescription
+        logger.debug("\(channelAddressDescription): start stream task for \(actor.id)")
 
         let resultHandler = ResultHandler()
         for await envelope in stream {
@@ -1395,7 +1428,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             logger.error("\(error)")
         }
 
-        logger.debug("\(channel.addressDescription): streamTask for \(actor.id) done")
+        logger.debug("\(channelAddressDescription): streamTask for \(actor.id) done")
     }
 
     private func invokeLocalCall(_ envelope: InvocationEnvelope, for endpointID: EndpointIdentifier, _ channel: Channel) throws {
