@@ -36,7 +36,7 @@ class ChannelHandler: ChannelInboundHandler {
 
     private let id: UInt32
     private let actorSystem: DistributedSystem
-    private var address: SocketAddress?
+    private let address: SocketAddress?
     private var writeBufferHighWatermark: Int
     private var targetFuncs = [String]()
 
