@@ -846,7 +846,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 strs.append(", bytes_received=\(bytesReceived)")
                 if let bytesDecompressed = stats[ChannelCompressionInboundHandler.statsKey] {
                     strs.append(", bytes_decompressed=\(bytesDecompressed), ")
-                    strs.append("inbound compression ratio=\(Self.calculateSpaceSaving(dataSize: bytesDecompressed, compressedSize: bytesReceived))%")
+                    strs.append("inbound space saving=\(Self.calculateSpaceSaving(dataSize: bytesDecompressed, compressedSize: bytesReceived))%")
                 }
             }
             return strs.joined()

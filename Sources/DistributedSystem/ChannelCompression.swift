@@ -518,12 +518,13 @@ class ChannelCompressionInboundHandler: ChannelInboundHandler {
         self.distributedSystem = distributedSystem
     }
 
-    deinit {
-        distributedSystem.incrementStats([Self.statsKey: bytesDecompressed])
-    }
-
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         fatalError("should never be called")
+    }
+
+    func channelInactive(context: ChannelHandlerContext) {
+        context.fireChannelInactive()
+        distributedSystem.incrementStats([Self.statsKey: bytesDecompressed])
     }
 }
 
@@ -609,7 +610,9 @@ final class ChannelDictCompressionInboundHandler: ChannelCompressionInboundHandl
     }
 }
 
-class ChannelCompressionOutboundHandler: ChannelOutboundHandler {
+class ChannelCompressionOutboundHandler: ChannelInboundHandler, ChannelOutboundHandler {
+    typealias InboundIn = ByteBuffer
+    typealias InboundOut = ByteBuffer
     typealias OutboundIn = ByteBuffer
     typealias OutboundOut = ByteBuffer
 
@@ -623,7 +626,8 @@ class ChannelCompressionOutboundHandler: ChannelOutboundHandler {
         self.distributedSystem = distributedSystem
     }
 
-    deinit {
+    func channelInactive(context: ChannelHandlerContext) {
+        context.fireChannelInactive()
         distributedSystem.incrementStats([Self.statsKey: bytesCompressed])
     }
 
