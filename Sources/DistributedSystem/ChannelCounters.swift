@@ -33,14 +33,15 @@ final class ChannelCounters: ChannelInboundHandler, ChannelOutboundHandler {
         self.distributedSystem = distributedSystem
     }
 
-    deinit {
-        distributedSystem.incrementStats(stats)
-    }
-
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         let buffer = unwrapInboundIn(data)
         bytesReceived.wrappingIncrement(by: UInt64(buffer.readableBytes), ordering: .relaxed)
         context.fireChannelRead(data)
+    }
+
+    func channelInactive(context: ChannelHandlerContext) {
+        context.fireChannelInactive()
+        distributedSystem.incrementStats(stats)
     }
 
     func write(context: ChannelHandlerContext, data: NIOAny, promise: EventLoopPromise<Void>?) {
