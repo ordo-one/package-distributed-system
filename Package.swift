@@ -11,7 +11,7 @@ let externalDependencies: [String: Range<Version>] = [
     "https://github.com/apple/swift-log": .upToNextMajor(from: "1.4.4"),
     "https://github.com/ordo-one/swift-service-lifecycle_1.0": .upToNextMajor(from: "1.0.0-alpha.13"), // to remove in future
     "https://github.com/apple/swift-service-discovery.git" : .upToNextMajor(from: "1.0.0"),
-    "https://github.com/ordo-one/package-system-libs": .upToNextMajor(from: "0.0.1"),
+    "https://github.com/ordo-one/package-system-libs": .upToNextMajor(from: "0.0.3"),
 ]
 
 let internalDependencies: [String: Range<Version>] = [
@@ -81,7 +81,7 @@ let package = Package(
                 .product(name: "ConsulServiceDiscovery", package: "package-consul"),
                 .product(name: "Helpers", package: "package-concurrency-helpers"),
                 .product(name: "Logging", package: "swift-log"),
-                .product(name: "lz4", package: "package-system-libs", condition: .when(platforms: [.macOS, .linux])),
+                .product(name: "lz4", package: "package-system-libs"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "PackageConcurrencyHelpers", package: "package-concurrency-helpers"),
