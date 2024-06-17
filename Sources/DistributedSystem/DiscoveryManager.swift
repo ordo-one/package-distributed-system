@@ -1,4 +1,4 @@
-// Copyright 2023 Ordo One AB
+// Copyright 2024 Ordo One AB
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@ import PackageConcurrencyHelpers
 final class DiscoveryManager {
     private final class ProcessInfo {
         var channel: (UInt32, Channel)?
-        var services = Set<String>()
+        var pendingServices = [(NodeService, DistributedSystem.ConnectionHandler)]()
     }
 
     private enum ServiceAddress: Equatable {
@@ -115,11 +115,14 @@ final class DiscoveryManager {
                         case let .remote(address):
                             if let processInfo = self.processes[address] {
                                 if let (channelID, channel) = processInfo.channel {
-                                    processInfo.services.insert(serviceName)
                                     services.append((serviceInfo.service, .channel(channelID, channel)))
+                                } else {
+                                    processInfo.pendingServices.append((serviceInfo.service, connectionHandler))
                                 }
                             } else {
-                                self.processes[address] = ProcessInfo()
+                                let processInfo = ProcessInfo()
+                                processInfo.pendingServices.append((serviceInfo.service, connectionHandler))
+                                self.processes[address] = processInfo
                                 addresses.append(address)
                             }
                         }
@@ -246,9 +249,8 @@ final class DiscoveryManager {
                 if let processInfo = self.processes[address] {
                     if let channel = processInfo.channel {
                         var connectionHandlers: [DistributedSystem.ConnectionHandler] = []
-                        for (_, filterInfo) in discoveryInfo.filters {
+                        for filterInfo in discoveryInfo.filters.values {
                             if filterInfo.filter(service) {
-                                processInfo.services.insert(serviceName)
                                 connectionHandlers.append(filterInfo.connectionHandler)
                             }
                         }
@@ -257,10 +259,20 @@ final class DiscoveryManager {
                         return (false, nil)
                     }
                 } else {
-                    let processInfo = ProcessInfo()
-                    processInfo.services.insert(serviceName)
-                    self.processes[address] = processInfo
-                    return (true, nil)
+                    var pendingServices = [(NodeService, DistributedSystem.ConnectionHandler)]()
+                    for filterInfo in discoveryInfo.filters.values {
+                        if filterInfo.filter(service) {
+                            pendingServices.append((service, filterInfo.connectionHandler))
+                        }
+                    }
+                    if pendingServices.isEmpty {
+                        return (false, nil)
+                    } else {
+                        let processInfo = ProcessInfo()
+                        processInfo.pendingServices = pendingServices
+                        self.processes[address] = processInfo
+                        return (true, nil)
+                    }
                 }
             }
         }
@@ -281,22 +293,10 @@ final class DiscoveryManager {
             }
             processInfo.channel = (channelID, channel)
 
-            var services = [(ConsulServiceDiscovery.Instance, DistributedSystem.ConnectionHandler)]()
-            for serviceName in processInfo.services {
-                guard let discoveryInfo = self.discoveries[serviceName] else {
-                    fatalError("Internal error: service \(serviceName) not found")
-                }
-                for serviceInfo in discoveryInfo.services.values {
-                    if case let .remote(serviceAddress) = serviceInfo.address, serviceAddress == address {
-                        for (_, filterInfo) in discoveryInfo.filters {
-                            if filterInfo.filter(serviceInfo.service) {
-                                services.append((serviceInfo.service, filterInfo.connectionHandler))
-                            }
-                        }
-                    }
-                }
-            }
-            return services
+            var pendingServices = [(NodeService, DistributedSystem.ConnectionHandler)]()
+            swap(&processInfo.pendingServices, &pendingServices)
+
+            return pendingServices
         }
 
         for (service, connectionHandler) in services {
