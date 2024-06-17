@@ -259,19 +259,20 @@ final class DiscoveryManager {
                         return (false, nil)
                     }
                 } else {
-                    var pendingHandlers = [DistributedSystem.ConnectionHandler]()
+                    var pendingServices = [(NodeService, DistributedSystem.ConnectionHandler)]()
                     for filterInfo in discoveryInfo.filters.values {
                         if filterInfo.filter(service) {
-                            pendingHandlers.append(filterInfo.connectionHandler)
+                            pendingServices.append((service, filterInfo.connectionHandler))
                         }
                     }
-                    if pendingHandlers.isEmpty {
+                    if pendingServices.isEmpty {
                         return (false, nil)
+                    } else {
+                        let processInfo = ProcessInfo()
+                        processInfo.pendingServices = pendingServices
+                        self.processes[address] = processInfo
+                        return (true, nil)
                     }
-                    let processInfo = ProcessInfo()
-                    processInfo.pendingServices = pendingHandlers.map { (service, $0) }
-                    self.processes[address] = processInfo
-                    return (true, nil)
                 }
             }
         }
