@@ -941,7 +941,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                         let sfrc = ActorInfo.Inbound(continuation, queueSize)
                         self.actors[actor.id] = .serviceForRemoteClient(sfrc)
                         if let channelInfo = self.channels[actor.id.channelID] {
-                            Task { await self.streamTask(stream, actor.id, actor, channelInfo.channel, queueSize) }
+                            let channelAddressDescription = channelInfo.channel.addressDescription
+                            Task { await self.streamTask(stream, actor.id, actor, channelInfo.channel, channelAddressDescription, queueSize) }
                         } else {
                             logger.error("internal error: channel \(actor.id.channelID) not registered")
                         }
@@ -963,7 +964,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     let queueSize = ManagedAtomic<UInt64>(0)
                     let cfrs = ActorInfo.Inbound(continuation, queueSize)
                     self.actors[actor.id] = .clientForRemoteService(cfrs)
-                    Task { await self.streamTask(stream, actor.id, actor, channelInfo.channel, queueSize) }
+                    let channelAddressDescription = channelInfo.channel.addressDescription
+                    Task { await self.streamTask(stream, actor.id, actor, channelInfo.channel, channelAddressDescription, queueSize) }
                 } else {
                     // seems like connection was closed right after establishment
                     Task {
@@ -1331,8 +1333,9 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                             _ endpointID: EndpointIdentifier,
                             _ actor: any DistributedActor,
                             _ channel: Channel,
+                            _ channelAddressDescription: String,
                             _ queueState: ManagedAtomic<UInt64>) async {
-        logger.debug("\(channel.addressDescription): start stream task for \(actor.id)")
+        logger.debug("\(channelAddressDescription): start stream task for \(actor.id)")
 
         let resultHandler = ResultHandler()
         for await envelope in stream {
@@ -1395,7 +1398,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             logger.error("\(error)")
         }
 
-        logger.debug("\(channel.addressDescription): streamTask for \(actor.id) done")
+        logger.debug("\(channelAddressDescription): streamTask for \(actor.id) done")
     }
 
     private func invokeLocalCall(_ envelope: InvocationEnvelope, for endpointID: EndpointIdentifier, _ channel: Channel) throws {
@@ -1413,7 +1416,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 let queueState = ManagedAtomic<UInt64>(0)
                 let inbound = ActorInfo.Inbound(continuation, queueState)
                 self.actors[endpointID] = .clientForRemoteService(inbound)
-                Task { await self.streamTask(stream, endpointID, actor, channel, queueState) }
+                let channelAddressDescription = channel.addressDescription
+                Task { await self.streamTask(stream, endpointID, actor, channel, channelAddressDescription, queueState) }
                 return (continuation, queueState)
             case let .serviceForRemoteClient(inbound):
                 return (inbound.continuation, inbound.queueState)
