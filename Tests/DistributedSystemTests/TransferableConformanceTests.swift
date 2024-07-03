@@ -191,4 +191,32 @@ final class TransferableConformanceTests: XCTestCase {
         clientSystem.stop()
         serverSystem.stop()
     }
+
+    func testOptionalWithZeroSizeSerializedType() throws {
+        struct ZeroSizeSerializaedStruct: Transferable {
+            init() {
+            }
+
+            init(fromSerializedBuffer buffer: UnsafeRawBufferPointer) throws {
+                XCTAssert(buffer.count == 0)
+            }
+
+            func _releaseBuffer() {
+            }
+
+            func withUnsafeBytesSerialization<Result>(_ body: (UnsafeRawBufferPointer) throws -> Result) rethrows -> Result {
+                try body(UnsafeRawBufferPointer(start: nil, count: 0))
+            }
+        }
+
+        let optional: ZeroSizeSerializaedStruct? = ZeroSizeSerializaedStruct()
+        let buffer = optional.withUnsafeBytesSerialization {
+            let ret = UnsafeMutableRawBufferPointer.allocate(byteCount: $0.count, alignment: 0)
+            ret.copyMemory(from: $0)
+            return ret
+        }
+        defer { buffer.deallocate() }
+        XCTAssert(buffer.count == 1)
+        _ = try Optional<ZeroSizeSerializaedStruct>(fromSerializedBuffer: .init(buffer))
+    }
 }
