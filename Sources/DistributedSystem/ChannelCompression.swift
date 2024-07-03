@@ -43,7 +43,7 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
         logger.debug("\(context.channel.addressDescription): channel active (server compression handshake)")
         if DistributedSystem.pingInterval.nanoseconds > 0 {
             timer = context.eventLoop.scheduleTask(in: DistributedSystem.pingInterval*2) {
-                self.logger.info("\(context.channel.addressDescription): session timeout for compression client handshake, close connection")
+                self.logger.info("\(context.channel.addressDescription): session timeout for compression client handshake, closing connection")
                 context.close(promise: nil)
             }
         }
@@ -82,13 +82,13 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
 
         var buffer = unwrapInboundIn(data)
         guard let handshakeRequestRaw = buffer.readInteger(as: HandshakeRequest.RawValue.self) else {
-            logger.info("\(context.channel.addressDescription): invalid compression request received, close connection")
+            logger.info("\(context.channel.addressDescription): invalid compression request received, closing connection")
             context.close(promise: nil)
             return
         }
 
         guard let handshakeRequest = HandshakeRequest(rawValue: handshakeRequestRaw) else {
-            logger.info("\(context.channel.addressDescription): unsupported compression request '\(handshakeRequestRaw)' received, close connection")
+            logger.info("\(context.channel.addressDescription): unsupported compression request '\(handshakeRequestRaw)' received, closing connection")
             context.close(promise: nil)
             return
         }
@@ -336,7 +336,7 @@ final class ChannelCompressionHandshakeClient: ChannelInboundHandler, RemovableC
 
         if DistributedSystem.pingInterval.nanoseconds > 0 {
             timer = context.eventLoop.scheduleTask(in: DistributedSystem.pingInterval*2) {
-                self.logger.info("\(context.channel.addressDescription): session timeout for compression client handshake, close connection")
+                self.logger.info("\(context.channel.addressDescription): session timeout for compression server handshake, closing connection")
                 context.close(promise: nil)
             }
         }
@@ -366,13 +366,13 @@ final class ChannelCompressionHandshakeClient: ChannelInboundHandler, RemovableC
 
         var buffer = unwrapInboundIn(data)
         guard let handshakeResponseRaw = buffer.readInteger(as: HandshakeResponse.RawValue.self) else {
-            logger.info("\(context.channel.addressDescription): invalid compression response received, close connection")
+            logger.info("\(context.channel.addressDescription): invalid compression response received, closing connection")
             context.close(promise: nil)
             return
         }
 
         guard let handshakeResponse = HandshakeResponse(rawValue: handshakeResponseRaw) else {
-            logger.info("\(context.channel.addressDescription): invalid compression response \(handshakeResponseRaw) received, close connection")
+            logger.info("\(context.channel.addressDescription): invalid compression response \(handshakeResponseRaw) received, closing connection")
             context.close(promise: nil)
             return
         }
@@ -446,7 +446,7 @@ final class ChannelCompressionHandshakeClient: ChannelInboundHandler, RemovableC
                 }
                 _ = context.pipeline.removeHandler(self)
             } else {
-                logger.info("\(context.channel.addressDescription): unexpected response 'sameDictionary' received, close connection")
+                logger.info("\(context.channel.addressDescription): unexpected response 'sameDictionary' received, closing connection")
                 context.close(promise: nil)
             }
         case .dictionary:
