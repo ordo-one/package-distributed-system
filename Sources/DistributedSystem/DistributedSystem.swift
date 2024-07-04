@@ -367,9 +367,6 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     }
 
     func channelInactive(_ channelID: UInt32, _ address: SocketAddress?) {
-        var address = address
-        address = address.map { discoveryManager.channelInactive($0) } ?? nil
-
         let (streamContinuations, endpointContinuations, pendingSyncCalls) = lock.withLock {
             var streamContinuations = [AsyncStream<InvocationEnvelope>.Continuation]()
             var endpointContinuations = [CheckedContinuation<Void, Error>]()
@@ -418,25 +415,16 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
 
         if let address {
-            connectToProcessAt(address)
+            let reconnect = discoveryManager.channelInactive(address)
+            if reconnect {
+                connectToProcessAt(address)
+            }
         }
     }
 
     private func connectionEstablishmentFailed(_ error: Error, _ address: SocketAddress) {
-        let reconnect = discoveryManager.connectionEstablishmentFailed(address)
-        if reconnect {
-            logger.info("failed to connect to process @ \(address): \(error), reconnect in \(Self.reconnectInterval)")
-            eventLoopGroup.next().scheduleTask(in: Self.reconnectInterval) {
-                let reconnect = self.discoveryManager.connectionEstablishmentFailed(address)
-                if reconnect {
-                    self.connectToProcessAt(address)
-                } else {
-                    self.logger.info("connection to process @ \(address) not needed")
-                }
-            }
-        } else {
-            logger.info("failed to connect to process @ \(address): \(error)")
-        }
+        discoveryManager.connectionEstablishmentFailed(address)
+        logger.info("failed to connect to process @ \(address): \(error)")
     }
 
     private func addressForService(_ service: NodeService) -> SocketAddress? {
@@ -878,7 +866,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 strs.append(", bytes_received=\(bytesReceived)")
                 if let bytesDecompressed = stats[ChannelCompressionInboundHandler.statsKey] {
                     strs.append(", bytes_decompressed=\(bytesDecompressed), ")
-                    strs.append("inbound compression ratio=\(Self.calculateSpaceSaving(dataSize: bytesDecompressed, compressedSize: bytesReceived))%")
+                    strs.append("inbound space saving=\(Self.calculateSpaceSaving(dataSize: bytesDecompressed, compressedSize: bytesReceived))%")
                 }
             }
             return strs.joined()
@@ -973,7 +961,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                         let sfrc = ActorInfo.Inbound(continuation, queueSize)
                         self.actors[actor.id] = .serviceForRemoteClient(sfrc)
                         if let channelInfo = self.channels[actor.id.channelID] {
-                            Task { await self.streamTask(stream, actor.id, actor, channelInfo.channel, queueSize) }
+                            let channelAddressDescription = channelInfo.channel.addressDescription
+                            Task { await self.streamTask(stream, actor.id, actor, channelInfo.channel, channelAddressDescription, queueSize) }
                         } else {
                             logger.error("internal error: channel \(actor.id.channelID) not registered")
                         }
@@ -995,7 +984,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     let queueSize = ManagedAtomic<UInt64>(0)
                     let cfrs = ActorInfo.Inbound(continuation, queueSize)
                     self.actors[actor.id] = .clientForRemoteService(cfrs)
-                    Task { await self.streamTask(stream, actor.id, actor, channelInfo.channel, queueSize) }
+                    let channelAddressDescription = channelInfo.channel.addressDescription
+                    Task { await self.streamTask(stream, actor.id, actor, channelInfo.channel, channelAddressDescription, queueSize) }
                 } else {
                     // seems like connection was closed right after establishment
                     Task {
@@ -1363,8 +1353,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                             _ endpointID: EndpointIdentifier,
                             _ actor: any DistributedActor,
                             _ channel: Channel,
+                            _ channelAddressDescription: String,
                             _ queueState: ManagedAtomic<UInt64>) async {
-        let channelAddressDescription = channel.addressDescription
         logger.debug("\(channelAddressDescription): start stream task for \(actor.id)")
 
         let resultHandler = ResultHandler()
@@ -1446,7 +1436,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 let queueState = ManagedAtomic<UInt64>(0)
                 let inbound = ActorInfo.Inbound(continuation, queueState)
                 self.actors[endpointID] = .clientForRemoteService(inbound)
-                Task { await self.streamTask(stream, endpointID, actor, channel, queueState) }
+                let channelAddressDescription = channel.addressDescription
+                Task { await self.streamTask(stream, endpointID, actor, channel, channelAddressDescription, queueState) }
                 return (continuation, queueState)
             case let .serviceForRemoteClient(inbound):
                 return (inbound.continuation, inbound.queueState)

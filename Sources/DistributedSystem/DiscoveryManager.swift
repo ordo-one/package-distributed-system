@@ -1,4 +1,4 @@
-// Copyright 2023 Ordo One AB
+// Copyright 2024 Ordo One AB
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,7 +16,24 @@ import PackageConcurrencyHelpers
 final class DiscoveryManager {
     private struct ProcessInfo {
         var channel: (UInt32, Channel)?
-        var services = Set<String>()
+        var pendingHandlers = [String: [DistributedSystem.ConnectionHandler]]()
+        var connectedServices = Set<String>()
+
+        mutating func addPendingHandlers(_ serviceName: String, _ handlers: [DistributedSystem.ConnectionHandler]) {
+            var pendingHandlers = self.pendingHandlers[serviceName, default: []]
+            pendingHandlers.append(contentsOf: handlers)
+            self.pendingHandlers[serviceName] = pendingHandlers
+        }
+
+        mutating func setChannel(_ channelID: UInt32, _ channel: Channel) -> [String: [DistributedSystem.ConnectionHandler]] {
+            self.channel = (channelID, channel)
+            for serviceName in pendingHandlers.keys {
+                connectedServices.insert(serviceName)
+            }
+            var ret = [String: [DistributedSystem.ConnectionHandler]]()
+            swap(&ret, &pendingHandlers)
+            return ret
+        }
     }
 
     private enum ServiceAddress: Equatable {
@@ -116,12 +133,16 @@ final class DiscoveryManager {
                         case let .remote(address):
                             if var processInfo = self.processes[address] {
                                 if let (channelID, channel) = processInfo.channel {
-                                    processInfo.services.insert(serviceName)
-                                    self.processes[address] = processInfo
+                                    processInfo.connectedServices.insert(serviceName)
                                     services.append((serviceInfo.service, .channel(channelID, channel)))
+                                } else {
+                                    processInfo.addPendingHandlers(serviceName, [connectionHandler])
                                 }
+                                self.processes[address] = processInfo
                             } else {
-                                self.processes[address] = ProcessInfo()
+                                var processInfo = ProcessInfo()
+                                processInfo.addPendingHandlers(serviceName, [connectionHandler])
+                                self.processes[address] = processInfo
                                 addresses.append(address)
                             }
                         }
@@ -235,8 +256,10 @@ final class DiscoveryManager {
                 fatalError("Internal error: service \(serviceName) not discovered")
             }
             if let serviceInfo = discoveryInfo.services[serviceID] {
-                // update only remote services
-                if case .remote = serviceInfo.address {
+                if case let .remote(serviceAddress) = serviceInfo.address {
+                    if serviceAddress != address {
+                        logger.error("internal error: service \(serviceID) unexpectedly changed address from \(serviceAddress) to \(address)")
+                    }
                     serviceInfo.service = service
                     serviceInfo.address = .remote(address)
                     discoveryInfo.services[serviceID] = serviceInfo
@@ -244,25 +267,37 @@ final class DiscoveryManager {
                 return (false, nil)
             } else {
                 discoveryInfo.services[serviceID] = ServiceInfo(service, address)
+
+                let connectionHandlers = discoveryInfo.filters.values.compactMap {
+                    $0.filter(service) ? $0.connectionHandler : nil
+                }
+
                 if var processInfo = self.processes[address] {
                     if let channel = processInfo.channel {
-                        var connectionHandlers: [DistributedSystem.ConnectionHandler] = []
-                        for (_, filterInfo) in discoveryInfo.filters {
-                            if filterInfo.filter(service) {
-                                processInfo.services.insert(serviceName)
-                                self.processes[address] = processInfo
-                                connectionHandlers.append(filterInfo.connectionHandler)
-                            }
+                        if connectionHandlers.isEmpty {
+                            return (false, nil)
+                        } else {
+                            processInfo.connectedServices.insert(serviceName)
+                            self.processes[address] = processInfo
+                            return (false, (channel, connectionHandlers))
                         }
-                        return (false, (channel, connectionHandlers))
                     } else {
+                        if !connectionHandlers.isEmpty {
+                            processInfo.addPendingHandlers(serviceName, connectionHandlers)
+                            self.processes[address] = processInfo
+                        }
                         return (false, nil)
                     }
                 } else {
                     var processInfo = ProcessInfo()
-                    processInfo.services.insert(serviceName)
-                    self.processes[address] = processInfo
-                    return (true, nil)
+                    if connectionHandlers.isEmpty {
+                        self.processes[address] = processInfo
+                        return (false, nil)
+                    } else {
+                        processInfo.addPendingHandlers(serviceName, connectionHandlers)
+                        self.processes[address] = processInfo
+                        return (true, nil)
+                    }
                 }
             }
         }
@@ -276,66 +311,42 @@ final class DiscoveryManager {
         return connect
     }
 
-    private static func anyServiceWithAddress(_ address: SocketAddress, in discoveryInfo: DiscoveryInfo) -> Bool {
-        for serviceInfo in discoveryInfo.services.values {
-            if case let .remote(serviceAddress) = serviceInfo.address,
-               serviceAddress == address {
-                return true
-            }
-        }
-        return false
-    }
-
     func removeService(_ serviceName: String, _ serviceID: UUID) {
         lock.withLockVoid {
             logger.trace("remove service \(serviceName)/\(serviceID)")
-            guard let discoveryInfo = self.discoveries[serviceName] else { return }
-            let serviceInfo = discoveryInfo.services.removeValue(forKey: serviceID)
-            guard let serviceInfo else { return }
-            if case let .remote(serviceAddress) = serviceInfo.address {
-                if var processInfo = self.processes[serviceAddress] {
-                    if !Self.anyServiceWithAddress(serviceAddress, in: discoveryInfo) {
-                        processInfo.services.remove(serviceName)
-                        self.processes[serviceAddress] = processInfo
-                    }
+            guard let discoveryInfo = self.discoveries[serviceName] else {
+                logger.error("internal error: no services \(serviceName) registered")
+                return
+            }
+            if let serviceInfo = discoveryInfo.services.removeValue(forKey: serviceID) {
+                if discoveryInfo.services.isEmpty {
+                    self.discoveries.removeValue(forKey: serviceName)
                 }
-            } else {
-                logger.error("internal error: service \(serviceName)/\(serviceID) has unexpected address \(serviceInfo.address)")
             }
         }
     }
 
     func setChannel(_ channelID: UInt32,_ channel: Channel, forProcessAt address: SocketAddress) {
         let services = lock.withLock {
-            var services = [(ConsulServiceDiscovery.Instance, DistributedSystem.ConnectionHandler)]()
-
-            guard var processInfo = processes[address] else {
-                logger.error("internal error: process for \(address) not found")
-                return services
+            var ret = [(NodeService, DistributedSystem.ConnectionHandler)]()
+            guard var processInfo = self.processes[address] else {
+                logger.error("Internal error: process for \(address) not found")
+                return ret
             }
 
-            if processInfo.channel != nil {
-                logger.error("internal error: already connected to process @ \(address)")
-            }
+            let pendingHandlers = processInfo.setChannel(channelID, channel)
+            self.processes[address] = processInfo
 
-            processInfo.channel = (channelID, channel)
-
-            for serviceName in processInfo.services {
-                guard let discoveryInfo = self.discoveries[serviceName] else {
-                    fatalError("Internal error: service \(serviceName) not found")
-                }
-                for serviceInfo in discoveryInfo.services.values {
-                    if case let .remote(serviceAddress) = serviceInfo.address, serviceAddress == address {
-                        for (_, filterInfo) in discoveryInfo.filters {
-                            if filterInfo.filter(serviceInfo.service) {
-                                services.append((serviceInfo.service, filterInfo.connectionHandler))
-                            }
-                        }
-                    }
+            for (serviceName, handlers) in pendingHandlers {
+                if let discoveryInfo = self.discoveries[serviceName] {
+                    let serviceInfo = discoveryInfo.services.values.first(where: { $0.address == .remote(address) })
+                    if let serviceInfo {
+                        ret.append(contentsOf: handlers.map { (serviceInfo.service, $0) })
+                    } // else service disappeared from Consul, most probably connection will be closed very soon as well
                 }
             }
 
-            return services
+            return ret
         }
 
         for (service, connectionHandler) in services {
@@ -362,56 +373,63 @@ final class DiscoveryManager {
         }
     }
 
-    func connectionEstablishmentFailed(_ address: SocketAddress) -> Bool {
+    func connectionEstablishmentFailed(_ address: SocketAddress) {
         lock.withLock {
-            if self.stop {
-                return false
-            }
-
-            let processInfo = self.processes[address]
-            guard let processInfo else { return false }
-
-            if processInfo.services.isEmpty {
-                self.processes.removeValue(forKey: address)
-                return false
-            } else {
-                return true
-            }
+            // If the service could change the address, we would
+            // check it here, and if the address was changed while we tried
+            // to connect, we would try to reconnect to the new address.
+            // However, we register a service each time with a new service identifier (UUID),
+            // so we assume each particular service instance will never change its address,
+            // so logic described above is not required here.
+            _ = self.processes.removeValue(forKey: address)
         }
     }
 
-    func channelInactive(_ address: SocketAddress) -> SocketAddress? {
+    // Returns 'true' if service still registered in the Consul,
+    // so probably make sense for distributed system to try to reconnect.
+    func channelInactive(_ address: SocketAddress) -> Bool {
         lock.withLock {
             if self.stop {
-                return nil
+                return false
             }
 
             let processInfo = self.processes[address]
-            guard var processInfo else { return nil }
+            guard var processInfo else { return false }
 
-            if processInfo.services.isEmpty {
-                self.processes.removeValue(forKey: address)
-                return nil
-            }
+            var pendingHandlers = [String: [DistributedSystem.ConnectionHandler]]()
 
-            for serviceName in processInfo.services {
-                if let discoveryInfo = self.discoveries[serviceName] {
-                    for serviceInfo in discoveryInfo.services.values {
-                        if case let .remote(serviceAddress) = serviceInfo.address,
-                           serviceAddress == address {
-                            // service with the same address still in the consul,
-                            // let's try to reconnect
-                            processInfo.channel = nil
-                            self.processes[address] = processInfo
-                            return address
+            for serviceName in processInfo.connectedServices {
+                guard let discoveryInfo = self.discoveries[serviceName] else {
+                    logger.error("internal error: service \(serviceName) not found")
+                    continue
+                }
+
+                var servicePendingHandlers = [DistributedSystem.ConnectionHandler]()
+
+                for serviceInfo in discoveryInfo.services.values {
+                    if serviceInfo.address == .remote(address) {
+                        let handlers = discoveryInfo.filters.values.compactMap {
+                            $0.filter(serviceInfo.service) ? $0.connectionHandler : nil
                         }
+                        servicePendingHandlers.append(contentsOf:  handlers)
                     }
-                } else {
-                    logger.error("internal error: service \(serviceName) for process at \(address) not discovered")
+                }
+
+                if !servicePendingHandlers.isEmpty {
+                    pendingHandlers[serviceName] = servicePendingHandlers
                 }
             }
 
-            return nil
+            if pendingHandlers.isEmpty {
+                self.processes.removeValue(forKey: address)
+                return false
+            } else {
+                processInfo.channel = nil
+                processInfo.pendingHandlers = pendingHandlers
+                processInfo.connectedServices.removeAll()
+                self.processes[address] = processInfo
+                return true
+            }
         }
     }
 }
