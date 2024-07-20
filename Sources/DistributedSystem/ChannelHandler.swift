@@ -40,6 +40,8 @@ class ChannelHandler: ChannelInboundHandler {
     private var writeBufferHighWatermark: Int
     private var targetFuncs = [String]()
 
+    static let name = "channelHandler"
+
     init(_ id: UInt32, _ actorSystem: DistributedSystem, _ address: SocketAddress?, _ writeBufferHighWatermark: UInt64) {
         self.id = id
         self.actorSystem = actorSystem
@@ -96,6 +98,12 @@ class ChannelHandler: ChannelInboundHandler {
             _ = channel.setOption(ChannelOptions.writeBufferWaterMark, value: writeBufferWaterMark)
         }
     }
+
+    func addTo(_ pipeline: ChannelPipeline) {
+        let handler = ByteToMessageHandler(StreamDecoder(self.actorSystem.loggerBox))
+        _ = pipeline.addHandler(handler, name: StreamDecoder.name)
+        _ = pipeline.addHandler(self, name: Self.name)
+    }
 }
 
 class StreamDecoder: ByteToMessageDecoder {
@@ -104,6 +112,8 @@ class StreamDecoder: ByteToMessageDecoder {
 
     private var loggerBox: Box<Logger>
     private var logger: Logger { loggerBox.value }
+
+    static let name = "streamDecoder"
 
     init(_ loggerBox: Box<Logger>) {
         self.loggerBox = loggerBox
