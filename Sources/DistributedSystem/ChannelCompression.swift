@@ -99,7 +99,7 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
             return
         }
 
-        logger.debug("\(context.channel.addressDescription)/\(Self.self): client requested \(handshakeRequest) compression mode")
+        logger.debug("\(context.channel.addressDescription)/\(Self.self): client requested [\(handshakeRequest)] compression mode")
 
         let compressionMode = distributedSystem.compressionMode
         let eventLoop = context.eventLoop
@@ -182,7 +182,7 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
             case .disabled:
                 sendResponse(.noCompression, to: context).flatMap {
                     _ = pipeline.removeHandler(self)
-                    _ = pipeline.addHandler(DictionaryReceiver(self.distributedSystem, self.channelHandler), name: DictionaryReceiver.name)
+                    _ = pipeline.addHandler(DictionaryReceiver(self.distributedSystem, self.channelHandler, false), name: DictionaryReceiver.name)
                     prevContext.fireChannelActive()
                     return eventLoop.makeSucceededVoidFuture()
                 }.whenFailure {
@@ -192,7 +192,7 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
             case .streaming:
                 sendResponse(.streamingCompression, to: context).flatMap {
                     _ = pipeline.removeHandler(self)
-                    _ = pipeline.addHandler(DictionaryReceiver(self.distributedSystem, self.channelHandler), name: DictionaryReceiver.name)
+                    _ = pipeline.addHandler(DictionaryReceiver(self.distributedSystem, self.channelHandler, false), name: DictionaryReceiver.name)
                     _ = pipeline.addHandler(ChannelStreamCompressionOutboundHandler(self.distributedSystem), name: ChannelCompressionOutboundHandler.name)
                     prevContext.fireChannelActive()
                     return eventLoop.makeSucceededVoidFuture()
@@ -222,7 +222,7 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
                     sendDictionaryResponse(dictionaryData.data.value, to: context).flatMap {
                         _ = pipeline.removeHandler(self)
                         _ = pipeline.addHandler(
-                            DictionaryReceiver(self.distributedSystem, self.channelHandler),
+                            DictionaryReceiver(self.distributedSystem, self.channelHandler, false),
                             name: DictionaryReceiver.name)
                         _ = pipeline.addHandler(
                             ChannelDictCompressionOutboundHandler(self.distributedSystem, dictionaryData.data),
@@ -247,15 +247,17 @@ final class DictionaryReceiver: ChannelInboundHandler, RemovableChannelHandler {
 
     private let distributedSystem: DistributedSystem
     private let channelHandler: ChannelHandler
+    private let clientSide: Bool
     private var timer: Scheduled<Void>?
     private var dictionary = UnsafeMutableRawBufferPointer(start: nil, count: 0)
     private var dictionaryBytesReceived = 0
 
     private var logger: Logger { distributedSystem.loggerBox.value }
 
-    init(_ distributedSystem: DistributedSystem, _ channelHandler: ChannelHandler) {
+    init(_ distributedSystem: DistributedSystem, _ channelHandler: ChannelHandler, _ clientSide: Bool) {
         self.distributedSystem = distributedSystem
         self.channelHandler = channelHandler
+        self.clientSide = clientSide
     }
 
     deinit {
@@ -328,22 +330,37 @@ final class DictionaryReceiver: ChannelInboundHandler, RemovableChannelHandler {
 
         let dictionary = BoxEx(ptr) { ptr.deallocate() }
 
-        let prevContext: ChannelHandlerContext
-        do {
-            prevContext = try context.pipeline.syncOperations.context(name: ChannelCounters.name)
-        } catch {
-            logger.error("\(context.channel.addressDescription)/\(Self.self): \(error), closing connection")
-            return
-        }
+        let pipeline = context.pipeline
+        if clientSide {
+            _ = pipeline.addHandler(
+                ChannelDictCompressionInboundHandler(distributedSystem, dictionary),
+                name: ChannelDictCompressionInboundHandler.name,
+                position: .before(channelHandler))
+            context.fireChannelActive()
+            if buffer.readableBytes > 0 {
+                  context.fireChannelRead(wrapInboundOut(buffer))
+            }
+            _ = context.pipeline.removeHandler(self)
+        } else {
+            let prevContext: ChannelHandlerContext
+            do {
+                prevContext = try context.pipeline.syncOperations.context(name: ChannelCounters.name)
+            } catch {
+                logger.error("\(context.channel.addressDescription)/\(Self.self): \(error), closing connection")
+                return
+            }
 
-        let pipeline = prevContext.pipeline
-        _ = pipeline.removeHandler(self)
-        _ = pipeline.addHandler(ChannelDictCompressionInboundHandler(distributedSystem, dictionary), name: ChannelDictCompressionInboundHandler.name)
-        channelHandler.addTo(pipeline)
+            _ = pipeline.removeHandler(self)
+            _ = pipeline.addHandler(
+                ChannelDictCompressionInboundHandler(distributedSystem, dictionary),
+                name: ChannelDictCompressionInboundHandler.name)
 
-        prevContext.fireChannelActive()
-        if buffer.readableBytes > 0 {
-            prevContext.fireChannelRead(wrapInboundOut(buffer))
+            channelHandler.addTo(pipeline)
+
+            prevContext.fireChannelActive()
+            if buffer.readableBytes > 0 {
+                prevContext.fireChannelRead(wrapInboundOut(buffer))
+            }
         }
     }
 }
@@ -427,7 +444,7 @@ final class ChannelCompressionHandshakeClient: ChannelInboundHandler, RemovableC
             return
         }
 
-        logger.debug("\(context.channel.addressDescription): server requested \(handshakeResponse) compression mode")
+        logger.debug("\(context.channel.addressDescription): server requested [\(handshakeResponse)] compression mode")
 
         let compressionMode = distributedSystem.compressionMode
         switch handshakeResponse {
@@ -517,7 +534,7 @@ final class ChannelCompressionHandshakeClient: ChannelInboundHandler, RemovableC
                 break
             }
             _ = context.pipeline.addHandler(
-                DictionaryReceiver(distributedSystem, channelHandler),
+                DictionaryReceiver(distributedSystem, channelHandler, true),
                 name: DictionaryReceiver.name,
                 position: .after(self))
             context.fireChannelActive()
