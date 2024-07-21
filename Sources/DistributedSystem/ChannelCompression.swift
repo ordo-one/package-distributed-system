@@ -70,6 +70,7 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
     }
 
     private func sendDictionaryResponse(_ dictionary: UnsafeRawBufferPointer, to context: ChannelHandlerContext) -> EventLoopFuture<Void> {
+        logger.debug("\(context.channel.addressDescription)/\(Self.self): send dictionary (\(dictionary.count) bytes)")
         let size = MemoryLayout<HandshakeResponse.RawValue>.size + ULEB128.size(UInt32(dictionary.count)) + dictionary.count
         var buffer = ByteBufferAllocator().buffer(capacity: size)
         buffer.writeInteger(HandshakeResponse.dictionary.rawValue)
@@ -136,7 +137,8 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
                 }
             }
             future.flatMap {
-                self.channelHandler.addTo(pipeline)
+                _ = pipeline.addHandler(ByteToMessageHandler(StreamDecoder(self.distributedSystem.loggerBox)), name: StreamDecoder.name)
+                _ = pipeline.addHandler(self.channelHandler, name: ChannelHandler.name)
                 prevContext.fireChannelActive()
                 return eventLoop.makeSucceededVoidFuture()
             }.whenFailure {
@@ -165,7 +167,8 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
                 }
             }
             future.flatMap {
-                self.channelHandler.addTo(pipeline)
+                _ = pipeline.addHandler(ByteToMessageHandler(StreamDecoder(self.distributedSystem.loggerBox)), name: StreamDecoder.name)
+                _ = pipeline.addHandler(self.channelHandler, name: ChannelHandler.name)
                 prevContext.fireChannelActive()
                 return eventLoop.makeSucceededVoidFuture()
             }.whenFailure {
@@ -206,12 +209,15 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
                     sendResponse(.sameDictionary, to: context).flatMap {
                         _ = pipeline.removeHandler(self)
                         _ = pipeline.addHandler(
+                            ByteToMessageHandler(StreamDecoder(self.distributedSystem.loggerBox)),
+                            name: StreamDecoder.name)
+                        _ = pipeline.addHandler(
                             ChannelDictCompressionInboundHandler(self.distributedSystem, dictionaryData.data),
                             name: ChannelDictCompressionInboundHandler.name)
                         _ = pipeline.addHandler(
                             ChannelDictCompressionOutboundHandler(self.distributedSystem, dictionaryData.data),
                             name: ChannelDictCompressionOutboundHandler.name)
-                        self.channelHandler.addTo(pipeline)
+                        _ = pipeline.addHandler(self.channelHandler, name: ChannelHandler.name)
                         prevContext.fireChannelActive()
                         return eventLoop.makeSucceededVoidFuture()
                     }.whenFailure {
@@ -329,6 +335,7 @@ final class DictionaryReceiver: ChannelInboundHandler, RemovableChannelHandler {
         self.dictionary = UnsafeMutableRawBufferPointer(start: nil, count: 0)
 
         let dictionary = BoxEx(ptr) { ptr.deallocate() }
+        logger.debug("\(context.channel.addressDescription)/\(Self.self): received dictionary (\(ptr.count) bytes)")
 
         let pipeline = context.pipeline
         if clientSide {
@@ -351,11 +358,16 @@ final class DictionaryReceiver: ChannelInboundHandler, RemovableChannelHandler {
             }
 
             _ = pipeline.removeHandler(self)
+
+            _ = pipeline.addHandler(
+                ByteToMessageHandler(StreamDecoder(distributedSystem.loggerBox)),
+                name: StreamDecoder.name)
+
             _ = pipeline.addHandler(
                 ChannelDictCompressionInboundHandler(distributedSystem, dictionary),
                 name: ChannelDictCompressionInboundHandler.name)
 
-            channelHandler.addTo(pipeline)
+            _ = pipeline.addHandler(channelHandler, name: ChannelHandler.name)
 
             prevContext.fireChannelActive()
             if buffer.readableBytes > 0 {
@@ -418,6 +430,7 @@ final class ChannelCompressionHandshakeClient: ChannelInboundHandler, RemovableC
     }
 
     private func sendDictionary(_ dictionary: UnsafeRawBufferPointer, to context: ChannelHandlerContext) {
+        logger.debug("\(context.channel.addressDescription)/\(Self.self): send dictionary (\(dictionary.count) bytes)")
         let size = ULEB128.size(UInt32(dictionary.count)) + dictionary.count
         var buffer = ByteBufferAllocator().buffer(capacity: size)
         buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(UInt32(dictionary.count), to: ptr.baseAddress!) }
@@ -576,7 +589,7 @@ class ChannelCompressionInboundHandler: ChannelInboundHandler {
     static let statsKey = "bytes_decompressed"
     static let name = "inboundDecompression"
 
-    private let distributedSystem: DistributedSystem
+    let distributedSystem: DistributedSystem
     var bytesDecompressed = UInt64(0)
 
     var logger: Logger { distributedSystem.loggerBox.value }
@@ -672,7 +685,7 @@ final class ChannelDictCompressionInboundHandler: ChannelCompressionInboundHandl
             }
         } catch {
         }
-        logger.info("\(context.channel.addressDescription)\(Self.self): received invalid compressed message, closing connection")
+        logger.error("\(context.channel.addressDescription)/\(Self.self): invalid compressed message received, closing connection")
         context.close(promise: nil)
     }
 }
@@ -686,7 +699,7 @@ class ChannelCompressionOutboundHandler: ChannelInboundHandler, ChannelOutboundH
     static let statsKey = "bytes_compressed"
     static let name = "outboundCompression"
 
-    private let distributedSystem: DistributedSystem
+    let distributedSystem: DistributedSystem
     var bytesCompressed = UInt64(0)
 
     init(_ distributedSystem: DistributedSystem) {

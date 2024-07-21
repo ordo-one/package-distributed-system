@@ -780,7 +780,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     /// Service lifecycle start
     public func start() throws {
         if type(of: self) == DistributedSystem.self {
-            logger.info("starting system '\(systemName)' (compression mode=\(compressionMode))")
+            logger.info("starting system '\(systemName)' (compression mode = \(compressionMode))")
         }
     }
 

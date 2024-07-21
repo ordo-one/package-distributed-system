@@ -98,12 +98,6 @@ class ChannelHandler: ChannelInboundHandler {
             _ = channel.setOption(ChannelOptions.writeBufferWaterMark, value: writeBufferWaterMark)
         }
     }
-
-    func addTo(_ pipeline: ChannelPipeline) {
-        let handler = ByteToMessageHandler(StreamDecoder(self.actorSystem.loggerBox))
-        _ = pipeline.addHandler(handler, name: StreamDecoder.name)
-        _ = pipeline.addHandler(self, name: Self.name)
-    }
 }
 
 class StreamDecoder: ByteToMessageDecoder {
