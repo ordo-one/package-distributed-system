@@ -13,18 +13,16 @@ internal import NIOCore
 final class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandler {
     typealias InboundIn = ByteBuffer
 
-    private let loggerBox: Box<Logger>
-    private var logger: Logger { loggerBox.value }
-
     private let distributedSystem: DistributedSystem
     private let channelHandler: ChannelHandler
     private var timer: Scheduled<Void>?
 
+    private var logger: Logger { distributedSystem.loggerBox.value }
+
     static let name = "handshake"
     static let hexDumpMaxBytes = 32
 
-    init(_ loggerBox: Box<Logger>, _ distributedSystem: DistributedSystem, _ channelHandler: ChannelHandler) {
-        self.loggerBox = loggerBox
+    init(_ distributedSystem: DistributedSystem, _ channelHandler: ChannelHandler) {
         self.distributedSystem = distributedSystem
         self.channelHandler = channelHandler
     }
@@ -61,7 +59,7 @@ final class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandl
                 // handshake ok
                 let prevContext: ChannelHandlerContext
                 do {
-                    prevContext = try context.pipeline.syncOperations.context(name: ChannelCounters.name)
+                    prevContext = try context.pipeline.syncOperations.context(handlerType: ChannelCounters.self)
                 } catch {
                     self.logger.error("\(context.channel.addressDescription)/\(Self.self): \(error), closing connection")
                     context.close(promise: nil)

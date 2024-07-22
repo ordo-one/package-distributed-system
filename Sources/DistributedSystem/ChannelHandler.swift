@@ -107,8 +107,6 @@ class StreamDecoder: ByteToMessageDecoder {
     private var loggerBox: Box<Logger>
     private var logger: Logger { loggerBox.value }
 
-    static let name = "streamDecoder"
-
     init(_ loggerBox: Box<Logger>) {
         self.loggerBox = loggerBox
     }

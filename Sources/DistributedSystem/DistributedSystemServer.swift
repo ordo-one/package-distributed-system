@@ -40,14 +40,7 @@ public class DistributedSystemServer: DistributedSystem {
                 let pipeline = channel.pipeline
                 let channelHandler = ChannelHandler(self.nextChannelID, self, nil, self.endpointQueueWarningSize)
                 return pipeline.addHandler(ChannelCounters(self), name: ChannelCounters.name).flatMap { _ in
-                    pipeline.addHandler(ChannelHandshakeServer(self.loggerBox, self, channelHandler), name: ChannelHandshakeServer.name)/*.flatMap {
-                        pipeline.addHandler(ChannelCompressionHandshakeServer(self, channelHandler), name: "compressionHandshake").flatMap { _ in
-                            pipeline.addHandler(ByteToMessageHandler(StreamDecoder(self.loggerBox)), name: "streamDecoder").flatMap { _ in
-                                pipeline.addHandler(channelHandler, name: "messageHandler")
-                            }
-                        }
-                    }
-                    */
+                    pipeline.addHandler(ChannelHandshakeServer(self, channelHandler), name: ChannelHandshakeServer.name)
                 }
             }
             .bind(host: address.host, port: address.port)
