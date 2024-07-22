@@ -4,6 +4,7 @@ import DistributedSystem
 import FlatBuffers
 import struct Foundation.Date
 import struct Foundation.TimeZone
+import class Foundation.ISO8601DateFormatter
 import typealias Foundation.TimeInterval
 
 public typealias RequestIdentifier = UInt64
@@ -22,7 +23,9 @@ public struct Timestamp: CustomStringConvertible {
 
     public var description: String {
         let date = Date(timeIntervalSince1970: TimeInterval(Double(seconds) + Double(attoseconds)/1_000_000_000_000_000_000))
-        return Date.ISO8601FormatStyle(timeZone: TimeZone.current).format(date)
+        let dateFormatter = ISO8601DateFormatter()
+        dateFormatter.timeZone = TimeZone.current
+        return dateFormatter.string(from: date)
     }
 }
 
