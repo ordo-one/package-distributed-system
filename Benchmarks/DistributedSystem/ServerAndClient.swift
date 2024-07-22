@@ -1,6 +1,5 @@
 import Benchmark
 import DistributedSystem
-import LatencyStatistics
 import LatencyTimer
 import Logging
 import PackageConcurrencyHelpers
@@ -10,8 +9,6 @@ public class Client: TestableClient {
     private let logger: Logger
 
     let lock = Lock()
-
-    var statistics = LatencyStatistics()
 
     var snapshotDoneReceived = false
     var snapshotDoneContinuation: CheckedContinuation<Void, Never>?
