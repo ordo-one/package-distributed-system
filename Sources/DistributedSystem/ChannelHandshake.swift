@@ -74,9 +74,7 @@ final class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandl
                 promise.futureResult.flatMap {
                     let pipeline = context.pipeline
                     _ = pipeline.removeHandler(self)
-                    _ = pipeline.addHandler(
-                        ChannelCompressionHandshakeServer(self.distributedSystem, self.channelHandler),
-                        name: ChannelCompressionHandshakeServer.name)
+                    _ = pipeline.addHandler(ChannelCompressionHandshakeServer(self.distributedSystem, self.channelHandler))
                     prevContext.fireChannelActive()
                     return prevContext.eventLoop.makeSucceededVoidFuture()
                 }.whenFailure {

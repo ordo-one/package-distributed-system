@@ -34,8 +34,6 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
 
     private var logger: Logger { distributedSystem.loggerBox.value }
 
-    static let name = "compressionHandshake"
-
     init(_ distributedSystem: DistributedSystem, _ channelHandler: ChannelHandler) {
         self.distributedSystem = distributedSystem
         self.channelHandler = channelHandler
@@ -352,8 +350,6 @@ final class ChannelCompressionHandshakeClient: ChannelInboundHandler, RemovableC
     private var timer: Scheduled<Void>?
 
     private var logger: Logger { distributedSystem.loggerBox.value }
-
-    static let name = ChannelCompressionHandshakeServer.name
 
     init(_ distributedSystem: DistributedSystem, _ channelHandler: ChannelHandler) {
         self.distributedSystem = distributedSystem
