@@ -18,7 +18,6 @@ let internalDependencies: [String: Range<Version>] = [
     "package-benchmark": .upToNextMajor(from: "1.0.0"),
     "package-concurrency-helpers": .upToNextMajor(from: "4.0.0"),
     "package-consul": .upToNextMajor(from: "6.0.0"),
-    "package-datetime": .upToNextMajor(from: "1.0.1"),
     "package-latency-tools": .upToNextMajor(from: "1.0.0"),
 ]
 
@@ -95,7 +94,6 @@ let package = Package(
             name: "TestMessages",
             dependencies: [
                 "DistributedSystem",
-                .product(name: "DateTime", package: "package-datetime"),
                 .product(name: "FlatBuffers", package: "flatbuffers"),
                 .product(name: "Helpers", package: "package-concurrency-helpers"),
             ],

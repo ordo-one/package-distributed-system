@@ -1,48 +1,10 @@
 // swiftlint:disable all
 
-import DateTime
 import DistributedSystem
 import FlatBuffers
-
-public extension Timestamp {
-    var description: String {
-        var time = EpochDateTime.unixEpoch()
-        time.convert(timestamp: Int(seconds))
-
-        let microseconds = attoseconds / 1_000_000_000_000
-
-        var str = "\(time.year)-"
-        if time.month < 10 { str += "0" }
-        str += "\(time.month)-"
-        if time.day < 10 { str += "0" }
-        str += "\(time.day) "
-        if time.hour < 10 { str += "0" }
-        str += "\(time.hour):"
-        if time.minute < 10 { str += "0" }
-        str += "\(time.minute):"
-        if time.second < 10 { str += "0" }
-        str += "\(time.second)."
-
-        if microseconds < 10 {
-            str += "00000"
-        } else if microseconds < 100 {
-            str += "0000"
-        } else if microseconds < 1_000 {
-            str += "000"
-        } else if microseconds < 10_000 {
-            str += "00"
-        } else if microseconds < 100_000 {
-            str += "0"
-        }
-        str += "\(microseconds)"
-
-        return str
-    }
-}
-
-//
-// Typealiases
-//
+import struct Foundation.Date
+import struct Foundation.TimeZone
+import typealias Foundation.TimeInterval
 
 public typealias RequestIdentifier = UInt64
 public typealias ClientIdentifier = UInt64
@@ -52,9 +14,15 @@ public typealias MonsterIdentifier = UInt64
 public struct Timestamp: CustomStringConvertible {
     public var seconds: UInt64
     public var attoseconds: UInt64
+
     public init(seconds: UInt64, attoseconds: UInt64) {
         self.seconds = seconds
         self.attoseconds = attoseconds
+    }
+
+    public var description: String {
+        let date = Date(timeIntervalSince1970: TimeInterval(Double(seconds) + Double(attoseconds)/1_000_000_000_000_000_000))
+        return Date.ISO8601FormatStyle(timeZone: TimeZone.current).format(date)
     }
 }
 
