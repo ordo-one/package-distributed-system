@@ -13,22 +13,25 @@ internal import NIOCore
 final class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandler {
     typealias InboundIn = ByteBuffer
 
-    private let loggerBox: Box<Logger>
-    private var logger: Logger { loggerBox.value }
-
+    private let distributedSystem: DistributedSystem
+    private let channelHandler: ChannelHandler
     private var timer: Scheduled<Void>?
 
+    private var logger: Logger { distributedSystem.loggerBox.value }
+
+    static let name = "handshake"
     static let hexDumpMaxBytes = 32
 
-    init(_ loggerBox: Box<Logger>) {
-        self.loggerBox = loggerBox
+    init(_ distributedSystem: DistributedSystem, _ channelHandler: ChannelHandler) {
+        self.distributedSystem = distributedSystem
+        self.channelHandler = channelHandler
     }
 
     func channelActive(context: ChannelHandlerContext) {
         logger.info("\(context.channel.addressDescription): connection accepted")
         if DistributedSystem.pingInterval.nanoseconds > 0 {
             timer = context.eventLoop.scheduleTask(in: DistributedSystem.pingInterval*2) {
-                self.logger.info("\(context.channel.addressDescription): client session timeout, close connection")
+                self.logger.info("\(context.channel.addressDescription)/\(Self.self): session timeout, closing connection")
                 context.close(promise: nil)
             }
         }
@@ -39,7 +42,7 @@ final class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandl
             timer.cancel()
             self.timer = nil
         }
-        logger.info("\(context.channel.addressDescription): connection closed")
+        logger.info("\(context.channel.addressDescription)/\(Self.self): connection closed")
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
@@ -54,11 +57,30 @@ final class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandl
             if clientProtocolVersionMajor == DistributedSystem.protocolVersionMajor,
                clientProtocolVersionMinor <= DistributedSystem.protocolVersionMinor {
                 // handshake ok
+                let prevContext: ChannelHandlerContext
+                do {
+                    prevContext = try context.pipeline.syncOperations.context(handlerType: ChannelCounters.self)
+                } catch {
+                    self.logger.error("\(context.channel.addressDescription)/\(Self.self): \(error), closing connection")
+                    context.close(promise: nil)
+                    return
+                }
+
                 var reply = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt16>.size)
                 reply.writeInteger(UInt16(0))
-                context.writeAndFlush(NIOAny(reply), promise: nil)
-                context.fireChannelActive()
-                _ = context.pipeline.removeHandler(self)
+                let promise = context.eventLoop.makePromise(of: Void.self)
+                context.writeAndFlush(NIOAny(reply), promise: promise)
+
+                promise.futureResult.flatMap {
+                    let pipeline = context.pipeline
+                    _ = pipeline.removeHandler(self)
+                    _ = pipeline.addHandler(ChannelCompressionHandshakeServer(self.distributedSystem, self.channelHandler))
+                    prevContext.fireChannelActive()
+                    return prevContext.eventLoop.makeSucceededVoidFuture()
+                }.whenFailure {
+                    self.logger.error("\(context.channel.addressDescription)/\(Self.self): \($0), closing connection")
+                    context.close(promise: nil)
+                }
             } else {
                 logger.info("\(context.channel.addressDescription): client protocol version \(clientProtocolVersionMajor).\(clientProtocolVersionMinor) not compatible with server version \(DistributedSystem.protocolVersionMajor).\(DistributedSystem.protocolVersionMinor), closing connection")
                 var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt16>.size*3)
@@ -100,7 +122,7 @@ final class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandl
 
         if DistributedSystem.pingInterval.nanoseconds > 0 {
             timer = context.eventLoop.scheduleTask(in: DistributedSystem.pingInterval*2) {
-                self.logger.info("\(context.channel.addressDescription): server session timeout, closing connection")
+                self.logger.info("\(context.channel.addressDescription)\(Self.self): session timeout, closing connection")
                 context.close(promise: nil)
             }
         }

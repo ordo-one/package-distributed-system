@@ -40,6 +40,8 @@ class ChannelHandler: ChannelInboundHandler {
     private var writeBufferHighWatermark: Int
     private var targetFuncs = [String]()
 
+    static let name = "channelHandler"
+
     init(_ id: UInt32, _ actorSystem: DistributedSystem, _ address: SocketAddress?, _ writeBufferHighWatermark: UInt64) {
         self.id = id
         self.actorSystem = actorSystem
@@ -51,7 +53,7 @@ class ChannelHandler: ChannelInboundHandler {
         // 2024-03-07T12:51:20.589375+02:00 DEBUG ds : [DistributedSystem] [IPv4]192.168.0.9/192.168.0.9:58186/3: channel active ["port": 55056]
         // TODO: it would be nice to know "name/type" of remote process
         let channel = context.channel
-        logger.debug("\(channel.addressDescription): channel active")
+        logger.debug("\(channel.addressDescription)/\(Self.self): channel active")
 
         actorSystem.setChannel(id, channel, forProcessAt: address)
         if address == nil {
@@ -64,7 +66,7 @@ class ChannelHandler: ChannelInboundHandler {
     func channelInactive(context: ChannelHandlerContext) {
         // 2024-03-07T12:48:24.806241+02:00 DEBUG ds : [DistributedSystem] [IPv4]192.168.0.9/192.168.0.9:53019/1: channel inactive ["port": 55056]
         // TODO: it would be nice to know "name/type" of remote process
-        logger.info("\(context.channel.addressDescription): connection closed (ChannelHandler)")
+        logger.info("\(context.channel.addressDescription)/\(Self.self): connection closed")
         actorSystem.channelInactive(id, context.channel)
     }
 
