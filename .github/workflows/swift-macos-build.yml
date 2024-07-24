@@ -54,3 +54,6 @@ jobs:
         if [ -d Tests ]; then
           swift test -c release --parallel
         fi
+    - name: Setup tmate session
+      if: ${{ always() }}
+      uses: mxschmitt/action-tmate@v3
