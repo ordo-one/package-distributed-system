@@ -38,6 +38,8 @@ jobs:
     - name: Start consul
       uses: ./.github/actions/consul-start
 
+    - name: GH auth
+      run: echo "machine api.github.com login ${HOMEBREW_GITHUB_API_TOKEN} password x-oauth-basic" > $HOME/.netrc
     - name: Swift version
       run: swift --version
     - name: Build
@@ -52,6 +54,3 @@ jobs:
         if [ -d Tests ]; then
           swift test -c release --parallel
         fi
-    - name: Setup tmate session
-      if: ${{ always() }}
-      uses: mxschmitt/action-tmate@v3
