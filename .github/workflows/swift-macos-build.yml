@@ -41,7 +41,6 @@ jobs:
     - name: GH auth
       run: |
         echo "machine api.github.com login ${{ secrets.GITHUB_TOKEN }} password x-oauth-basic" > $HOME/.netrc
-        export
         cat ~/.netrc
     - name: Swift version
       run: swift --version
@@ -57,6 +56,3 @@ jobs:
         if [ -d Tests ]; then
           swift test -c release --parallel
         fi
-    - name: Setup tmate session
-      if: ${{ always() }}
-      uses: mxschmitt/action-tmate@v3
