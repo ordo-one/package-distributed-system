@@ -17,7 +17,7 @@ final class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandl
     private let channelHandler: ChannelHandler
     private var timer: Scheduled<Void>?
 
-    private var logger: Logger { distributedSystem.loggerBox.value }
+    private var logger: Logger { distributedSystem.logger }
 
     static let name = "handshake"
     static let hexDumpMaxBytes = 32
@@ -101,15 +101,18 @@ final class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandl
 final class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandler {
     typealias InboundIn = ByteBuffer
 
-    private let loggerBox: Box<Logger>
-    private var logger: Logger { loggerBox.value }
+    private let distributedSystem: DistributedSystem
+    private let channelHandler: ChannelHandler
+    private var logger: Logger { distributedSystem.logger }
 
     private var timer: Scheduled<Void>?
 
+    static let name = ChannelHandshakeServer.name
     static let hexDumpMaxBytes = ChannelHandshakeServer.hexDumpMaxBytes
 
-    init(_ loggerBox: Box<Logger>) {
-        self.loggerBox = loggerBox
+    init(_ distributedSystem: DistributedSystem, _ channelHandler: ChannelHandler) {
+        self.distributedSystem = distributedSystem
+        self.channelHandler = channelHandler
     }
 
     func channelActive(context: ChannelHandlerContext) {
@@ -118,12 +121,16 @@ final class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandl
         var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt16>.size + MemoryLayout<UInt16>.size)
         buffer.writeInteger(DistributedSystem.protocolVersionMajor)
         buffer.writeInteger(DistributedSystem.protocolVersionMinor)
-        context.writeAndFlush(NIOAny(buffer), promise: nil)
+
+        let promise = context.eventLoop.makePromise(of: Void.self)
+        context.writeAndFlush(NIOAny(buffer), promise: promise)
 
         if DistributedSystem.pingInterval.nanoseconds > 0 {
-            timer = context.eventLoop.scheduleTask(in: DistributedSystem.pingInterval*2) {
-                self.logger.info("\(context.channel.addressDescription)\(Self.self): session timeout, closing connection")
-                context.close(promise: nil)
+            promise.futureResult.whenSuccess {
+                self.timer = context.eventLoop.scheduleTask(in: DistributedSystem.pingInterval*2) {
+                    self.logger.info("\(context.channel.addressDescription)\(Self.self): session timeout, closing connection")
+                    context.close(promise: nil)
+                }
             }
         }
     }
@@ -145,15 +152,19 @@ final class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandl
         if let messageSize = buffer.readInteger(as: UInt16.self) {
             if messageSize == 0 {
                 // handshake ok
-                context.fireChannelActive()
-                let readableBytes = buffer.readableBytes
-                if readableBytes > 0 {
-                    // there also can be messages server sent to client after handshake reply
-                    if let slice = buffer.readSlice(length: readableBytes) {
-                        context.fireChannelRead(.init(slice))
-                    }
+                let prevContext: ChannelHandlerContext
+                do {
+                    prevContext = try context.pipeline.syncOperations.context(name: ChannelCounters.name)
+                } catch {
+                    self.logger.error("\(context.channel.addressDescription)/\(Self.self): \(error), closing connection")
+                    context.close(promise: nil)
+                    return
                 }
-                _ = context.pipeline.removeHandler(self)
+
+                let pipeline = context.pipeline
+                _ = pipeline.removeHandler(self)
+                _ = pipeline.addHandler(ChannelCompressionHandshakeClient(distributedSystem, channelHandler))
+                prevContext.fireChannelActive()
             } else {
                 if messageSize == MemoryLayout<UInt16>.size * 2,
                    let serverProtocolVersionMajor = buffer.readInteger(as: UInt16.self),
