@@ -300,13 +300,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 let pipeline = channel.pipeline
                 let channelHandler = ChannelHandler(self.nextChannelID, self, address, self.endpointQueueWarningSize)
                 return pipeline.addHandler(ChannelCounters(self), name: ChannelCounters.name).flatMap { _ in
-                    pipeline.addHandler(ChannelHandshakeClient(self.loggerBox), name: "handshake").flatMap {
-                        pipeline.addHandler(ChannelCompressionHandshakeClient(self, channelHandler), name: "compressionHandshake").flatMap { _ in
-                            pipeline.addHandler(ByteToMessageHandler(StreamDecoder(self.loggerBox)), name: "streamDecoder").flatMap { _ in
-                                pipeline.addHandler(channelHandler, name: "messageHandler")
-                            }
-                        }
-                    }
+                    pipeline.addHandler(ChannelHandshakeClient(self, channelHandler), name: ChannelHandshakeClient.name)
                 }
             }
             .connect(to: address)
