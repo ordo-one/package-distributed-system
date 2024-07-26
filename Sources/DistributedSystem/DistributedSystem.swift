@@ -301,13 +301,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 let pipeline = channel.pipeline
                 let channelHandler = ChannelHandler(self.nextChannelID, self, address, self.endpointQueueWarningSize)
                 return pipeline.addHandler(ChannelCounters(self), name: ChannelCounters.name).flatMap { _ in
-                    pipeline.addHandler(ChannelHandshakeClient(self.loggerBox), name: "handshake").flatMap {
-                        pipeline.addHandler(ChannelCompressionHandshakeClient(self, channelHandler), name: "compressionHandshake").flatMap { _ in
-                            pipeline.addHandler(ByteToMessageHandler(StreamDecoder(self.loggerBox)), name: "streamDecoder").flatMap { _ in
-                                pipeline.addHandler(channelHandler, name: "messageHandler")
-                            }
-                        }
-                    }
+                    pipeline.addHandler(ChannelHandshakeClient(self, channelHandler), name: ChannelHandshakeClient.name)
                 }
             }
             .connect(to: address)
@@ -363,7 +357,9 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         if let address {
             discoveryManager.setChannel(channelID, channel, forProcessAt: address)
         }
-        sendPing(to: channelID, channel, with: eventLoopGroup.next())
+        if Self.pingInterval.nanoseconds > 0 {
+            sendPing(to: channelID, channel, with: eventLoopGroup.next())
+        }
     }
 
     func channelInactive(_ channelID: UInt32, _ address: SocketAddress?) {
@@ -798,7 +794,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     /// Service lifecycle start
     public func start() throws {
         if type(of: self) == DistributedSystem.self {
-            logger.info("starting system '\(systemName)' (compression mode=\(compressionMode))")
+            logger.info("starting system '\(systemName)' (compression mode = \(compressionMode))")
         }
     }
 
@@ -1179,14 +1175,21 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     func channelRead(_ channelID: UInt32, _ channel: Channel, _ buffer: inout ByteBuffer, _ targetFuncs: inout [String]) {
         let bytesReceived = buffer.readableBytes
         guard buffer.readInteger(as: UInt32.self) != nil, // skip message size
-              let messageType = buffer.readInteger(as: SessionMessage.RawValue.self)
+              let rawMessageType = buffer.readInteger(as: SessionMessage.RawValue.self)
         else {
-            logger.error("\(channel.addressDescription): invalid message received (\(bytesReceived))")
+            logger.error("\(channel.addressDescription): invalid message received (\(bytesReceived)), closing connection")
+            channel.close(promise: nil)
+            return
+        }
+
+        guard let messageType = SessionMessage(rawValue: rawMessageType) else {
+            logger.error("\(channel.addressDescription): unknown message \(rawMessageType), closing connection")
+            channel.close(promise: nil)
             return
         }
 
         do {
-            switch SessionMessage(rawValue: messageType) {
+            switch messageType {
             case .createServiceInstance:
                 let serviceNameLength = try Self.readULEB128(from: &buffer, as: UInt16.self)
                 guard let serviceName = buffer.readString(length: Int(serviceNameLength)) else {
@@ -1218,8 +1221,6 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 _ = channel.writeAndFlush(buffer, promise: nil)
             case .pong:
                 logger.trace("\(channel.addressDescription): pong")
-            case .none:
-                logger.error("\(channel.addressDescription): unexpected session message")
             }
         } catch {
             logger.error("\(channel.addressDescription): \(error), close connection")

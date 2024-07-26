@@ -18,7 +18,7 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     env:
-      DEVELOPER_DIR: /Applications/Xcode_15.3.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_15.4.app/Contents/Developer
 
     steps:
     - uses: swift-actions/setup-swift@v2
@@ -38,6 +38,10 @@ jobs:
     - name: Start consul
       uses: ./.github/actions/consul-start
 
+    - name: GH auth
+      run: |
+        echo "machine api.github.com login ${{ secrets.GITHUB_TOKEN }} password x-oauth-basic" > $HOME/.netrc
+        cat ~/.netrc
     - name: Swift version
       run: swift --version
     - name: Build
