@@ -318,7 +318,7 @@ final class DiscoveryManager {
                 logger.error("internal error: no services \(serviceName) registered")
                 return
             }
-            if let serviceInfo = discoveryInfo.services.removeValue(forKey: serviceID) {
+            if discoveryInfo.services.removeValue(forKey: serviceID) != nil {
                 if discoveryInfo.services.isEmpty {
                     self.discoveries.removeValue(forKey: serviceName)
                 }
