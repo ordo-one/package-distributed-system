@@ -167,6 +167,7 @@ final class DistributedSystemTests: XCTestCase {
             let moduleID = DistributedSystem.ModuleIdentifier(UInt64(processInfo.processIdentifier))
             let actorSystem = DistributedSystemServer(name: systemName)
             try await actorSystem.start()
+
             try await actorSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
                 let service = ServiceWithLeakCheckImpl(flags)
                 let serviceEndpoint = try TestServiceEndpoint(service, in: actorSystem)
@@ -1046,5 +1047,104 @@ final class DistributedSystemTests: XCTestCase {
         }
 
         try await Task.sleep(for: .seconds(180))
+    }
+
+    func testMultipleServices() async throws {
+        class TestServiceImpl: TestableService {
+            let id: Int
+            var clientEndpoint: TestClientEndpoint?
+
+            init(_ id: Int) {
+                self.id = id
+            }
+
+            func openStream(byRequest request: TestMessages.OpenRequest) async {
+                var reply = _StreamOpenedStruct(requestIdentifier: request.requestIdentifier)
+                reply.streamIdentifier = StreamIdentifier(id)
+                do {
+                    try await clientEndpoint?.streamOpened(StreamOpened(reply))
+                } catch {
+                    logger.error("\(error)")
+                }
+            }
+
+            func getMonster() async -> TestMessages.Monster {
+                fatalError("should not be called")
+            }
+
+            func doNothing() async {}
+            func handleMonsters(_ monsters: [TestMessages.Monster]) async {}
+            func handleConnectionState(_ state: ConnectionState) async {}
+        }
+
+        class TestClientImpl: TestableClient {
+            var stream: AsyncStream<StreamOpened>
+            var continuation: AsyncStream<StreamOpened>.Continuation
+
+            init() {
+                (stream, continuation) = AsyncStream<StreamOpened>.makeStream()
+            }
+
+            func streamOpened(_ reply: TestMessages.StreamOpened) async {
+                continuation.yield(reply)
+            }
+
+            func snapshotDone(for: TestMessages.Stream) async {}
+            func handleMonster(_ monster: TestMessages.Monster, for stream: TestMessages.Stream) async {}
+            func handleConnectionState(_ state: ConnectionState) async {}
+        }
+
+        let processInfo = ProcessInfo.processInfo
+        let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
+
+        let moduleID = DistributedSystem.ModuleIdentifier(1)
+        let serverSystem = DistributedSystemServer(name: systemName, compressionMode: .disabled)
+        try await serverSystem.start()
+
+        try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID, metadata: ["opt": "1"]) { actorSystem in
+            let service = TestServiceImpl(1)
+            let serviceEndpoint = try TestServiceEndpoint(service, in: actorSystem)
+            let clientEndpointID = serviceEndpoint.id.makeClientEndpoint()
+            service.clientEndpoint = try TestClientEndpoint.resolve(id: clientEndpointID, using: actorSystem)
+            return serviceEndpoint
+        }
+
+        try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID, metadata: ["opt": "2"]) { actorSystem in
+            let service = TestServiceImpl(2)
+            let serviceEndpoint = try TestServiceEndpoint(service, in: actorSystem)
+            let clientEndpointID = serviceEndpoint.id.makeClientEndpoint()
+            service.clientEndpoint = try TestClientEndpoint.resolve(id: clientEndpointID, using: actorSystem)
+            return serviceEndpoint
+        }
+
+        let clientSystem = DistributedSystem(name: systemName, compressionMode: .disabled)
+        try clientSystem.start()
+
+        let client = TestClientImpl()
+        let serviceEndpoint = try await clientSystem.connectToService(
+            TestServiceEndpoint.self,
+            withFilter: {
+                if let serviceMeta = $0.serviceMeta {
+                    if let opt = serviceMeta["opt"], opt == "2" {
+                        return true
+                    }
+                }
+                return false
+            },
+            clientFactory: { actorSystem in
+                TestClientEndpoint(client, in: actorSystem)
+            }
+        )
+
+        let openRequest = _OpenRequestStruct(requestIdentifier: 2)
+        try await serviceEndpoint.openStream(byRequest: OpenRequest(openRequest))
+
+        for await reply in client.stream {
+            XCTAssertEqual(reply.streamIdentifier, 2)
+            break
+        }
+
+        clientSystem.stop()
+        serverSystem.stop()
     }
 }
