@@ -16,7 +16,7 @@ import PackageConcurrencyHelpers
 final class DiscoveryManager {
     private final class ProcessInfo {
         var channel: (UInt32, Channel)?
-        var pendingServices = [(NodeService, DistributedSystem.ConnectionHandler)]()
+        var pendingServices = [(UUID, NodeService, DistributedSystem.ConnectionHandler)]()
     }
 
     private enum ServiceAddress: Equatable {
@@ -97,7 +97,7 @@ final class DiscoveryManager {
             }
             var discover: Bool
             var addresses: [SocketAddress] = []
-            var services = [(ConsulServiceDiscovery.Instance, DistributedSystem.ChannelOrFactory)]()
+            var services = [(UUID, ConsulServiceDiscovery.Instance, DistributedSystem.ChannelOrFactory)]()
 
             if cancellationToken.cancelled {
                 return (true, false, addresses, services)
@@ -107,21 +107,21 @@ final class DiscoveryManager {
 
             var discoveryInfo = self.discoveries[serviceName]
             if let discoveryInfo {
-                for serviceInfo in discoveryInfo.services.values {
+                for (serviceID, serviceInfo) in discoveryInfo.services {
                     if serviceFilter(serviceInfo.service) {
                         switch serviceInfo.address {
                         case let .local(factory):
-                            services.append((serviceInfo.service, .factory(factory)))
+                            services.append((serviceID, serviceInfo.service, .factory(factory)))
                         case let .remote(address):
                             if let processInfo = self.processes[address] {
                                 if let (channelID, channel) = processInfo.channel {
-                                    services.append((serviceInfo.service, .channel(channelID, channel)))
+                                    services.append((serviceID, serviceInfo.service, .channel(channelID, channel)))
                                 } else {
-                                    processInfo.pendingServices.append((serviceInfo.service, connectionHandler))
+                                    processInfo.pendingServices.append((serviceID, serviceInfo.service, connectionHandler))
                                 }
                             } else {
                                 let processInfo = ProcessInfo()
-                                processInfo.pendingServices.append((serviceInfo.service, connectionHandler))
+                                processInfo.pendingServices.append((serviceID, serviceInfo.service, connectionHandler))
                                 self.processes[address] = processInfo
                                 addresses.append(address)
                             }
@@ -145,8 +145,8 @@ final class DiscoveryManager {
             return .cancelled
         } else {
             logger.debug("discoverService[\(serviceName)]: \(discover) \(addresses) \(services), cancellation token \(cancellationToken.ptr)")
-            for (service, addr) in services {
-                connectionHandler(service, addr)
+            for (serviceID, service, addr) in services {
+                connectionHandler(serviceID, service, addr)
             }
             return .started(discover, addresses)
         }
@@ -175,14 +175,14 @@ final class DiscoveryManager {
         }
     }
 
-    func factoryFor(_ serviceName: String) -> DistributedSystem.ServiceFactory? {
+    func factoryFor(_ serviceName: String, _ serviceID: UUID) -> DistributedSystem.ServiceFactory? {
         lock.withLock {
             guard let discoveryInfo = self.discoveries[serviceName] else {
                 return nil
             }
 
-            for entry in discoveryInfo.services {
-                if case let .local(factory) = entry.value.address {
+            if let serviceInfo = discoveryInfo.services[serviceID] {
+                if case let .local(factory) = serviceInfo.address {
                     return factory
                 }
             }
@@ -226,7 +226,7 @@ final class DiscoveryManager {
         }
 
         for (service, connectionHandler) in services {
-            _ = connectionHandler(service, .factory(factory))
+            _ = connectionHandler(serviceID, service, .factory(factory))
         }
 
         return updateHealthStatus
@@ -259,10 +259,10 @@ final class DiscoveryManager {
                         return (false, nil)
                     }
                 } else {
-                    var pendingServices = [(NodeService, DistributedSystem.ConnectionHandler)]()
+                    var pendingServices = [(UUID, NodeService, DistributedSystem.ConnectionHandler)]()
                     for filterInfo in discoveryInfo.filters.values {
                         if filterInfo.filter(service) {
-                            pendingServices.append((service, filterInfo.connectionHandler))
+                            pendingServices.append((serviceID, service, filterInfo.connectionHandler))
                         }
                     }
                     if pendingServices.isEmpty {
@@ -279,7 +279,7 @@ final class DiscoveryManager {
 
         if let process {
             for connectionHandler in process.connectionHandlers {
-                connectionHandler(service, .channel(process.channel.0, process.channel.1))
+                connectionHandler(serviceID, service, .channel(process.channel.0, process.channel.1))
             }
         }
 
@@ -293,14 +293,14 @@ final class DiscoveryManager {
             }
             processInfo.channel = (channelID, channel)
 
-            var pendingServices = [(NodeService, DistributedSystem.ConnectionHandler)]()
+            var pendingServices = [(UUID, NodeService, DistributedSystem.ConnectionHandler)]()
             swap(&processInfo.pendingServices, &pendingServices)
 
             return pendingServices
         }
 
-        for (service, connectionHandler) in services {
-            connectionHandler(service, .channel(channelID, channel))
+        for (serviceID, service, connectionHandler) in services {
+            connectionHandler(serviceID, service, .channel(channelID, channel))
         }
     }
 
