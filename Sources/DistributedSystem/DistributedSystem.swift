@@ -20,6 +20,10 @@ import struct Foundation.UUID
 internal import NIOCore
 internal import NIOPosix
 
+#if os(Linux)
+typealias uuid_t = (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8)
+#endif
+
 extension Channel {
     var debugDescription: String {
         remoteAddress?.description ?? "?"
