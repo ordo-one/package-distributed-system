@@ -20,16 +20,12 @@ final class DiscoveryManager {
         var connectedServices = Set<String>()
 
         func addPendingHandlers(_ serviceName: String, _ handlers: [DistributedSystem.ConnectionHandler]) {
-            var pendingHandlers = self.pendingHandlers[serviceName, default: []]
-            pendingHandlers.append(contentsOf: handlers)
-            self.pendingHandlers[serviceName] = pendingHandlers
+            self.pendingHandlers[serviceName, default: []].append(contentsOf: handlers)
         }
 
         func setChannel(_ channelID: UInt32, _ channel: Channel) -> [String: [DistributedSystem.ConnectionHandler]] {
             self.channel = (channelID, channel)
-            for serviceName in pendingHandlers.keys {
-                connectedServices.insert(serviceName)
-            }
+            connectedServices.formUnion(pendingHandlers.keys)
             var ret = [String: [DistributedSystem.ConnectionHandler]]()
             swap(&ret, &pendingHandlers)
             return ret

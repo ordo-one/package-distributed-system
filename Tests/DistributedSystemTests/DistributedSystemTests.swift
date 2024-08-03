@@ -160,7 +160,7 @@ final class DistributedSystemTests: XCTestCase {
         // Checking the distributed actors do not leak,
         // use a closure here to be sure at the check point all references will be released
         let flags = Flags()
-        _ = try await {
+        do {
             let processInfo = ProcessInfo.processInfo
             let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
 
@@ -195,7 +195,7 @@ final class DistributedSystemTests: XCTestCase {
             client = nil
 
             actorSystem.stop()
-        }()
+        }
         XCTAssertTrue(flags.serviceDeallocated)
         XCTAssertFalse(flags.serviceConnectionClosed)
         XCTAssertTrue(flags.clientDeallocated)
@@ -221,7 +221,7 @@ final class DistributedSystemTests: XCTestCase {
         // Checking the distributed actors do not leak,
         // use a closure here to be sure at the check point all references will be released
         let flags = Flags()
-        _ = try await {
+        do {
             let processInfo = ProcessInfo.processInfo
             let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
 
@@ -261,7 +261,7 @@ final class DistributedSystemTests: XCTestCase {
 
             clientSystem.stop()
             serverSystem.stop()
-        }()
+        }
 
         XCTAssertTrue(flags.serviceDeallocated)
         XCTAssertTrue(flags.serviceConnectionClosed)
@@ -298,7 +298,7 @@ final class DistributedSystemTests: XCTestCase {
         // Checking the distributed actors do not leak,
         // use a closure here to be sure at the check point all references will be released
         let flags = Flags()
-        _ = try await {
+        do {
             let processInfo = ProcessInfo.processInfo
             let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
 
@@ -347,7 +347,7 @@ final class DistributedSystemTests: XCTestCase {
 
             clientSystem.stop()
             serverSystem.stop()
-        }()
+        }
 
         XCTAssertTrue(flags.serviceDeallocated)
         XCTAssertTrue(flags.serviceConnectionClosed)
