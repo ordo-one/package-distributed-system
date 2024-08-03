@@ -717,7 +717,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     }
 
     func getLocalServices() -> [NodeService] {
-        discoveryManager.getLocalServices(stop: false)
+        discoveryManager.getLocalServices()
     }
 
     private func sendPing(to channelID: UInt32, _ channel: Channel, with eventLoop: EventLoop) {
@@ -802,7 +802,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     public func stop() {
         logger.info("stop")
 
-        let services = discoveryManager.getLocalServices(stop: true)
+        let services = discoveryManager.stop()
         for serviceID in services {
             do {
                 try consul.agent.deregisterServiceID("\(serviceID)").wait()

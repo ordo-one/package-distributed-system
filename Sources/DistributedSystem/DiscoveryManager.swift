@@ -90,7 +90,7 @@ final class DiscoveryManager {
     private var lock = Lock()
     private var processes: [SocketAddress: ProcessInfo] = [:]
     private var discoveries: [String: DiscoveryInfo] = [:]
-    private var stop = false
+    private var stopped = false
 
     init(_ loggerBox: Box<Logger>) {
         self.loggerBox = loggerBox
@@ -345,23 +345,29 @@ final class DiscoveryManager {
         }
     }
 
-    func getLocalServices(stop: Bool) -> [NodeService] {
+    func stop() -> [NodeService] {
         lock.withLock {
-            var services: [NodeService] = []
-            for (_, discoveryInfo) in self.discoveries {
-                for serviceInfo in discoveryInfo.services.values {
-                    if case .local = serviceInfo.address {
-                        services.append(serviceInfo.service)
-                    }
+            self.stopped = true
+            return self.getLocalServicesLocked()
+        }
+    }
+
+    func getLocalServices() -> [NodeService] {
+        lock.withLock {
+            self.getLocalServicesLocked()
+        }
+    }
+
+    private func getLocalServicesLocked() -> [NodeService] {
+        var services: [NodeService] = []
+        for discoveryInfo in discoveries.values {
+            for serviceInfo in discoveryInfo.services.values {
+                if case .local = serviceInfo.address {
+                    services.append(serviceInfo.service)
                 }
             }
-
-            if stop {
-                self.stop = true
-            }
-
-            return services
         }
+        return services
     }
 
     func connectionEstablishmentFailed(_ address: SocketAddress) {
@@ -380,7 +386,7 @@ final class DiscoveryManager {
     // so probably make sense for distributed system to try to reconnect.
     func channelInactive(_ address: SocketAddress) -> Bool {
         lock.withLock {
-            if self.stop {
+            if self.stopped {
                 return false
             }
 
