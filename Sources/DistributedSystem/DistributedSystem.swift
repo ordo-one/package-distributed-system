@@ -20,6 +20,10 @@ import struct Foundation.UUID
 internal import NIOCore
 internal import NIOPosix
 
+#if os(Linux)
+typealias uuid_t = (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8)
+#endif
+
 extension Channel {
     var debugDescription: String {
         remoteAddress?.description ?? "?"
@@ -169,7 +173,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     static let pingInterval = TimeAmount.seconds(2)
     static let serviceDiscoveryTimeout = TimeAmount.seconds(5)
 
-    static let protocolVersionMajor: UInt16 = 3
+    static let protocolVersionMajor: UInt16 = 4
     static let protocolVersionMinor: UInt16 = 0
 
     enum SessionMessage: UInt16 {
@@ -255,7 +259,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         case factory(ServiceFactory)
     }
 
-    typealias ConnectionHandler = (ConsulServiceDiscovery.Instance, ChannelOrFactory) -> Void
+    typealias ConnectionHandler = (UUID, ConsulServiceDiscovery.Instance, ChannelOrFactory) -> Void
 
     @TaskLocal
     private static var actorID: ActorID? // supposed to be private, but need to make it internal for tests
@@ -311,17 +315,23 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             }
     }
 
-    private func sendCreateService(_ serviceName: String, _ instanceID: UInt32, to channel: Channel) {
+    private func sendCreateService(_ serviceName: String, _ serviceID: UUID, _ instanceID: UInt32, to channel: Channel) {
         let payloadSize =
             MemoryLayout<SessionMessage.RawValue>.size
                 + ULEB128.size(UInt(serviceName.count))
                 + serviceName.count
+                + MemoryLayout<uuid_t>.size
                 + ULEB128.size(instanceID)
         var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt32>.size + payloadSize)
         buffer.writeInteger(UInt32(payloadSize))
         buffer.writeInteger(SessionMessage.createServiceInstance.rawValue)
         buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(UInt(serviceName.count), to: ptr.baseAddress!) }
         buffer.writeString(serviceName)
+        buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in
+            var uuid = serviceID.uuid
+            withUnsafeBytes(of: &uuid) { ptr.copyMemory(from: $0) }
+            return MemoryLayout<uuid_t>.size
+        }
         buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(instanceID, to: ptr.baseAddress!) }
         logger.debug("\(channel.addressDescription): send create \(serviceName) \(EndpointIdentifier.instanceIdentifierDescription(instanceID))")
         _ = channel.writeAndFlush(buffer, promise: nil)
@@ -476,8 +486,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         where S.ID == EndpointIdentifier, S.ActorSystem == DistributedSystem {
         let serviceName = S.serviceName
         logger.debug("connectTo: \(serviceName)")
-
-        let connectionHandler = { (service: ConsulServiceDiscovery.Instance, channelOrFactory: ChannelOrFactory) -> Void in
+        let connectionHandler = { (serviceID: UUID, service: ConsulServiceDiscovery.Instance, channelOrFactory: ChannelOrFactory) -> Void in
             let serviceEndpointID = {
                 switch channelOrFactory {
                 case let .channel(channelID, channel):
@@ -487,7 +496,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                         self.actors[serviceEndpointID] = .remoteService(.init())
                         return serviceEndpointID
                     }
-                    self.sendCreateService(serviceName, serviceEndpointID.instanceID, to: channel)
+                    self.sendCreateService(serviceName, serviceID, serviceEndpointID.instanceID, to: channel)
                     return serviceEndpointID
                 case let .factory(factory):
                     let serviceEndpointID = self.makeServiceEndpoint(0)
@@ -1175,8 +1184,14 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 guard let serviceName = buffer.readString(length: Int(serviceNameLength)) else {
                     throw DecodeError.error("failed to decode service name")
                 }
+                let serviceID = buffer.withUnsafeReadableBytes { ptr in
+                    var uuid = uuid_t(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+                    withUnsafeMutableBytes(of: &uuid) { _ = ptr.copyBytes(to: $0) }
+                    return UUID(uuid: uuid)
+                }
+                buffer.moveReaderIndex(forwardBy: MemoryLayout<uuid_t>.size)
                 let instanceID = try Self.readULEB128(from: &buffer, as: EndpointIdentifier.InstanceIdentifier.self)
-                createService(serviceName, instanceID, for: channelID, channel)
+                createService(serviceName, serviceID, instanceID, for: channelID, channel)
             case .invocationEnvelope:
                 let instanceID = try Self.readULEB128(from: &buffer, as: EndpointIdentifier.InstanceIdentifier.self)
                 let endpointID = EndpointIdentifier(channelID, instanceID)
@@ -1218,8 +1233,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
     }
 
-    private func createService(_ serviceName: String, _ instanceID: EndpointIdentifier.InstanceIdentifier, for channelID: UInt32, _ channel: Channel) {
-        let serviceFactory = discoveryManager.factoryFor(serviceName)
+    private func createService(_ serviceName: String, _ serviceID: UUID, _ instanceID: EndpointIdentifier.InstanceIdentifier, for channelID: UInt32, _ channel: Channel) {
+        let serviceFactory = discoveryManager.factoryFor(serviceName, serviceID)
         guard let serviceFactory else {
             logger.error("\(channel.addressDescription): service \(serviceName) for \(instanceID) not registered")
             return
