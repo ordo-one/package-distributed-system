@@ -1124,12 +1124,7 @@ final class DistributedSystemTests: XCTestCase {
         let serviceEndpoint = try await clientSystem.connectToService(
             TestServiceEndpoint.self,
             withFilter: {
-                if let serviceMeta = $0.serviceMeta {
-                    if let opt = serviceMeta["opt"], opt == "2" {
-                        return true
-                    }
-                }
-                return false
+                $0.serviceMeta?["opt"] == "2"
             },
             clientFactory: { actorSystem in
                 TestClientEndpoint(client, in: actorSystem)
