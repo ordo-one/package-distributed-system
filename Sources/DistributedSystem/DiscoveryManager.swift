@@ -14,22 +14,22 @@ import struct Foundation.UUID
 import PackageConcurrencyHelpers
 
 final class DiscoveryManager {
+    private struct ServiceKey: Hashable, CustomStringConvertible {
+        let name: String
+        let id: UUID
+
+        var description: String { "(\(name), \(id))" }
+
+        init(_ name: String, _ id: UUID) {
+            self.name = name
+            self.id = id
+        }
+    }
+
     private final class ProcessInfo {
         var channel: (UInt32, Channel)?
-        var pendingHandlers = [String: [DistributedSystem.ConnectionHandler]]()
-        var connectedServices = Set<String>()
-
-        func addPendingHandlers(_ serviceName: String, _ handlers: [DistributedSystem.ConnectionHandler]) {
-            self.pendingHandlers[serviceName, default: []].append(contentsOf: handlers)
-        }
-
-        func setChannel(_ channelID: UInt32, _ channel: Channel) -> [String: [DistributedSystem.ConnectionHandler]] {
-            self.channel = (channelID, channel)
-            connectedServices.formUnion(pendingHandlers.keys)
-            var ret = [String: [DistributedSystem.ConnectionHandler]]()
-            swap(&ret, &pendingHandlers)
-            return ret
-        }
+        var connectedServices = Set<ServiceKey>()
+        var pendingHandlers = [ServiceKey: [DistributedSystem.ConnectionHandler]]()
     }
 
     private enum ServiceAddress: Equatable {
@@ -111,7 +111,7 @@ final class DiscoveryManager {
             }
             var discover: Bool
             var addresses: [SocketAddress] = []
-            var services = [(ConsulServiceDiscovery.Instance, DistributedSystem.ChannelOrFactory)]()
+            var services = [(UUID, ConsulServiceDiscovery.Instance, DistributedSystem.ChannelOrFactory)]()
 
             if cancellationToken.cancelled {
                 return (true, false, addresses, services)
@@ -121,22 +121,27 @@ final class DiscoveryManager {
 
             var discoveryInfo = self.discoveries[serviceName]
             if let discoveryInfo {
-                for serviceInfo in discoveryInfo.services.values {
+                for (serviceID, serviceInfo) in discoveryInfo.services {
                     if serviceFilter(serviceInfo.service) {
                         switch serviceInfo.address {
                         case let .local(factory):
-                            services.append((serviceInfo.service, .factory(factory)))
+                            services.append((serviceID, serviceInfo.service, .factory(factory)))
                         case let .remote(address):
+                            let serviceKey = ServiceKey(serviceName, serviceID)
                             if let processInfo = self.processes[address] {
                                 if let (channelID, channel) = processInfo.channel {
-                                    processInfo.connectedServices.insert(serviceName)
-                                    services.append((serviceInfo.service, .channel(channelID, channel)))
+                                    guard !processInfo.connectedServices.contains(serviceKey) else {
+                                        logger.error("internal error: \(serviceKey) already in the set")
+                                        break
+                                    }
+                                    processInfo.connectedServices.insert(serviceKey)
+                                    services.append((serviceID, serviceInfo.service, .channel(channelID, channel)))
                                 } else {
-                                    processInfo.addPendingHandlers(serviceName, [connectionHandler])
+                                    processInfo.pendingHandlers[serviceKey, default: []].append(connectionHandler)
                                 }
                             } else {
                                 let processInfo = ProcessInfo()
-                                processInfo.addPendingHandlers(serviceName, [connectionHandler])
+                                processInfo.pendingHandlers[serviceKey, default: []].append(connectionHandler)
                                 self.processes[address] = processInfo
                                 addresses.append(address)
                             }
@@ -160,8 +165,8 @@ final class DiscoveryManager {
             return .cancelled
         } else {
             logger.debug("discoverService[\(serviceName)]: \(discover) \(addresses) \(services), cancellation token \(cancellationToken.ptr)")
-            for (service, addr) in services {
-                connectionHandler(service, addr)
+            for (serviceID, service, addr) in services {
+                connectionHandler(serviceID, service, addr)
             }
             return .started(discover, addresses)
         }
@@ -190,14 +195,14 @@ final class DiscoveryManager {
         }
     }
 
-    func factoryFor(_ serviceName: String) -> DistributedSystem.ServiceFactory? {
+    func factoryFor(_ serviceName: String, _ serviceID: UUID) -> DistributedSystem.ServiceFactory? {
         lock.withLock {
             guard let discoveryInfo = self.discoveries[serviceName] else {
                 return nil
             }
 
-            for entry in discoveryInfo.services {
-                if case let .local(factory) = entry.value.address {
+            if let serviceInfo = discoveryInfo.services[serviceID] {
+                if case let .local(factory) = serviceInfo.address {
                     return factory
                 }
             }
@@ -239,7 +244,7 @@ final class DiscoveryManager {
         }
 
         for (service, connectionHandler) in services {
-            _ = connectionHandler(service, .factory(factory))
+            _ = connectionHandler(serviceID, service, .factory(factory))
         }
 
         return updateHealthStatus
@@ -266,38 +271,33 @@ final class DiscoveryManager {
                 let connectionHandlers = discoveryInfo.filters.values.compactMap {
                     $0.filter(service) ? $0.connectionHandler : nil
                 }
+                
+                if connectionHandlers.isEmpty {
+                    return (false, nil)
+                }
 
                 if let processInfo = self.processes[address] {
                     if let channel = processInfo.channel {
-                        if connectionHandlers.isEmpty {
-                            return (false, nil)
-                        } else {
-                            processInfo.connectedServices.insert(serviceName)
-                            return (false, (channel, connectionHandlers))
-                        }
+                        processInfo.connectedServices.insert(ServiceKey(serviceName, serviceID))
+                        return (false, (channel, connectionHandlers))
                     } else {
-                        if !connectionHandlers.isEmpty {
-                            processInfo.addPendingHandlers(serviceName, connectionHandlers)
-                        }
+                        let serviceKey = ServiceKey(serviceName, serviceID)
+                        processInfo.pendingHandlers[serviceKey, default: []].append(contentsOf: connectionHandlers)
                         return (false, nil)
                     }
                 } else {
                     let processInfo = ProcessInfo()
-                    if connectionHandlers.isEmpty {
-                        self.processes[address] = processInfo
-                        return (false, nil)
-                    } else {
-                        processInfo.addPendingHandlers(serviceName, connectionHandlers)
-                        self.processes[address] = processInfo
-                        return (true, nil)
-                    }
+                    let serviceKey = ServiceKey(serviceName, serviceID)
+                    processInfo.pendingHandlers[serviceKey, default: []].append(contentsOf: connectionHandlers)
+                    self.processes[address] = processInfo
+                    return (true, nil)
                 }
             }
         }
 
         if let process {
             for connectionHandler in process.connectionHandlers {
-                connectionHandler(service, .channel(process.channel.0, process.channel.1))
+                connectionHandler(serviceID, service, .channel(process.channel.0, process.channel.1))
             }
         }
 
@@ -321,27 +321,47 @@ final class DiscoveryManager {
 
     func setChannel(_ channelID: UInt32,_ channel: Channel, forProcessAt address: SocketAddress) {
         let services = lock.withLock {
-            var ret = [(NodeService, DistributedSystem.ConnectionHandler)]()
+            var ret = [(UUID, NodeService, [DistributedSystem.ConnectionHandler])]()
+
             guard let processInfo = self.processes[address] else {
                 logger.error("Internal error: process for \(address) not found")
                 return ret
             }
 
-            let pendingHandlers = processInfo.setChannel(channelID, channel)
-            for (serviceName, handlers) in pendingHandlers {
-                if let discoveryInfo = self.discoveries[serviceName] {
-                    let serviceInfo = discoveryInfo.services.values.first(where: { $0.address == .remote(address) })
-                    if let serviceInfo {
-                        ret.append(contentsOf: handlers.map { (serviceInfo.service, $0) })
-                    } // else service disappeared from Consul, most probably connection will be closed very soon as well
+            if processInfo.channel != nil {
+                logger.error("internal error: process \(address) has a conection")
+                return ret
+            }
+            
+            if !processInfo.connectedServices.isEmpty {
+                logger.error("internal error: process \(address) has connection services")
+                return ret
+            }
+
+            processInfo.channel = (channelID, channel)
+            var pendingHandlers = [ServiceKey: [DistributedSystem.ConnectionHandler]]()
+            swap(&processInfo.pendingHandlers, &pendingHandlers)
+
+            for (serviceKey, connectionHandlers) in pendingHandlers {
+                guard let discoveryInfo = self.discoveries[serviceKey.name] else {
+                    logger.error("internal error: no discovery found for service '\(serviceKey.name)'")
+                    continue
                 }
+                guard let serviceInfo = discoveryInfo.services[serviceKey.id] else {
+                    logger.error("internal error: no service \(serviceKey.name)/\(serviceKey.id) found")
+                    continue
+                }
+                processInfo.connectedServices.insert(serviceKey)
+                ret.append((serviceKey.id, serviceInfo.service, connectionHandlers))
             }
 
             return ret
         }
 
-        for (service, connectionHandler) in services {
-            connectionHandler(service, .channel(channelID, channel))
+        for (serviceID, service, connectionHandlers) in services {
+            for connectionHandler in connectionHandlers {
+                connectionHandler(serviceID, service, .channel(channelID, channel))
+            }
         }
     }
 
@@ -390,13 +410,15 @@ final class DiscoveryManager {
                 return false
             }
 
-            guard let processInfo = self.processes[address] else { return false }
+            guard let processInfo = self.processes[address] else {
+                return false
+            }
 
-            var pendingHandlers = [String: [DistributedSystem.ConnectionHandler]]()
+            var pendingHandlers = [ServiceKey: [DistributedSystem.ConnectionHandler]]()
 
-            for serviceName in processInfo.connectedServices {
-                guard let discoveryInfo = self.discoveries[serviceName] else {
-                    logger.error("internal error: service \(serviceName) not found")
+            for serviceKey in processInfo.connectedServices {
+                guard let discoveryInfo = self.discoveries[serviceKey.name] else {
+                    logger.error("internal error: service \(serviceKey.name) not found")
                     continue
                 }
 
@@ -407,12 +429,12 @@ final class DiscoveryManager {
                         let handlers = discoveryInfo.filters.values.compactMap {
                             $0.filter(serviceInfo.service) ? $0.connectionHandler : nil
                         }
-                        servicePendingHandlers.append(contentsOf:  handlers)
+                        servicePendingHandlers.append(contentsOf: handlers)
                     }
                 }
 
                 if !servicePendingHandlers.isEmpty {
-                    pendingHandlers[serviceName] = servicePendingHandlers
+                    pendingHandlers[serviceKey] = servicePendingHandlers
                 }
             }
 
