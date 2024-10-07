@@ -130,10 +130,6 @@ final class DiscoveryManager {
                             let serviceKey = ServiceKey(serviceName, serviceID)
                             if let processInfo = self.processes[address] {
                                 if let (channelID, channel) = processInfo.channel {
-                                    guard !processInfo.connectedServices.contains(serviceKey) else {
-                                        logger.error("internal error: \(serviceKey) already in the set")
-                                        break
-                                    }
                                     processInfo.connectedServices.insert(serviceKey)
                                     services.append((serviceID, serviceInfo.service, .channel(channelID, channel)))
                                 } else {
