@@ -6,9 +6,11 @@
 //
 // http://www.apache.org/licenses/LICENSE-2.0
 
-import Helpers
-
 fileprivate typealias SizeType = UInt32
+
+func nearestPowerOf2<T: FixedWidthInteger>(_ num: T) -> T {
+    return T(1) << (num.bitWidth - (num - T(1)).leadingZeroBitCount)
+}
 
 public extension Dictionary where Key: Serializable, Value: Serializable {
     func withUnsafeBytesSerialization<Result>(_ body: (UnsafeRawBufferPointer) throws -> Result) rethrows -> Result {

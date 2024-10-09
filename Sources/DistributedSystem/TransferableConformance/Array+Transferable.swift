@@ -6,8 +6,6 @@
 //
 // http://www.apache.org/licenses/LICENSE-2.0
 
-import Helpers
-
 fileprivate typealias SizeType = UInt32
 
 public extension Array where Element: Serializable {

@@ -7,11 +7,10 @@
 // http://www.apache.org/licenses/LICENSE-2.0
 
 import ConsulServiceDiscovery
-import Helpers
 import Logging
-internal import NIOCore
 import struct Foundation.UUID
-import PackageConcurrencyHelpers
+internal import NIOCore
+internal import struct NIOConcurrencyHelpers.NIOLock
 
 final class DiscoveryManager {
     private final class ProcessInfo {
@@ -74,7 +73,7 @@ final class DiscoveryManager {
     private var loggerBox: Box<Logger>
     private var logger: Logger { loggerBox.value }
 
-    private var lock = Lock()
+    private var lock = NIOLock()
     private var processes: [SocketAddress: ProcessInfo] = [:]
     private var discoveries: [String: DiscoveryInfo] = [:]
 

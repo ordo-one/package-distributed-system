@@ -7,15 +7,14 @@
 // http://www.apache.org/licenses/LICENSE-2.0
 
 import Atomics
-import PackageConcurrencyHelpers
-import Helpers
 import Logging
 internal import NIOCore
+internal import struct NIOConcurrencyHelpers.NIOLock
 
 class SyncCallManager {
     private let loggerBox: Box<Logger>
     private var nextID = ManagedAtomic<UInt64>(0)
-    private var lock = Lock()
+    private var lock = NIOLock()
     private var continuations = [UInt64: CheckedContinuation<any DistributedSystem.SerializationRequirement, Error>]()
     private var results = [UInt64: ByteBuffer?]()
 
