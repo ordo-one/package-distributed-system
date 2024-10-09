@@ -133,10 +133,12 @@ let package = Package(
                 "TestMessages",
                 .product(name: "Benchmark", package: "package-benchmark"),
                 .product(name: "BenchmarkPlugin", package: "package-benchmark"),
+                .product(name: "LatencyTimer", package: "package-latency-tools")
             ],
             path: "Benchmarks/DistributedSystem",
             swiftSettings: [
-                .unsafeFlags(["-Xfrontend", "-enable-experimental-distributed"]),
+                .enableExperimentalFeature("AccessLevelOnImport"),
+                .unsafeFlags(["-Xfrontend", "-enable-experimental-distributed"])
             ]
         ),
         .testTarget(
