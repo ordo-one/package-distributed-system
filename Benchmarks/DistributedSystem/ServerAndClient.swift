@@ -2,13 +2,13 @@ import Benchmark
 import DistributedSystem
 import LatencyTimer
 import Logging
-import PackageConcurrencyHelpers
 import TestMessages
+internal import struct NIOConcurrencyHelpers.NIOLock
 
 public class Client: TestableClient {
     private let logger: Logger
 
-    let lock = Lock()
+    let lock = NIOLock()
 
     var snapshotDoneReceived = false
     var snapshotDoneContinuation: CheckedContinuation<Void, Never>?
@@ -121,7 +121,7 @@ public class Client: TestableClient {
 public class Service: TestableService {
     private var logger: Logger
 
-    let lock = Lock()
+    let lock = NIOLock()
 
     var streamOpen = false
     var openStreamContinuation: CheckedContinuation<Void, Never>?

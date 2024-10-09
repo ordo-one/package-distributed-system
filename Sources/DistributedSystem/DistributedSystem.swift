@@ -13,12 +13,11 @@ import ConsulServiceDiscovery
 import Dispatch
 import Distributed
 import Logging
-import PackageConcurrencyHelpers
-import class Helpers.Box
 import struct Foundation.Data
 import struct Foundation.UUID
 internal import NIOCore
 internal import NIOPosix
+internal import struct NIOConcurrencyHelpers.NIOLock
 
 #if os(Linux)
 typealias uuid_t = (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8)
@@ -27,6 +26,14 @@ typealias uuid_t = (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt
 extension Channel {
     var debugDescription: String {
         remoteAddress?.description ?? "?"
+    }
+}
+
+public final class Box<T> {
+    public var value: T
+
+    public init(_ value: T) {
+        self.value = value
     }
 }
 
@@ -236,7 +243,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
     }
 
-    private var lock = Lock()
+    private var lock = NIOLock()
     private var actors: [EndpointIdentifier: ActorInfo] = [:]
     private var channels: [UInt32: ChannelInfo] = [:]
     private var stats: [String: UInt64] = [:]
@@ -582,7 +589,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     }
 
     private final class Monitor<T> {
-        let lock: Lock = Lock()
+        let lock = NIOLock()
         var cancelled = false
         var value: T?
 

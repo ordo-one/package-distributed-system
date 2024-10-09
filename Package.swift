@@ -16,8 +16,8 @@ let externalDependencies: [String: Range<Version>] = [
 
 let internalDependencies: [String: Range<Version>] = [
     "package-benchmark": .upToNextMajor(from: "1.0.0"),
-    "package-concurrency-helpers": .upToNextMajor(from: "4.0.0"),
     "package-consul": .upToNextMajor(from: "7.0.0"),
+    "package-latency-tools": .upToNextMajor(from: "1.0.0")
 ]
 
 #if swift(>=6.0)
@@ -80,12 +80,10 @@ let package = Package(
             name: "DistributedSystem",
             dependencies: [
                 .product(name: "ConsulServiceDiscovery", package: "package-consul"),
-                .product(name: "Helpers", package: "package-concurrency-helpers"),
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "lz4", package: "package-system-libs"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
-                .product(name: "PackageConcurrencyHelpers", package: "package-concurrency-helpers"),
                 .product(name: "ServiceDiscovery", package: "swift-service-discovery"),
             ],
             swiftSettings:[
@@ -97,7 +95,6 @@ let package = Package(
             dependencies: [
                 "DistributedSystem",
                 .product(name: "FlatBuffers", package: "flatbuffers"),
-                .product(name: "Helpers", package: "package-concurrency-helpers"),
             ],
             path: "Sources/ForTesting/TestMessages/",
             exclude: ["TestMessages.fbs"]
@@ -122,6 +119,7 @@ let package = Package(
                 "TestMessages",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Lifecycle", package: "swift-service-lifecycle_1.0"),
+                .product(name: "LatencyTimer", package: "package-latency-tools")
             ],
             path: "Sources/ForTesting/TestClient",
             swiftSettings: [
@@ -133,13 +131,14 @@ let package = Package(
             dependencies: [
                 "DistributedSystem",
                 "TestMessages",
-                .product(name: "PackageConcurrencyHelpers", package: "package-concurrency-helpers"),
                 .product(name: "Benchmark", package: "package-benchmark"),
                 .product(name: "BenchmarkPlugin", package: "package-benchmark"),
+                .product(name: "LatencyTimer", package: "package-latency-tools")
             ],
             path: "Benchmarks/DistributedSystem",
             swiftSettings: [
-                .unsafeFlags(["-Xfrontend", "-enable-experimental-distributed"]),
+                .enableExperimentalFeature("AccessLevelOnImport"),
+                .unsafeFlags(["-Xfrontend", "-enable-experimental-distributed"])
             ]
         ),
         .testTarget(

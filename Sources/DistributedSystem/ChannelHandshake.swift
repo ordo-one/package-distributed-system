@@ -6,7 +6,6 @@
 //
 // http://www.apache.org/licenses/LICENSE-2.0
 
-import class Helpers.Box
 import Logging
 internal import NIOCore
 
