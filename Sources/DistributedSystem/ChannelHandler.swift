@@ -35,7 +35,7 @@ class ChannelHandler: ChannelInboundHandler {
 
     private let id: UInt32
     private let actorSystem: DistributedSystem
-    private var address: SocketAddress?
+    private let address: SocketAddress?
     private var writeBufferHighWatermark: Int
     private var targetFuncs = [String]()
 
@@ -55,18 +55,13 @@ class ChannelHandler: ChannelInboundHandler {
         logger.debug("\(channel.addressDescription)/\(Self.self): channel active")
 
         actorSystem.setChannel(id, channel, forProcessAt: address)
-        if address == nil {
-            // address is empty for the server side,
-            // and can be changed after actorSysten.setChannel() call
-            address = context.remoteAddress
-        }
     }
 
     func channelInactive(context: ChannelHandlerContext) {
         // 2024-03-07T12:48:24.806241+02:00 DEBUG ds : [DistributedSystem] [IPv4]192.168.0.9/192.168.0.9:53019/1: channel inactive ["port": 55056]
         // TODO: it would be nice to know "name/type" of remote process
         logger.info("\(context.channel.addressDescription)/\(Self.self): connection closed")
-        actorSystem.channelInactive(id, context.channel)
+        actorSystem.channelInactive(id, address)
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
