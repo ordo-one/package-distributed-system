@@ -255,7 +255,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     private let _nextInstanceID = ManagedAtomic<UInt32>(1)
     private var nextInstanceID: UInt32 { _nextInstanceID.loadThenWrappingIncrement(ordering: .relaxed) }
 
-    private var discoveryManager: DiscoveryManager
+    var discoveryManager: DiscoveryManager
     private var syncCallManager: SyncCallManager
     var compressionMode: CompressionMode
 
@@ -646,8 +646,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         withFilter serviceFilter: @escaping ServiceFilter,
         clientFactory: ((DistributedSystem) -> C)?,
         serviceHandler: ((S, ConsulServiceDiscovery.Instance) -> Void)? = nil,
-        deadline: DispatchTime? = nil) async throws -> S
-        where S.ID == EndpointIdentifier, S.ActorSystem == DistributedSystem {
+        deadline: DispatchTime? = nil
+    ) async throws -> S where S.ID == EndpointIdentifier, S.ActorSystem == DistributedSystem {
         let monitor = Monitor<CheckedContinuation<S, Error>>()
         let cancellationToken = self.makeCancellationToken()
         return try await withTaskCancellationHandler {
@@ -709,8 +709,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
          _ serviceEndpointType: S.Type,
          withFilter serviceFilter: @escaping ServiceFilter,
          serviceHandler: ((S, ConsulServiceDiscovery.Instance) -> Void)? = nil,
-         deadline: DispatchTime? = nil) async throws -> S
-        where S.ID == EndpointIdentifier, S.ActorSystem == DistributedSystem {
+         deadline: DispatchTime? = nil
+    ) async throws -> S where S.ID == EndpointIdentifier, S.ActorSystem == DistributedSystem {
         let clientFactory: ((DistributedSystem) -> Any)? = nil
         return try await connectToService(serviceEndpointType,
                                           withFilter: serviceFilter,
@@ -723,9 +723,11 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         return self.discoveryManager.cancel(token)
     }
 
-    func addService(_ serviceName: String,
-                    _ metadata: [String: String],
-                    _ factory: @escaping ServiceFactory) -> (serviceID: UUID, updateHealthStatus: Bool) {
+    func addService(
+        _ serviceName: String,
+        _ metadata: [String: String],
+        _ factory: @escaping ServiceFactory
+    ) -> (serviceID: UUID, updateHealthStatus: Bool) {
         let serviceID = UUID()
         let service = NodeService(serviceID: "\(serviceID)", serviceMeta: metadata, serviceName: serviceName)
         let updateHealthStatus = discoveryManager.addService(serviceName, serviceID, service, factory)

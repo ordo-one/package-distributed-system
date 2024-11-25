@@ -8,7 +8,7 @@
 
 import Distributed
 
-public enum ConnectionState: UInt16 {
+public enum ConnectionState: UInt16, Sendable {
     case active
     case stale
     case closed
