@@ -81,6 +81,16 @@ final class DiscoveryManager {
         var discover = true
         var filters: [DistributedSystem.CancellationToken: FilterInfo] = [:]
         var services: [UUID: ServiceInfo] = [:]
+
+        var addedServices: Int {
+            services.reduce(0, {
+                if case .local = $1.value.address {
+                    return $0 + 1
+                } else {
+                    return $0
+                }
+            })
+        }
     }
 
     private var loggerBox: Box<Logger>
@@ -100,10 +110,12 @@ final class DiscoveryManager {
         case started(Bool, [SocketAddress])
     }
 
-    func discoverService(_ serviceName: String,
-                         _ serviceFilter: @escaping DistributedSystem.ServiceFilter,
-                         _ connectionHandler: @escaping DistributedSystem.ConnectionHandler,
-                         _ cancellationToken: DistributedSystem.CancellationToken) -> DiscoverServiceResult {
+    func discoverService(
+        _ serviceName: String,
+        _ serviceFilter: @escaping DistributedSystem.ServiceFilter,
+        _ connectionHandler: @escaping DistributedSystem.ConnectionHandler,
+        _ cancellationToken: DistributedSystem.CancellationToken
+    ) -> DiscoverServiceResult {
         let (cancelled, discover, addresses, services) = lock.withLock {
             if cancellationToken.serviceName != nil {
                 fatalError("Internal error: cancellation token already used.")
@@ -211,7 +223,8 @@ final class DiscoveryManager {
                     _ service: NodeService,
                     _ factory: @escaping DistributedSystem.ServiceFactory) -> Bool {
         let (updateHealthStatus, services) = lock.withLock {
-            let updateHealthStatus = self.discoveries.isEmpty
+            let addedServices = discoveries.reduce(0, { $0 + $1.value.addedServices })
+            let updateHealthStatus = (addedServices == 0)
 
             var discoveryInfo = self.discoveries[serviceName]
             if discoveryInfo == nil {

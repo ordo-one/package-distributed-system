@@ -1203,4 +1203,43 @@ final class DistributedSystemTests: XCTestCase {
         clientSystem.stop()
         serverSystem.stop()
     }
+
+    func testUpdateHealthCheckProperly() async throws {
+        let processInfo = ProcessInfo.processInfo
+        let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
+
+        let distributedSystem = DistributedSystemServer(name: systemName)
+        try await distributedSystem.start()
+
+        _ = distributedSystem.discoveryManager.discoverService(
+            "TestService1",
+            { _ in false },
+            { (_, _, _) in },
+            distributedSystem.makeCancellationToken()
+        )
+
+        let updateHealthStatus1 = distributedSystem.discoveryManager.addService(
+            "MyAmazingService",
+            UUID(),
+            NodeService(serviceID: ""),
+            { _ in
+                fatalError() // not supposed to be called during the test
+            }
+        )
+
+        XCTAssertTrue(updateHealthStatus1)
+
+        let updateHealthStatus2 = distributedSystem.discoveryManager.addService(
+            "MyAmazingService",
+            UUID(),
+            NodeService(serviceID: ""),
+            { _ in
+                fatalError() // not supposed to be called during the test
+            }
+        )
+
+        XCTAssertFalse(updateHealthStatus2)
+
+        distributedSystem.stop()
+    }
 }
