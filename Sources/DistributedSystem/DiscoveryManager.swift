@@ -218,10 +218,12 @@ final class DiscoveryManager {
         }
     }
 
-    func addService(_ serviceName: String,
-                    _ serviceID: UUID,
-                    _ service: NodeService,
-                    _ factory: @escaping DistributedSystem.ServiceFactory) -> Bool {
+    func addService(
+        _ serviceName: String,
+        _ serviceID: UUID,
+        _ service: NodeService,
+        _ factory: @escaping DistributedSystem.ServiceFactory
+    ) -> Bool {
         let (updateHealthStatus, services) = lock.withLock {
             let addedServices = discoveries.reduce(0, { $0 + $1.value.addedServices })
             let updateHealthStatus = (addedServices == 0)
@@ -238,7 +240,7 @@ final class DiscoveryManager {
                 fatalError("Internal error: duplicated service \(serviceName)/\(serviceID)")
             }
 
-            logger.debug("addService: \(serviceName)/\(serviceID)")
+            logger.debug("addService: \(serviceName)/\(serviceID) (updateHealthStatus=\(updateHealthStatus))")
             discoveryInfo.services[serviceID] = ServiceInfo(service, factory)
 
             var services = [(ConsulServiceDiscovery.Instance, DistributedSystem.ConnectionHandler)]()

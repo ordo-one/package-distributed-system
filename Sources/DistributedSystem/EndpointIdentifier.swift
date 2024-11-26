@@ -6,7 +6,7 @@
 //
 // http://www.apache.org/licenses/LICENSE-2.0
 
-public struct EndpointIdentifier: Hashable, Codable, CustomStringConvertible {
+public struct EndpointIdentifier: Hashable, Codable, CustomStringConvertible, Sendable {
     // keep the side flag in the lower bits for more efficient ULEB128 encoding
     static let serviceFlag: UInt32 = 0x00000001
 
