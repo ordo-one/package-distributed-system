@@ -127,17 +127,25 @@ public class DistributedSystemServer: DistributedSystem {
         }
     }
 
-    public func addService(name: String,
-                           toModule moduleID: ModuleIdentifier,
-                           metadata: [String: String]? = nil,
-                           _ factory: @escaping ServiceFactory) async throws {
+    public func addService(
+        name: String,
+        toModule moduleID: ModuleIdentifier,
+        metadata: [String: String]? = nil,
+        _ factory: @escaping ServiceFactory
+    ) async throws {
         var metadata = metadata ?? [:]
         metadata[ServiceMetadata.systemName.rawValue] = systemName
         metadata[ServiceMetadata.processIdentifier.rawValue] = String(ProcessInfo.processInfo.processIdentifier)
         metadata[ServiceMetadata.moduleIdentifier.rawValue] = String(moduleID.rawValue)
         let (serviceID, updateHealthStatus) = super.addService(name, metadata, factory)
         let future = registerService(name, serviceID, metadata: metadata)
-        try await future.get()
+        do {
+            try await future.get()
+        } catch {
+            logger.error("future.get() failed: \(error)")
+            throw error
+        }
+        logger.debug("addService \(name)/\(serviceID): updateHealthStatus=\(updateHealthStatus)")
         if updateHealthStatus {
             let eventLoop = eventLoopGroup.next()
             eventLoop.scheduleTask(in: healthStatusUpdateInterval) {
