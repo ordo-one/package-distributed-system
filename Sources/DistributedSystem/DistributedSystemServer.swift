@@ -137,20 +137,29 @@ public class DistributedSystemServer: DistributedSystem {
         metadata[ServiceMetadata.systemName.rawValue] = systemName
         metadata[ServiceMetadata.processIdentifier.rawValue] = String(ProcessInfo.processInfo.processIdentifier)
         metadata[ServiceMetadata.moduleIdentifier.rawValue] = String(moduleID.rawValue)
+
         let (serviceID, updateHealthStatus) = super.addService(name, metadata, factory)
         let future = registerService(name, serviceID, metadata: metadata)
+        var registrationError: Error?
         do {
             try await future.get()
         } catch {
-            logger.error("future.get() failed: \(error)")
-            throw error
+            registrationError = error
         }
-        logger.debug("addService \(name)/\(serviceID): updateHealthStatus=\(updateHealthStatus)")
+
+        // if super.addService() requested health status update
+        // it is still better to schedule it even if service registration failed,
+        // because super.addService() will never request health status update again.
+
         if updateHealthStatus {
             let eventLoop = eventLoopGroup.next()
             eventLoop.scheduleTask(in: healthStatusUpdateInterval) {
                 self.updateHealthStatus(with: eventLoop)
             }
+        }
+
+        if let registrationError {
+            throw registrationError
         }
     }
 }

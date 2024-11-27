@@ -81,16 +81,6 @@ final class DiscoveryManager {
         var discover = true
         var filters: [DistributedSystem.CancellationToken: FilterInfo] = [:]
         var services: [UUID: ServiceInfo] = [:]
-
-        var addedServices: Int {
-            services.reduce(0, {
-                if case .local = $1.value.address {
-                    return $0 + 1
-                } else {
-                    return $0
-                }
-            })
-        }
     }
 
     private var loggerBox: Box<Logger>
@@ -99,6 +89,7 @@ final class DiscoveryManager {
     private var lock = NIOLock()
     private var processes: [SocketAddress: ProcessInfo] = [:]
     private var discoveries: [String: DiscoveryInfo] = [:]
+    private var addedServices = 0
     private var stopped = false
 
     init(_ loggerBox: Box<Logger>) {
@@ -225,8 +216,8 @@ final class DiscoveryManager {
         _ factory: @escaping DistributedSystem.ServiceFactory
     ) -> Bool {
         let (updateHealthStatus, services) = lock.withLock {
-            let addedServices = discoveries.reduce(0, { $0 + $1.value.addedServices })
-            let updateHealthStatus = (addedServices == 0)
+            let updateHealthStatus = (self.addedServices == 0) ? true : false
+            self.addedServices += 1
 
             var discoveryInfo = self.discoveries[serviceName]
             if discoveryInfo == nil {
