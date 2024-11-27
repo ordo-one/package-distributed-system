@@ -140,16 +140,10 @@ public class DistributedSystemServer: DistributedSystem {
 
         let (serviceID, updateHealthStatus) = super.addService(name, metadata, factory)
         let future = registerService(name, serviceID, metadata: metadata)
-        var registrationError: Error?
-        do {
-            try await future.get()
-        } catch {
-            registrationError = error
-        }
 
         // if super.addService() requested health status update
         // it is still better to schedule it even if service registration failed,
-        // because super.addService() will never request health status update again.
+        // because super.addService() will never request health status update again
 
         if updateHealthStatus {
             let eventLoop = eventLoopGroup.next()
@@ -158,8 +152,6 @@ public class DistributedSystemServer: DistributedSystem {
             }
         }
 
-        if let registrationError {
-            throw registrationError
-        }
+        try await future.get()
     }
 }

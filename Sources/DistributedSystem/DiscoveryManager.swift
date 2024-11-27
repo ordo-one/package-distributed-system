@@ -89,7 +89,7 @@ final class DiscoveryManager {
     private var lock = NIOLock()
     private var processes: [SocketAddress: ProcessInfo] = [:]
     private var discoveries: [String: DiscoveryInfo] = [:]
-    private var addedServices = 0
+    private var updateHealthStatus = true
     private var stopped = false
 
     init(_ loggerBox: Box<Logger>) {
@@ -216,8 +216,8 @@ final class DiscoveryManager {
         _ factory: @escaping DistributedSystem.ServiceFactory
     ) -> Bool {
         let (updateHealthStatus, services) = lock.withLock {
-            let updateHealthStatus = (self.addedServices == 0) ? true : false
-            self.addedServices += 1
+            let updateHealthStatus = self.updateHealthStatus
+            self.updateHealthStatus = false
 
             var discoveryInfo = self.discoveries[serviceName]
             if discoveryInfo == nil {
