@@ -8,7 +8,7 @@ public struct RemoteCallDecoder: DistributedTargetInvocationDecoder {
     private var buffer: ByteBuffer
     private var arguments: [Deserializable]
 
-    init(envelope: InvocationEnvelope) {
+    public init(envelope: InvocationEnvelope) {
         genericSubstitutions = envelope.genericSubstitutions
         buffer = envelope.arguments
         arguments = []
