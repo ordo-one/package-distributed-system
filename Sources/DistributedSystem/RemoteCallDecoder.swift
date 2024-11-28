@@ -1,5 +1,5 @@
 import Distributed
-internal import NIOCore
+import NIOCore
 
 public struct RemoteCallDecoder: DistributedTargetInvocationDecoder {
     public typealias SerializationRequirement = Transferable

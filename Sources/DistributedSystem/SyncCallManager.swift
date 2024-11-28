@@ -8,7 +8,7 @@
 
 import Atomics
 import Logging
-internal import NIOCore
+import NIOCore
 internal import struct NIOConcurrencyHelpers.NIOLock
 
 class SyncCallManager {

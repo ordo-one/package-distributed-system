@@ -8,7 +8,7 @@
 
 import Logging
 import lz4
-internal import NIOCore
+import NIOCore
 
 private enum HandshakeRequest: UInt8 {
     case noCompression = 0

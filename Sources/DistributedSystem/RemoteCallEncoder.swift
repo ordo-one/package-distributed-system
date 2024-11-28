@@ -1,11 +1,11 @@
 import Distributed
-internal import NIOCore
+import NIOCore
 
 public struct RemoteCallEncoder: DistributedTargetInvocationEncoder {
     public typealias SerializationRequirement = Transferable
 
-    var genericSubstitutions = [String]()
-    var arguments = ByteBufferAllocator().buffer(capacity: 0)
+    public var genericSubstitutions = [String]()
+    public var arguments = ByteBufferAllocator().buffer(capacity: 0)
 
     public mutating func recordArgument(_ argument: RemoteCallArgument<some SerializationRequirement>) throws {
         argument.value.withUnsafeBytesSerialization { bytes in

@@ -7,7 +7,7 @@
 // http://www.apache.org/licenses/LICENSE-2.0
 
 import Atomics
-internal import NIOCore
+import NIOCore
 
 final class ChannelCounters: ChannelInboundHandler, ChannelOutboundHandler {
     typealias InboundIn = ByteBuffer

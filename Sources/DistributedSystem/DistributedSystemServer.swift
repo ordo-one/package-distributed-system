@@ -13,7 +13,7 @@ internal import enum NIOHTTP1.HTTPResponseStatus
 import class Foundation.ProcessInfo
 import struct Foundation.UUID
 import Logging
-internal import NIOCore
+import NIOCore
 internal import NIOPosix
 import class ServiceDiscovery.CancellationToken
 

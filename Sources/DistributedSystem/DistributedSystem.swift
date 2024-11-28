@@ -15,7 +15,7 @@ import Distributed
 import Logging
 import struct Foundation.Data
 import struct Foundation.UUID
-internal import NIOCore
+import NIOCore
 internal import NIOPosix
 internal import struct NIOConcurrencyHelpers.NIOLock
 
