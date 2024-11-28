@@ -254,7 +254,8 @@ final class DiscoveryManager {
     func setAddress(_ address: SocketAddress, for serviceName: String, _ serviceID: UUID, _ service: NodeService) -> Bool {
         let (connect, process) = lock.withLock { () -> (Bool, (channel: (UInt32, Channel), connectionHandlers: [DistributedSystem.ConnectionHandler])?) in
             guard let discoveryInfo = self.discoveries[serviceName] else {
-                fatalError("Internal error: service \(serviceName) not discovered")
+                logger.error("internal error: service \(serviceName)/\(serviceID) not discovered")
+                return (false, nil)
             }
             if let serviceInfo = discoveryInfo.services[serviceID] {
                 if case let .remote(serviceAddress) = serviceInfo.address {
