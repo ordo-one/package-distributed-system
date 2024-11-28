@@ -105,7 +105,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     public typealias ResultHandler = RemoteCallResultHandler
     public typealias SerializationRequirement = Transferable
 
-    public struct ModuleIdentifier: Hashable, Codable, CustomStringConvertible {
+    public struct ModuleIdentifier: Hashable, Codable, CustomStringConvertible, Sendable {
         public let rawValue: UInt64
 
         public var description: String {
