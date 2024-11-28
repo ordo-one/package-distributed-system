@@ -70,6 +70,19 @@ class Service: TestableService {
     }
 }
 
+func checkCanRunTimeConsumingTest() throws {
+    if var env = ProcessInfo.processInfo.environment["RUN_TIME_CONSUMING_TESTS"] {
+        if let intValue = Int(env), intValue != 0 {
+            return
+        }
+        env = env.lowercased()
+        if (env == "true") || (env == "yes") {
+            return
+        }
+    }
+    throw XCTSkip("becuase it will take too long, set RUN_TIME_CONSUMING_TESTS=true to run")
+}
+
 final class DistributedSystemTests: XCTestCase {
     class Flags {
         var serviceDeallocated = false
@@ -295,7 +308,7 @@ final class DistributedSystemTests: XCTestCase {
     }
     */
 
-    func testReconnect() async throws {
+    func testReconnectAfterConnectionBreak() async throws {
         // Checking the distributed actors do not leak,
         // use a closure here to be sure at the check point all references will be released
         let flags = Flags()
@@ -354,6 +367,77 @@ final class DistributedSystemTests: XCTestCase {
         XCTAssertTrue(flags.serviceConnectionClosed)
         XCTAssertTrue(flags.clientDeallocated)
         XCTAssertTrue(flags.clientConnectionClosed)
+    }
+
+    func testReconnectAfterServerRestart() async throws {
+        try checkCanRunTimeConsumingTest()
+
+        class ServiceImpl: TestableService {
+            func openStream(byRequest request: TestMessages.OpenRequest) async {
+                fatalError("Should never be called")
+            }
+
+            func getMonster() -> Monster {
+                fatalError("Should never be called")
+            }
+
+            func doNothing() {
+                fatalError("Should never be called")
+            }
+
+            func handleMonsters(_ monsters: [Monster]) async {
+                fatalError("Should never be called")
+            }
+
+            func handleConnectionState(_ state: ConnectionState) async {
+            }
+        }
+
+        let processInfo = ProcessInfo.processInfo
+        let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
+
+        let (stream, continuation) = AsyncStream<Void>.makeStream()
+
+        let moduleID = DistributedSystem.ModuleIdentifier(1)
+        let serverSystem1 = DistributedSystemServer(name: systemName)
+        try await serverSystem1.start()
+        try await serverSystem1.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+            try TestServiceEndpoint(ServiceImpl(), in: actorSystem)
+        }
+
+        let clientSystem = DistributedSystem(name: systemName)
+        try clientSystem.start()
+
+        clientSystem.connectToServices(
+            TestServiceEndpoint.self,
+            withFilter: { _ in true },
+            clientFactory: { actorSystem, _ in
+                continuation.yield()
+                return TestClientEndpoint(Client(), in: actorSystem)
+            },
+            serviceHandler: { serviceEndpoint, _ in }
+        )
+
+        for await _ in stream { break }
+
+        // client and server connected now, restarting server
+
+        serverSystem1.stop()
+
+        // waiting for the service to disappear from the consul
+
+        try await Task.sleep(for: .seconds(120))
+
+        let serverSystem2 = DistributedSystemServer(name: systemName)
+        try await serverSystem2.start()
+        try await serverSystem2.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+            try TestServiceEndpoint(ServiceImpl(), in: actorSystem)
+        }
+
+        for await _ in stream { break }
+
+        clientSystem.stop()
+        serverSystem2.stop()
     }
 
     func testConcurrentRemoteCalls() async throws {

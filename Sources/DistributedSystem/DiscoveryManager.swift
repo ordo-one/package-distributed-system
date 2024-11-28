@@ -308,13 +308,13 @@ final class DiscoveryManager {
 
     func removeService(_ serviceName: String, _ serviceID: UUID) {
         lock.withLockVoid {
-            logger.trace("remove service \(serviceName)/\(serviceID)")
+            logger.debug("remove service \(serviceName)/\(serviceID)")
             guard let discoveryInfo = self.discoveries[serviceName] else {
                 logger.error("internal error: no services \(serviceName) registered")
                 return
             }
             if discoveryInfo.services.removeValue(forKey: serviceID) != nil {
-                if discoveryInfo.services.isEmpty {
+                if discoveryInfo.services.isEmpty && discoveryInfo.filters.isEmpty {
                     self.discoveries.removeValue(forKey: serviceName)
                 }
             }
