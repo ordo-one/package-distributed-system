@@ -1094,7 +1094,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     ) async throws where Actor: DistributedActor, Actor.ID == ActorID {
         let (channel, channelTargetFuncs, suspended) = try lock.withLock {
             guard let actorInfo = self.actors[actor.id] else {
-                throw DistributedSystemErrors.noConnectionForActor(actor.id)
+                throw DistributedSystemErrors.error("Actor \(Actor.self)/\(actor.id) not registered")
             }
             let suspended = switch actorInfo {
             case let .remoteClient(rcs), let .remoteService(rcs):
@@ -1105,7 +1105,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
             let channelID = actor.id.channelID
             guard var channelInfo = self.channels[channelID] else {
-                fatalError("internal error: channel \(channelID) not registered")
+                logger.error("internal error: no connection for actor \(Actor.self)/\(actor.id)")
+                throw DistributedSystemErrors.error("No connection for actor \(Actor.self)/\(actor.id)")
             }
 
             if callID != 0 {
@@ -1269,14 +1270,13 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             return
         }
 
-        let clientEndpointID = lock.withLock { () -> EndpointIdentifier? in
+        let clientEndpointID: EndpointIdentifier? = lock.withLock {
             let serviceEndpointID = EndpointIdentifier(channelID, instanceID)
             let clientEndpointID = serviceEndpointID.makeClientEndpoint()
             if self.actors[clientEndpointID] != nil {
                 logger.error("\(channel.addressDescription): duplicate endpoint identifier \(clientEndpointID)")
                 return nil
             }
-
             self.actors[clientEndpointID] = .remoteClient(.init())
             return clientEndpointID
         }
@@ -1521,7 +1521,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             if let channelInfo = self.channels[endpointID.channelID] {
                 return channelInfo.channel
             } else {
-                throw DistributedSystemErrors.noConnectionForActor(endpointID)
+                throw DistributedSystemErrors.error("No connection for \(endpointID)")
             }
         }
         logger.debug("close connection for \(endpointID)")

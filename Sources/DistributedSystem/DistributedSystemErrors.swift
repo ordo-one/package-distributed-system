@@ -12,7 +12,6 @@ public enum DistributedSystemErrors: DistributedActorSystemError {
     case decodeError(description: String)
     case duplicatedService(String, DistributedSystem.ModuleIdentifier)
     case error(String)
-    case noConnectionForActor(EndpointIdentifier)
     case serviceDiscoveryTimeout(String)
     case unexpectedResultType(String)
     case connectionLost

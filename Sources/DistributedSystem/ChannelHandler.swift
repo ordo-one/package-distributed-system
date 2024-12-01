@@ -53,7 +53,6 @@ class ChannelHandler: ChannelInboundHandler {
         // TODO: it would be nice to know "name/type" of remote process
         let channel = context.channel
         logger.debug("\(channel.addressDescription)/\(Self.self): channel active")
-
         actorSystem.setChannel(id, channel, forProcessAt: address)
     }
 
