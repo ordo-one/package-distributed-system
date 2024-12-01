@@ -27,7 +27,7 @@ public class Client: TestableClient {
                     blackHole(idx)
                 }
             }
-            let elapsedMicroseconds = Int(elapsed.nanoseconds() / 1000)
+            let elapsedMicroseconds = Int(elapsed.nanoseconds() / 1_000)
             receiveSleepIterations = calibrateIterations / elapsedMicroseconds * 1_000_000 / newValue
         }
     }
