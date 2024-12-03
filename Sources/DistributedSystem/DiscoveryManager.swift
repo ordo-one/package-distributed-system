@@ -260,7 +260,7 @@ final class DiscoveryManager {
             if let serviceInfo = discoveryInfo.services[serviceID] {
                 if case let .remote(serviceAddress) = serviceInfo.address {
                     if serviceAddress != address {
-                        logger.error("internal error: service \(serviceID) unexpectedly changed address from \(serviceAddress) to \(address)")
+                        logger.error("internal error: service \(serviceName)/\(serviceID) unexpectedly changed address from \(serviceAddress) to \(address)")
                     }
                     serviceInfo.service = service
                     serviceInfo.address = .remote(address)
