@@ -67,9 +67,10 @@ let benchmarks = {
         let (stream, streamContinuation) = AsyncStream.makeStream(of: TestClientEndpoint.self)
         var streamIterator = stream.makeAsyncIterator()
 
-        try await serviceSystem.addService(ofType: TestServiceEndpoint.self, toModule: DistributedSystem.ModuleIdentifier(1)) { actorSystem in
+        let moduleId = DistributedSystem.ModuleIdentifier(1)
+        try await serviceSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleId) { actorSystem in
             let serviceEndoint = try TestServiceEndpoint(service, in: actorSystem)
-            let clientEndpoint = try TestClientEndpoint.resolve(id: serviceEndoint.id.makeClientEndpoint() , using: actorSystem)
+            let clientEndpoint = try TestClientEndpoint.resolve(id: serviceEndoint.id.makeClientEndpoint(), using: actorSystem)
             streamContinuation.yield(clientEndpoint)
             return serviceEndoint
         }

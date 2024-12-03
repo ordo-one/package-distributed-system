@@ -10,9 +10,11 @@ The basic element of the system is a module that combines several different serv
 ## Register service
 In order to register a service in the distributed system the function `addService` supposed to be used:
 ```
-   func addService(_ serviceName: String,
-                    _ metadata: [String: String],
-                    _ factory: @escaping ServiceFactory) -> ServiceIdentifier
+   func addService(
+       _ serviceName: String,
+       _ metadata: [String: String],
+       _ factory: @escaping ServiceFactory
+   ) -> ServiceIdentifier
 ```
 where
 - `serviceName`: name of the service
