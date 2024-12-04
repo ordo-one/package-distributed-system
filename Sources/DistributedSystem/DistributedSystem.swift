@@ -272,11 +272,21 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     @TaskLocal
     private static var actorID: ActorID? // supposed to be private, but need to make it internal for tests
 
-    public convenience init(systemName: String, addressTag: String? = nil, compressionMode: CompressionMode = .disabled, logLevel: Logger.Level = .info) {
+    public convenience init(
+        systemName: String,
+        addressTag: String? = nil,
+        compressionMode: CompressionMode = .disabled,
+        logLevel: Logger.Level = .info
+    ) {
         self.init(name: systemName, addressTag: addressTag, compressionMode: compressionMode, logLevel: logLevel)
     }
 
-    public init(name systemName: String, addressTag: String? = nil, compressionMode: CompressionMode = .disabled, logLevel: Logger.Level = .info) {
+    public init(
+        name systemName: String,
+        addressTag: String? = nil,
+        compressionMode: CompressionMode = .disabled,
+        logLevel: Logger.Level = .info
+    ) {
         self.systemName = systemName
         self.addressTag = addressTag
         eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 2)
@@ -380,6 +390,16 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     }
 
     func channelInactive(_ channelID: UInt32, _ address: SocketAddress?) {
+        // It is better to remove the process from the discovery manager first.
+        // Otherwise the connection state listener called at the end of inbound task
+        // can try to initiate a new connection to service of the same type,
+        // and it will be found created but with invalid endpoint.
+        let reconnect = if let address {
+            discoveryManager.channelInactive(address)
+        } else {
+            false
+        }
+
         let (streamContinuations, endpointContinuations, pendingSyncCalls) = lock.withLock {
             var streamContinuations = [AsyncStream<InvocationEnvelope>.Continuation]()
             var endpointContinuations = [CheckedContinuation<Void, Error>]()
@@ -427,11 +447,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             syncCallManager.resumeWithConnectionLoss(pendingSyncCalls)
         }
 
-        if let address {
-            let reconnect = discoveryManager.channelInactive(address)
-            if reconnect {
-                connectToProcessAt(address)
-            }
+        if let address, reconnect {
+            connectToProcessAt(address)
         }
     }
 

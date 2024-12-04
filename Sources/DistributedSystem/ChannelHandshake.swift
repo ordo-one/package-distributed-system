@@ -27,7 +27,7 @@ final class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandl
     }
 
     func channelActive(context: ChannelHandlerContext) {
-        logger.info("\(context.channel.addressDescription): connection accepted")
+        logger.info("\(context.channel.addressDescription)/\(channelHandler.id): connection accepted")
         if DistributedSystem.pingInterval.nanoseconds > 0 {
             timer = context.eventLoop.scheduleTask(in: DistributedSystem.pingInterval*2) {
                 self.logger.info("\(context.channel.addressDescription)/\(Self.self): session timeout, closing connection")
@@ -115,7 +115,7 @@ final class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandl
     }
 
     func channelActive(context: ChannelHandlerContext) {
-        logger.info("\(context.channel.addressDescription): connected")
+        logger.info("\(context.channel.addressDescription)/\(channelHandler.id): connected")
 
         var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt16>.size + MemoryLayout<UInt16>.size)
         buffer.writeInteger(DistributedSystem.protocolVersionMajor)

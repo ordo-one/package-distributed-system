@@ -19,11 +19,15 @@ extension SocketAddress {
     }
 }
 
+extension Optional where Wrapped == SocketAddress {
+    var addressDescription: String {
+        self.map { $0.makeCopyWithoutHost().description } ?? "<nil-addr>"
+    }
+}
+
 extension Channel {
     var addressDescription: String {
-        let localAddress = self.localAddress
-        let remoteAddress = self.remoteAddress
-        return "\(localAddress == nil ? "<nil-addr>" : localAddress!.makeCopyWithoutHost().description) -> \(remoteAddress == nil ? "<nil-addr>" : remoteAddress!.makeCopyWithoutHost().description)"
+        "\(localAddress.addressDescription) -> \(remoteAddress.addressDescription)"
     }
 }
 
@@ -33,13 +37,17 @@ class ChannelHandler: ChannelInboundHandler {
 
     private var logger: Logger { actorSystem.logger }
 
-    private let id: UInt32
+    let id: UInt32
     private let actorSystem: DistributedSystem
     private let address: SocketAddress?
     private var writeBufferHighWatermark: Int
     private var targetFuncs = [String]()
 
     static let name = "channelHandler"
+
+    private func logPrefix(_ channel: Channel) -> String {
+        "\(channel.addressDescription)/\(Self.self)/\(id)"
+    }
 
     init(_ id: UInt32, _ actorSystem: DistributedSystem, _ address: SocketAddress?, _ writeBufferHighWatermark: UInt64) {
         self.id = id
@@ -49,24 +57,21 @@ class ChannelHandler: ChannelInboundHandler {
     }
 
     func channelActive(context: ChannelHandlerContext) {
-        // 2024-03-07T12:51:20.589375+02:00 DEBUG ds : [DistributedSystem] [IPv4]192.168.0.9/192.168.0.9:58186/3: channel active ["port": 55056]
-        // TODO: it would be nice to know "name/type" of remote process
         let channel = context.channel
-        logger.debug("\(channel.addressDescription)/\(Self.self): channel active")
+        logger.debug("\(logPrefix(channel)): channel active")
         actorSystem.setChannel(id, channel, forProcessAt: address)
     }
 
     func channelInactive(context: ChannelHandlerContext) {
-        // 2024-03-07T12:48:24.806241+02:00 DEBUG ds : [DistributedSystem] [IPv4]192.168.0.9/192.168.0.9:53019/1: channel inactive ["port": 55056]
-        // TODO: it would be nice to know "name/type" of remote process
-        logger.info("\(context.channel.addressDescription)/\(Self.self): connection closed")
+        logger.info("\(logPrefix(context.channel)): connection closed")
         actorSystem.channelInactive(id, address)
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         var buffer = unwrapInboundIn(data)
-        logger.trace("\(context.channel.addressDescription)/\(id): received \(buffer.readableBytes) bytes")
-        actorSystem.channelRead(id, context.channel, &buffer, &targetFuncs)
+        let channel = context.channel
+        logger.trace("\(logPrefix(channel)): received \(buffer.readableBytes) bytes")
+        actorSystem.channelRead(id, channel, &buffer, &targetFuncs)
     }
 
     // Flush it out. This can make use of gathering writes if multiple buffers are pending
@@ -77,14 +82,14 @@ class ChannelHandler: ChannelInboundHandler {
     func errorCaught(context: ChannelHandlerContext, error: Error) {
         // 2024-02-20T20:14:13.570441+02:00 ERROR ds : [DistributedSystem] nil: network error: read(descriptor:pointer:size:): Operation timed out (errno: 60) ["port": 62871]
         // 2024-03-06T19:45:13.830792+02:00 ERROR ds : [DistributedSystem] nil: network error: read(descriptor:pointer:size:): Connection reset by peer (errno: 54) ["port": 55166]
-        logger.info("\(context.channel.addressDescription): Network error: \(error)")
+        logger.info("\(logPrefix(context.channel)): Network error: \(error)")
         context.close(promise: nil)
     }
 
     func channelWritabilityChanged(context: ChannelHandlerContext) {
         let channel = context.channel
         if !channel.isWritable {
-            logger.warning("\(channel.addressDescription): outbound queue size reached \(writeBufferHighWatermark) bytes")
+            logger.warning("\(logPrefix(channel)): outbound queue size reached \(writeBufferHighWatermark) bytes")
             writeBufferHighWatermark *= 2
 
             let writeBufferWaterMark = ChannelOptions.Types.WriteBufferWaterMark(low: writeBufferHighWatermark/2, high: writeBufferHighWatermark)
