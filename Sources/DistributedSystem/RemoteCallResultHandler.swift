@@ -7,7 +7,7 @@
 // http://www.apache.org/licenses/LICENSE-2.0
 
 import Distributed
-internal import NIOCore
+import NIOCore
 
 public final class RemoteCallResultHandler: DistributedTargetInvocationResultHandler {
     public typealias SerializationRequirement = Transferable

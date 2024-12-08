@@ -7,7 +7,7 @@
 // http://www.apache.org/licenses/LICENSE-2.0
 
 import Logging
-internal import NIOCore
+import NIOCore
 
 final class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandler {
     typealias InboundIn = ByteBuffer

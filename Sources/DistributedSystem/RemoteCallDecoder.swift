@@ -1,5 +1,5 @@
 import Distributed
-internal import NIOCore
+import NIOCore
 
 public struct RemoteCallDecoder: DistributedTargetInvocationDecoder {
     public typealias SerializationRequirement = Transferable
@@ -8,7 +8,7 @@ public struct RemoteCallDecoder: DistributedTargetInvocationDecoder {
     private var buffer: ByteBuffer
     private var arguments: [Deserializable]
 
-    init(envelope: InvocationEnvelope) {
+    public init(envelope: InvocationEnvelope) {
         genericSubstitutions = envelope.genericSubstitutions
         buffer = envelope.arguments
         arguments = []

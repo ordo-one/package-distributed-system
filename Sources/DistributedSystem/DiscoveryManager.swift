@@ -9,7 +9,7 @@
 import ConsulServiceDiscovery
 import Logging
 import struct Foundation.UUID
-internal import NIOCore
+import NIOCore
 internal import struct NIOConcurrencyHelpers.NIOLock
 
 final class DiscoveryManager {
