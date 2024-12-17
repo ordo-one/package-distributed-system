@@ -28,9 +28,14 @@ public class DistributedSystemServer: DistributedSystem {
     var healthStatusTTL = TimeAmount.seconds(15)
 
     private static func localAddress(_ consulAddress: String) throws -> String? {
+        #if os(Linux)
+        let sockType = Int32(SOCK_DGRAM.rawValue)
+        #else
+        let sockType = SOCK_DGRAM
+        #endif
         var hints = addrinfo()
         hints.ai_family = AF_INET
-        hints.ai_socktype = SOCK_DGRAM
+        hints.ai_socktype = sockType
         var addrinfo = UnsafeMutablePointer<addrinfo>(nil)
         var rc = getaddrinfo(consulAddress, "domain", &hints, &addrinfo)
         if rc != 0 {
@@ -43,7 +48,7 @@ public class DistributedSystemServer: DistributedSystem {
             throw DistributedSystemErrors.error("getaddrinfo('\(consulAddress)') returned empty list")
         }
 
-        let socket = socket(AF_INET, SOCK_DGRAM, 0)
+        let socket = socket(AF_INET, sockType, 0)
         if socket < 0 {
             throw DistributedSystemErrors.error("socket() failed: \(errno)")
         }
@@ -67,14 +72,12 @@ public class DistributedSystemServer: DistributedSystem {
             throw DistributedSystemErrors.error("getsockname() failed: \(errno)")
         }
 
-        if localAddr.sin_len == addrinfo.pointee.ai_addrlen {
-            let sameHost = addrinfo.pointee.ai_addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) {
-                localAddr.sin_addr.s_addr == $0.pointee.sin_addr.s_addr
-            }
+        let sameHost = addrinfo.pointee.ai_addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) {
+            localAddr.sin_addr.s_addr == $0.pointee.sin_addr.s_addr
+        }
 
-            if sameHost {
-                return nil
-            }
+        if sameHost {
+            return nil
         }
 
         let bufferSize = Int((localAddr.sin_family == AF_INET) ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN)
