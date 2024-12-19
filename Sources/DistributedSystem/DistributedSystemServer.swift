@@ -17,8 +17,9 @@ import NIOCore
 internal import NIOPosix
 import class ServiceDiscovery.CancellationToken
 
-public class DistributedSystemServer: DistributedSystem {
-    private var localAddress: SocketAddress!
+public class DistributedSystemServer: DistributedSystem, @unchecked Sendable {
+    private var localAddress: String?
+    private var localPort: Int?
     private var serviceDiscoveryCancellationToken: ServiceDiscovery.CancellationToken?
 
     private static let nanosecondsInSecond: Int64 = 1_000_000_000
@@ -26,8 +27,79 @@ public class DistributedSystemServer: DistributedSystem {
     var healthStatusUpdateInterval = TimeAmount.seconds(10)
     var healthStatusTTL = TimeAmount.seconds(15)
 
+    private static func localAddress(_ consulAddress: String) throws -> String? {
+        #if os(Linux)
+        let sockType = Int32(SOCK_DGRAM.rawValue)
+        #else
+        let sockType = SOCK_DGRAM
+        #endif
+        var hints = addrinfo()
+        hints.ai_family = AF_INET
+        hints.ai_socktype = sockType
+        var addrinfo = UnsafeMutablePointer<addrinfo>(nil)
+        var rc = getaddrinfo(consulAddress, "domain", &hints, &addrinfo)
+        if rc != 0 {
+            throw DistributedSystemErrors.error("getaddrinfo('\(consulAddress)') failed: \(rc)")
+        }
+
+        defer { freeaddrinfo(addrinfo) }
+
+        guard let addrinfo else {
+            throw DistributedSystemErrors.error("getaddrinfo('\(consulAddress)') returned empty list")
+        }
+
+        let socket = socket(AF_INET, sockType, 0)
+        if socket < 0 {
+            throw DistributedSystemErrors.error("socket() failed: \(errno)")
+        }
+
+        defer { close(socket) }
+
+        rc = connect(socket, addrinfo.pointee.ai_addr, addrinfo.pointee.ai_addrlen)
+        if rc != 0 {
+            throw DistributedSystemErrors.error("connect() failed: \(errno)")
+        }
+
+        var localAddr = sockaddr_in()
+        rc = withUnsafeMutablePointer(to: &localAddr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+                return getsockname(socket, $0, &len)
+            }
+        }
+
+        if rc != 0 {
+            throw DistributedSystemErrors.error("getsockname() failed: \(errno)")
+        }
+
+        let sameHost = addrinfo.pointee.ai_addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) {
+            localAddr.sin_addr.s_addr == $0.pointee.sin_addr.s_addr
+        }
+
+        if sameHost {
+            return nil
+        }
+
+        let bufferSize = Int((localAddr.sin_family == AF_INET) ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN)
+        let buffer = UnsafeMutablePointer<CChar>.allocate(capacity: bufferSize)
+        defer { buffer.deallocate() }
+        let ptr = inet_ntop(Int32(localAddr.sin_family), &localAddr.sin_addr, buffer, socklen_t(bufferSize))
+        guard let ptr else {
+            throw DistributedSystemErrors.error("inet_ntop() failed: \(errno)")
+        }
+        return String(cString: ptr)
+    }
+
     public func start(at address: NetworkAddress = NetworkAddress.anyAddress) async throws {
         try super.start()
+
+        let localAddress = try Self.localAddress(consul.serverHost)
+        if let localAddress {
+            logger.info("registering in the Consul agent @ \(consul.serverHost) with address \(localAddress)")
+        } else {
+            logger.info("registering in the local Consul agent")
+        }
+        self.localAddress = localAddress
 
         let serverChannel = try await ServerBootstrap(group: eventLoopGroup)
             .serverChannelOption(ChannelOptions.tcpOption(.tcp_nodelay), value: 1)
@@ -46,18 +118,18 @@ public class DistributedSystemServer: DistributedSystem {
             .bind(host: address.host, port: address.port)
             .get()
 
-        guard let localAddress = serverChannel.localAddress else {
+        guard let channelLocalAddress = serverChannel.localAddress else {
             throw DistributedSystemErrors.error("Can't evaluate local address")
         }
 
-        self.localAddress = localAddress
-
-        guard let portNumber = localAddress.port else {
-            throw DistributedSystemErrors.error("Invalid local address (\(#file):\(#line))")
+        guard let localPort = channelLocalAddress.port else {
+            throw DistributedSystemErrors.error("Invalid local address \(channelLocalAddress)")
         }
 
-        loggerBox.value[metadataKey: "port"] = Logger.MetadataValue(stringLiteral: "\(portNumber)")
-        logger.info("starting server '\(systemName)' @ \(portNumber) (compression mode = \(compressionMode))")
+        self.localPort = localPort
+
+        loggerBox.value[metadataKey: "port"] = Logger.MetadataValue(stringLiteral: "\(localPort)")
+        logger.info("starting server '\(systemName)' @ \(localPort) (compression mode = \(compressionMode))")
     }
 
     private func registerService(_ serviceName: String, _ serviceID: UUID, metadata: [String: String]) -> EventLoopFuture<Void> {
@@ -67,15 +139,12 @@ public class DistributedSystemServer: DistributedSystem {
         // Service can crash, then OS will allocate the same port for another service,
         // consul will be able to connect to that port and report that service as 'passing'
         // while in the reality the service will be down
-        guard let port = localAddress.port else {
-            fatalError("Unsupported socket address type")
-        }
         let check = Check(checkID: "service:\(serviceID)",
                           deregisterCriticalServiceAfter: "\(criticalServiceDeregisterTimeout.nanoseconds / Self.nanosecondsInSecond)s",
                           name: "service:\(serviceID)",
                           status: .passing,
                           ttl: "\(healthStatusTTL.nanoseconds / Self.nanosecondsInSecond)s")
-        let service = Service(checks: [check], id: "\(serviceID)", meta: metadata, name: serviceName, port: port)
+        let service = Service(address: localAddress, checks: [check], id: "\(serviceID)", meta: metadata, name: serviceName, port: localPort)
         return consul.agent.registerService(service)
     }
 
@@ -87,10 +156,12 @@ public class DistributedSystemServer: DistributedSystem {
         super.stop()
     }
 
-    public func addService(ofType type: any ServiceEndpoint.Type,
-                           toModule moduleID: ModuleIdentifier,
-                           metadata: [String: String]? = nil,
-                           _ factory: @escaping ServiceFactory) async throws {
+    public func addService(
+        ofType type: any ServiceEndpoint.Type,
+        toModule moduleID: ModuleIdentifier,
+        metadata: [String: String]? = nil,
+        _ factory: @escaping ServiceFactory
+    ) async throws {
         try await addService(name: type.serviceName, toModule: moduleID, metadata: metadata, factory)
     }
 
