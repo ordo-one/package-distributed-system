@@ -17,7 +17,7 @@ import NIOCore
 internal import NIOPosix
 import class ServiceDiscovery.CancellationToken
 
-public class DistributedSystemServer: DistributedSystem {
+public class DistributedSystemServer: DistributedSystem, @unchecked Sendable {
     private var localAddress: String?
     private var localPort: Int?
     private var serviceDiscoveryCancellationToken: ServiceDiscovery.CancellationToken?
