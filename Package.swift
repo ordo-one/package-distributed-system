@@ -10,13 +10,12 @@ let externalDependencies: [String: Range<Version>] = [
     "https://github.com/apple/swift-nio": .upToNextMajor(from: "2.42.0"),
     "https://github.com/apple/swift-log": .upToNextMajor(from: "1.4.4"),
     "https://github.com/ordo-one/swift-service-lifecycle_1.0": .upToNextMajor(from: "1.0.0-alpha.13"), // to remove in future
-    "https://github.com/apple/swift-service-discovery.git" : .upToNextMajor(from: "1.0.0"),
     "https://github.com/ordo-one/package-system-libs": .upToNextMajor(from: "0.0.3"),
 ]
 
 let internalDependencies: [String: Range<Version>] = [
     "package-benchmark": .upToNextMajor(from: "1.0.0"),
-    "package-consul": .upToNextMajor(from: "7.0.0"),
+    "package-consul": .upToNextMajor(from: "8.0.0"),
 ]
 
 #if swift(>=6.0)
@@ -83,7 +82,6 @@ let package = Package(
                 .product(name: "lz4", package: "package-system-libs"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
-                .product(name: "ServiceDiscovery", package: "swift-service-discovery"),
             ],
             swiftSettings:[
                 .enableExperimentalFeature("AccessLevelOnImport")

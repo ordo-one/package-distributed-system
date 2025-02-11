@@ -290,14 +290,13 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         self.systemName = systemName
         self.addressTag = addressTag
         eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 2)
-        consul = Consul()
+        consul = Consul(logLevel: logLevel)
         consulServiceDiscovery = ConsulServiceDiscovery(consul)
         discoveryManager = DiscoveryManager(loggerBox)
         syncCallManager = SyncCallManager(loggerBox)
         self.compressionMode = compressionMode
 
         loggerBox.value.logLevel = logLevel
-        consul.logLevel = logLevel
     }
 
     deinit {
