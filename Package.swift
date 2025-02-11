@@ -17,7 +17,6 @@ let externalDependencies: [String: Range<Version>] = [
 let internalDependencies: [String: Range<Version>] = [
     "package-benchmark": .upToNextMajor(from: "1.0.0"),
     "package-consul": .upToNextMajor(from: "7.0.0"),
-    "package-latency-tools": .upToNextMajor(from: "1.0.0")
 ]
 
 #if swift(>=6.0)
@@ -119,7 +118,6 @@ let package = Package(
                 "TestMessages",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Lifecycle", package: "swift-service-lifecycle_1.0"),
-                .product(name: "LatencyTimer", package: "package-latency-tools")
             ],
             path: "Sources/ForTesting/TestClient",
             swiftSettings: [
@@ -133,7 +131,6 @@ let package = Package(
                 "TestMessages",
                 .product(name: "Benchmark", package: "package-benchmark"),
                 .product(name: "BenchmarkPlugin", package: "package-benchmark"),
-                .product(name: "LatencyTimer", package: "package-latency-tools")
             ],
             path: "Benchmarks/DistributedSystem",
             swiftSettings: [

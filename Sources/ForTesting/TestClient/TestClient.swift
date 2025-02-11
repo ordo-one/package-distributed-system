@@ -3,7 +3,6 @@ import Dispatch
 import Distributed
 import DistributedSystem
 import class Foundation.ProcessInfo
-import LatencyTimer
 import Lifecycle
 import Logging
 import TestMessages
@@ -40,7 +39,7 @@ public struct ClientStarter: AsyncParsableCommand {
 public class TestClient: TestableClient, @unchecked Sendable {
     private let actorSystem: DistributedSystem
 
-    private var start: UInt64 = 0
+    private var start: ContinuousClock.Instant?
     private var received = 0
     private var expected = 0
 
@@ -60,12 +59,14 @@ public class TestClient: TestableClient, @unchecked Sendable {
     }
 
     public func snapshotDone(for _: Stream) async {
-        let finish = LatencyTimer.getTimestamp()
+        let finish = ContinuousClock.now
         if received != expected {
             logger.error("MISBEHAVIOR: received \(received) monsters, but expected \(expected)")
         }
-        let timePassed = finish - start
-        logger.info("Stream snapshot done in \(timePassed) usec, received \(received) monsters")
+        if let start {
+            let duration = start.duration(to: finish)
+            logger.info("Stream snapshot done in \(duration), received \(received) monsters")
+        }
     }
 
     public func handleConnectionState(_ state: ConnectionState) async {
@@ -85,7 +86,7 @@ public class TestClient: TestableClient, @unchecked Sendable {
             )
 
             let openRequest = _OpenRequestStruct(requestIdentifier: 1)
-            start = LatencyTimer.getTimestamp()
+            start = ContinuousClock.now
 
             try await serverEndpoint.openStream(byRequest: OpenRequest(openRequest))
         } catch {
