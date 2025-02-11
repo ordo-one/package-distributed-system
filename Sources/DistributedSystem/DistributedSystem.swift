@@ -133,8 +133,10 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
     }
 
-    public final class CancellationToken: Hashable {
+    public final class CancellationToken: Hashable, @unchecked Sendable {
         private let actorSystem: DistributedSystem
+        // both 'serviceName' and 'cancelled' are supposed
+        // to be accessed or modified under the DiscoveryManager.lock
         var serviceName: String?
         var cancelled: Bool = false
 
