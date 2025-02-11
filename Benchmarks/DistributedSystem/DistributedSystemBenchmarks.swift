@@ -3,7 +3,6 @@ import Dispatch
 import Distributed
 import DistributedSystem
 import class Foundation.ProcessInfo
-import LatencyTimer
 import Logging
 import TestMessages
 

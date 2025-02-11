@@ -119,7 +119,6 @@ let package = Package(
                 "TestMessages",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Lifecycle", package: "swift-service-lifecycle_1.0"),
-                .product(name: "LatencyTimer", package: "package-latency-tools")
             ],
             path: "Sources/ForTesting/TestClient",
             swiftSettings: [
@@ -133,7 +132,6 @@ let package = Package(
                 "TestMessages",
                 .product(name: "Benchmark", package: "package-benchmark"),
                 .product(name: "BenchmarkPlugin", package: "package-benchmark"),
-                .product(name: "LatencyTimer", package: "package-latency-tools")
             ],
             path: "Benchmarks/DistributedSystem",
             swiftSettings: [

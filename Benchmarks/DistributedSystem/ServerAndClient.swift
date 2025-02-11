@@ -1,6 +1,5 @@
 import Benchmark
 import DistributedSystem
-import LatencyTimer
 import Logging
 import TestMessages
 internal import struct NIOConcurrencyHelpers.NIOLock
