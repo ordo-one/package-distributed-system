@@ -7,8 +7,6 @@ import Lifecycle
 import Logging
 import TestMessages
 
-public var logger = Logger(label: "server")
-
 @main
 public struct ServiceStarter: AsyncParsableCommand {
     @Option(
@@ -25,7 +23,6 @@ public struct ServiceStarter: AsyncParsableCommand {
 
     public mutating func run() async throws {
         let service = TestService(host: host, port: port)
-
         await service.run()
     }
 }
@@ -33,6 +30,7 @@ public struct ServiceStarter: AsyncParsableCommand {
 public class TestService: TestableService, @unchecked Sendable {
     private let actorSystem: DistributedSystemServer
 
+    private let logger: Logger
     private let serverHost: String
     private let serverPort: Int
 
@@ -40,10 +38,12 @@ public class TestService: TestableService, @unchecked Sendable {
     private var clientEndpoint: TestClientEndpoint?
 
     public init(host: String, port: Int) {
+        var logger = Logger(label: "server")
+        logger.logLevel = .info
+        self.logger = logger
+
         serverHost = host
         serverPort = port
-
-        logger.logLevel = .info
 
         let processInfo = ProcessInfo.processInfo
         let systemName = "\(processInfo.hostName)-test_system-\(processInfo.processIdentifier)"
