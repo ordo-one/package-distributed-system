@@ -7,8 +7,6 @@ import Lifecycle
 import Logging
 import TestMessages
 
-public var logger = Logger(label: "client")
-
 @main
 public struct ClientStarter: AsyncParsableCommand {
     @Option(
@@ -24,29 +22,27 @@ public struct ClientStarter: AsyncParsableCommand {
     public init() {}
 
     public mutating func run() async throws {
-        if debug {
-            logger.logLevel = .debug
-        } else {
-            logger.logLevel = .info
-        }
-
-        let client = TestClient(query: query)
-
+        let logLevel: Logger.Level = debug ? .debug : .info
+        let client = TestClient(query: query, logLevel)
         await client.run()
     }
 }
 
 public class TestClient: TestableClient, @unchecked Sendable {
     private let actorSystem: DistributedSystem
+    private let logger: Logger
 
     private var start: ContinuousClock.Instant?
     private var received = 0
     private var expected = 0
 
-    public init(query: String) {
+    public init(query: String, _ logLevel: Logger.Level) {
         let processInfo = Foundation.ProcessInfo.processInfo
         let systemName = "\(processInfo.hostName)-test_system-\(processInfo.processIdentifier)"
         actorSystem = DistributedSystem(systemName: systemName)
+        var logger = Logger(label: "client")
+        logger.logLevel = logLevel
+        self.logger = logger
     }
 
     public func streamOpened(_: StreamOpened) async {
