@@ -25,6 +25,7 @@ private enum HandshakeResponse: UInt8 {
 }
 
 extension ChannelHandlerContext: @unchecked @retroactive Sendable {}
+extension ByteToMessageHandler: @unchecked @retroactive Sendable {}
 
 final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableChannelHandler, @unchecked Sendable {
     typealias InboundIn = ByteBuffer
@@ -184,7 +185,7 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
             return
         }
 
-        future.flatMap {
+        future.flatMap { [buffer] in
             _ = pipeline.removeHandler(self)
             prevContext.fireChannelActive()
             if buffer.readableBytes > 0 {
