@@ -9,7 +9,7 @@
 import Atomics
 import NIOCore
 
-final class ChannelCounters: ChannelInboundHandler, ChannelOutboundHandler {
+final class ChannelCounters: ChannelInboundHandler, ChannelOutboundHandler, @unchecked Sendable {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
     typealias OutboundIn = ByteBuffer
