@@ -9,7 +9,7 @@
 import Logging
 import NIOCore
 
-final class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandler {
+final class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandler, @unchecked Sendable {
     typealias InboundIn = ByteBuffer
 
     private let distributedSystem: DistributedSystem
@@ -97,7 +97,7 @@ final class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandl
     }
 }
 
-final class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandler {
+final class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandler, @unchecked Sendable {
     typealias InboundIn = ByteBuffer
 
     private let distributedSystem: DistributedSystem

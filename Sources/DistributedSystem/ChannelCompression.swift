@@ -9,6 +9,7 @@
 import Logging
 import lz4
 import NIOCore
+import struct Foundation.Data
 
 private enum HandshakeRequest: UInt8 {
     case noCompression = 0
@@ -24,6 +25,7 @@ private enum HandshakeResponse: UInt8 {
 }
 
 extension ChannelHandlerContext: @unchecked @retroactive Sendable {}
+extension ByteToMessageHandler: @unchecked @retroactive Sendable {}
 
 final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableChannelHandler, @unchecked Sendable {
     typealias InboundIn = ByteBuffer
@@ -68,7 +70,7 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
         return promise.futureResult
     }
 
-    private func sendDictionaryResponse(_ dictionary: UnsafeRawBufferPointer, to context: ChannelHandlerContext) -> EventLoopFuture<Void> {
+    private func sendDictionaryResponse(_ dictionary: Data, to context: ChannelHandlerContext) -> EventLoopFuture<Void> {
         logger.debug("\(context.channel.addressDescription)/\(Self.self): send dictionary (\(dictionary.count) bytes)")
         let size = MemoryLayout<HandshakeResponse.RawValue>.size + ULEB128.size(UInt32(dictionary.count)) + dictionary.count
         var buffer = ByteBufferAllocator().buffer(capacity: size)
@@ -113,9 +115,9 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
                 sendResponse(.streamingCompression, to: context).flatMap {
                     pipeline.addHandler(ChannelStreamCompressionOutboundHandler(self.distributedSystem))
                 }
-            case let .dictionary(dictionaryData):
-                sendDictionaryResponse(dictionaryData.data.value, to: context).flatMap {
-                    pipeline.addHandler(ChannelDictCompressionOutboundHandler(self.distributedSystem, dictionaryData.data))
+            case let .dictionary(dictionary, _):
+                sendDictionaryResponse(dictionary, to: context).flatMap {
+                    pipeline.addHandler(ChannelDictCompressionOutboundHandler(self.distributedSystem, dictionary))
                 }
             }
             future = sendFuture.flatMap {
@@ -130,9 +132,9 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
                 sendResponse(.streamingCompression, to: context).flatMap {
                     pipeline.addHandler(ChannelStreamCompressionOutboundHandler(self.distributedSystem))
                 }
-            case let .dictionary(dictionaryData):
-                sendDictionaryResponse(dictionaryData.data.value, to: context).flatMap {
-                    pipeline.addHandler(ChannelDictCompressionOutboundHandler(self.distributedSystem, dictionaryData.data))
+            case let .dictionary(dictionary, _):
+                sendDictionaryResponse(dictionary, to: context).flatMap {
+                    pipeline.addHandler(ChannelDictCompressionOutboundHandler(self.distributedSystem, dictionary))
                 }
             }
             future = sendFuture.flatMap {
@@ -156,19 +158,19 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
                     _ = pipeline.addHandler(DictionaryReceiver(self.distributedSystem, self.channelHandler))
                     return pipeline.addHandler(ChannelStreamCompressionOutboundHandler(self.distributedSystem))
                 }
-            case let .dictionary(dictionaryData):
-                if checksum == dictionaryData.checksum {
+            case let .dictionary(dictionary, dictionaryChecksum):
+                if checksum == dictionaryChecksum {
                     // same dictionary on both sides
                     future = sendResponse(.sameDictionary, to: context).flatMap {
-                        _ = pipeline.addHandler(ChannelDictCompressionOutboundHandler(self.distributedSystem, dictionaryData.data))
+                        _ = pipeline.addHandler(ChannelDictCompressionOutboundHandler(self.distributedSystem, dictionary))
                         _ = pipeline.addHandler(ByteToMessageHandler(StreamDecoder(self.distributedSystem.loggerBox)))
-                        _ = pipeline.addHandler(ChannelDictCompressionInboundHandler(self.distributedSystem, dictionaryData.data))
+                        _ = pipeline.addHandler(ChannelDictCompressionInboundHandler(self.distributedSystem, dictionary))
                         return pipeline.addHandler(self.channelHandler, name: ChannelHandler.name)
                     }
                 } else {
-                    future = sendDictionaryResponse(dictionaryData.data.value, to: context).flatMap {
+                    future = sendDictionaryResponse(dictionary, to: context).flatMap {
                         _ = pipeline.addHandler(DictionaryReceiver(self.distributedSystem, self.channelHandler))
-                        return pipeline.addHandler(ChannelDictCompressionOutboundHandler(self.distributedSystem, dictionaryData.data))
+                        return pipeline.addHandler(ChannelDictCompressionOutboundHandler(self.distributedSystem, dictionary))
                     }
                 }
             }
@@ -183,7 +185,7 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
             return
         }
 
-        future.flatMap {
+        future.flatMap { [buffer] in
             _ = pipeline.removeHandler(self)
             prevContext.fireChannelActive()
             if buffer.readableBytes > 0 {
@@ -204,7 +206,8 @@ final class DictionaryReceiver: ChannelInboundHandler, RemovableChannelHandler, 
     private let distributedSystem: DistributedSystem
     private let channelHandler: ChannelHandler
     private var timer: Scheduled<Void>?
-    private var dictionary = UnsafeMutableRawBufferPointer(start: nil, count: 0)
+    private var dictionary = Data()
+    private var dictionarySize = 0
     private var dictionaryBytesReceived = 0
 
     private var logger: Logger { distributedSystem.loggerBox.value }
@@ -212,10 +215,6 @@ final class DictionaryReceiver: ChannelInboundHandler, RemovableChannelHandler, 
     init(_ distributedSystem: DistributedSystem, _ channelHandler: ChannelHandler) {
         self.distributedSystem = distributedSystem
         self.channelHandler = channelHandler
-    }
-
-    deinit {
-        dictionary.deallocate()
     }
 
     private func startTimer(_ context: ChannelHandlerContext, _ timeout: TimeAmount, _ lastDictionaryBytesReceived: Int) {
@@ -248,11 +247,11 @@ final class DictionaryReceiver: ChannelInboundHandler, RemovableChannelHandler, 
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         var buffer = unwrapInboundIn(data)
-        if dictionary.count == 0 {
+        if dictionarySize == 0 {
             do {
                 let (sizeSize, dictionarySize) = try buffer.withUnsafeReadableBytes { try ULEB128.decode($0, as: UInt32.self) }
                 buffer.moveReaderIndex(forwardBy: sizeSize)
-                dictionary = UnsafeMutableRawBufferPointer.allocate(byteCount: Int(dictionarySize), alignment: 0)
+                self.dictionarySize = Int(dictionarySize)
             } catch {
                 // Is there any probability to receive less than 5 bytes?
                 // Let's just close connection for now in such case.
@@ -262,15 +261,16 @@ final class DictionaryReceiver: ChannelInboundHandler, RemovableChannelHandler, 
             }
         }
 
-        let bytesRemaining = (dictionary.count - dictionaryBytesReceived)
+        let bytesRemaining = (dictionarySize - dictionaryBytesReceived)
         let copyBytes = min(bytesRemaining, buffer.readableBytes)
         buffer.withUnsafeReadableBytes {
-            let ptr = self.dictionary.baseAddress! + dictionaryBytesReceived
-            ptr.copyMemory(from: $0.baseAddress!, byteCount: copyBytes)
+            $0.withMemoryRebound(to: UInt8.self) {
+                dictionary.append($0.baseAddress!, count: copyBytes)
+            }
         }
         buffer.moveReaderIndex(forwardBy: copyBytes)
         dictionaryBytesReceived += copyBytes
-        if dictionaryBytesReceived < dictionary.count {
+        if dictionaryBytesReceived < dictionarySize {
             return
         }
 
@@ -279,11 +279,7 @@ final class DictionaryReceiver: ChannelInboundHandler, RemovableChannelHandler, 
             self.timer = nil
         }
 
-        let ptr = UnsafeRawBufferPointer(self.dictionary)
-        self.dictionary = UnsafeMutableRawBufferPointer(start: nil, count: 0)
-
-        let dictionary = BoxEx(ptr) { ptr.deallocate() }
-        logger.debug("\(context.channel.addressDescription)/\(Self.self): received dictionary (\(ptr.count) bytes)")
+        logger.debug("\(context.channel.addressDescription)/\(Self.self): received dictionary (\(dictionary.count) bytes)")
 
         let pipeline = context.pipeline
         let prevContext: ChannelHandlerContext
@@ -334,10 +330,10 @@ final class ChannelCompressionHandshakeClient: ChannelInboundHandler, RemovableC
             var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<HandshakeRequest.RawValue>.size)
             buffer.writeInteger(HandshakeRequest.streamingCompression.rawValue)
             context.writeAndFlush(NIOAny(buffer), promise: promise)
-        case let .dictionary(dictionary):
+        case let .dictionary(_, dictionaryChecksum):
             var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<HandshakeRequest.RawValue>.size + MemoryLayout<UInt32>.size)
             buffer.writeInteger(HandshakeRequest.dictionaryCompression.rawValue)
-            buffer.writeInteger(dictionary.checksum)
+            buffer.writeInteger(dictionaryChecksum)
             context.writeAndFlush(NIOAny(buffer), promise: promise)
         }
 
@@ -359,7 +355,7 @@ final class ChannelCompressionHandshakeClient: ChannelInboundHandler, RemovableC
         }
     }
 
-    private func sendDictionary(_ dictionary: UnsafeRawBufferPointer, to context: ChannelHandlerContext) -> EventLoopFuture<Void> {
+    private func sendDictionary(_ dictionary: Data, to context: ChannelHandlerContext) -> EventLoopFuture<Void> {
         logger.debug("\(context.channel.addressDescription)/\(Self.self): send dictionary (\(dictionary.count) bytes)")
         let size = ULEB128.size(UInt32(dictionary.count)) + dictionary.count
         var buffer = ByteBufferAllocator().buffer(capacity: size)
@@ -400,9 +396,9 @@ final class ChannelCompressionHandshakeClient: ChannelInboundHandler, RemovableC
                 context.eventLoop.makeSucceededVoidFuture()
             case .streaming:
                 pipeline.addHandler(ChannelStreamCompressionOutboundHandler(distributedSystem))
-            case let .dictionary(dictionaryData):
-                sendDictionary(dictionaryData.data.value, to: context).flatMap {
-                    pipeline.addHandler(ChannelDictCompressionOutboundHandler(self.distributedSystem, dictionaryData.data))
+            case let .dictionary(dictionary, _):
+                sendDictionary(dictionary, to: context).flatMap {
+                    pipeline.addHandler(ChannelDictCompressionOutboundHandler(self.distributedSystem, dictionary))
                 }
             }
             future = sendFuture.flatMap {
@@ -415,9 +411,9 @@ final class ChannelCompressionHandshakeClient: ChannelInboundHandler, RemovableC
                 context.eventLoop.makeSucceededVoidFuture()
             case .streaming:
                 pipeline.addHandler(ChannelStreamCompressionOutboundHandler(distributedSystem))
-            case let .dictionary(dictionaryData):
-                sendDictionary(dictionaryData.data.value, to: context).flatMap {
-                    pipeline.addHandler(ChannelDictCompressionOutboundHandler(self.distributedSystem, dictionaryData.data))
+            case let .dictionary(dictionary, _):
+                sendDictionary(dictionary, to: context).flatMap {
+                    pipeline.addHandler(ChannelDictCompressionOutboundHandler(self.distributedSystem, dictionary))
                 }
             }
             future = sendFuture.flatMap {
@@ -426,10 +422,10 @@ final class ChannelCompressionHandshakeClient: ChannelInboundHandler, RemovableC
                 return pipeline.addHandler(self.channelHandler, name: ChannelHandler.name)
             }
         case .sameDictionary:
-            if case let .dictionary(dictionaryData) = distributedSystem.compressionMode {
-                _ = pipeline.addHandler(ChannelDictCompressionOutboundHandler(distributedSystem, dictionaryData.data))
+            if case let .dictionary(dictionary, _) = distributedSystem.compressionMode {
+                _ = pipeline.addHandler(ChannelDictCompressionOutboundHandler(distributedSystem, dictionary))
                 _ = pipeline.addHandler(ByteToMessageHandler(StreamDecoder(self.distributedSystem.loggerBox)))
-                _ = pipeline.addHandler(ChannelDictCompressionInboundHandler(distributedSystem, dictionaryData.data))
+                _ = pipeline.addHandler(ChannelDictCompressionInboundHandler(distributedSystem, dictionary))
                 future = pipeline.addHandler(self.channelHandler, name: ChannelHandler.name)
             } else {
                 logger.info("\(context.channel.addressDescription): unexpected response 'sameDictionary' received, closing connection")
@@ -442,9 +438,9 @@ final class ChannelCompressionHandshakeClient: ChannelInboundHandler, RemovableC
                 context.eventLoop.makeSucceededVoidFuture()
             case .streaming:
                 pipeline.addHandler(ChannelStreamCompressionOutboundHandler(distributedSystem))
-            case let .dictionary(dictionaryData):
-                sendDictionary(dictionaryData.data.value, to: context).flatMap {
-                    pipeline.addHandler(ChannelDictCompressionOutboundHandler(self.distributedSystem, dictionaryData.data))
+            case let .dictionary(dictionary, _):
+                sendDictionary(dictionary, to: context).flatMap {
+                    pipeline.addHandler(ChannelDictCompressionOutboundHandler(self.distributedSystem, dictionary))
                 }
             }
             future = sendFuture.flatMap {
@@ -460,7 +456,7 @@ final class ChannelCompressionHandshakeClient: ChannelInboundHandler, RemovableC
             return
         }
 
-        future.flatMap {
+        future.flatMap { [buffer] in
             _ = pipeline.removeHandler(self)
             prevContext.fireChannelActive()
             if buffer.readableBytes > 0 {
@@ -494,6 +490,22 @@ struct BufferManager: ~Copyable {
             buffers[idx] = buffer
         }
         return buffer
+    }
+}
+
+struct ManagedUnsafeRawPointer: ~Copyable {
+    let ptr: UnsafeRawPointer
+
+    init(_ data: Data) {
+        ptr = data.withUnsafeBytes {
+            var ptr = UnsafeMutableRawPointer.allocate(byteCount: data.count, alignment: 0)
+            ptr.copyMemory(from: $0.baseAddress!, byteCount: $0.count)
+            return UnsafeRawPointer(ptr)
+        }
+    }
+
+    deinit {
+        ptr.deallocate()
     }
 }
 
@@ -564,12 +576,14 @@ final class ChannelStreamCompressionInboundHandler: ChannelCompressionInboundHan
 }
 
 final class ChannelDictCompressionInboundHandler: ChannelCompressionInboundHandler, @unchecked Sendable {
-    private let dictionary: BoxEx<UnsafeRawBufferPointer>
-    private var lz4Stream = LZ4_streamDecode_t()
+    private let dictionary: ManagedUnsafeRawPointer
+    private let lz4Stream: LZ4_streamDecode_t
 
-    init(_ distributedSystem: DistributedSystem, _ dictionary: BoxEx<UnsafeRawBufferPointer>) {
-        self.dictionary = dictionary
-        LZ4_setStreamDecode(&lz4Stream, dictionary.value.baseAddress, Int32(dictionary.value.count))
+    init(_ distributedSystem: DistributedSystem, _ dictionary: Data) {
+        self.dictionary = .init(dictionary)
+        var lz4Stream = LZ4_streamDecode_t()
+        LZ4_setStreamDecode(&lz4Stream, self.dictionary.ptr, Int32(dictionary.count))
+        self.lz4Stream = lz4Stream
         super.init(distributedSystem)
     }
 
@@ -667,13 +681,15 @@ final class ChannelStreamCompressionOutboundHandler: ChannelCompressionOutboundH
 }
 
 final class ChannelDictCompressionOutboundHandler: ChannelCompressionOutboundHandler, @unchecked Sendable {
-    private let dictionary: BoxEx<UnsafeRawBufferPointer>
-    private var lz4Stream = LZ4_stream_t()
+    private let dictionary: ManagedUnsafeRawPointer
+    private let lz4Stream: LZ4_stream_t
 
-    init(_ distributedSystem: DistributedSystem, _ dictionary: BoxEx<UnsafeRawBufferPointer>) {
-        self.dictionary = dictionary
+    init(_ distributedSystem: DistributedSystem, _ dictionary: Data) {
+        self.dictionary = .init(dictionary)
+        var lz4Stream = LZ4_stream_t()
         LZ4_initStream(&lz4Stream, MemoryLayout<LZ4_stream_t>.size)
-        LZ4_loadDict(&lz4Stream, dictionary.value.baseAddress!, Int32(dictionary.value.count))
+        LZ4_loadDict(&lz4Stream, self.dictionary.ptr, Int32(dictionary.count))
+        self.lz4Stream = lz4Stream
         super.init(distributedSystem)
     }
 
