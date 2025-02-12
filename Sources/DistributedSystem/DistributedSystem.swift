@@ -16,9 +16,9 @@ import Logging
 import struct Foundation.Data
 import struct Foundation.UUID
 import NIOCore
-import Synchronization
 internal import NIOPosix
 internal import struct NIOConcurrencyHelpers.NIOLock
+internal import struct NIOConcurrencyHelpers.NIOLockedValueBox
 
 #if os(Linux)
 typealias uuid_t = (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8)
@@ -35,18 +35,6 @@ public final class Box<T> {
 
     public init(_ value: T) {
         self.value = value
-    }
-}
-
-final class LockingBox<Value> {
-    private let mutex: Mutex<Value>
-
-    init(_ value: Value) {
-        self.mutex = .init(value)
-    }
-
-    func withLock<Result>(_ body: (inout sending Value) -> sending Result) -> sending Result {
-        mutex.withLock(body)
     }
 }
 
@@ -552,13 +540,13 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             return false
         case let .started(discover, addresses):
             if discover {
-                let lastServicesBox = LockingBox<[NodeService]>([])
+                let lastServicesBox = NIOLockedValueBox<[NodeService]>([])
                 _ = consulServiceDiscovery.subscribe(
                     to: serviceName,
                     onNext: { result in
                         switch result {
                         case let .success(services):
-                            var lastServices = lastServicesBox.withLock { exchange(&$0, with: []) }
+                            var lastServices = lastServicesBox.withLockedValue { exchange(&$0, with: []) }
                             for service in services {
                                 self.logger.trace("Found service \(service)")
 
@@ -598,7 +586,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                                 }
                             }
 
-                            lastServicesBox.withLock { $0 = services }
+                            lastServicesBox.withLockedValue { $0 = services }
 
                         case let .failure(error):
                             self.logger.debug("\(error)")
@@ -633,7 +621,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         serviceHandler: ((S, ConsulServiceDiscovery.Instance) -> Void)? = nil,
         deadline: DispatchTime? = nil
     ) async throws -> S where S.ID == EndpointIdentifier, S.ActorSystem == DistributedSystem {
-        let monitor = LockingBox<(cancelled: Bool, continuation: CheckedContinuation<S, Error>?)>((false, nil))
+        let monitor = NIOLockedValueBox<(cancelled: Bool, continuation: CheckedContinuation<S, Error>?)>((false, nil))
         let cancellationToken = self.makeCancellationToken()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -648,7 +636,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     }
                 }
 
-                let cancelled = monitor.withLock {
+                let cancelled = monitor.withLockedValue {
                     if $0.cancelled {
                         return true
                     } else {
@@ -683,7 +671,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 }
             }
         } onCancel: {
-            let continuation = monitor.withLock {
+            let continuation = monitor.withLockedValue {
                 assert(!$0.cancelled)
                 $0.cancelled = true
                 return $0.continuation
