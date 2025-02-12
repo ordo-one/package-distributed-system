@@ -493,6 +493,22 @@ struct BufferManager: ~Copyable {
     }
 }
 
+struct ManagedUnsafeRawPointer: ~Copyable {
+    let ptr: UnsafeRawPointer
+
+    init(_ data: Data) {
+        ptr = data.withUnsafeBytes {
+            var ptr = UnsafeMutableRawPointer.allocate(byteCount: data.count, alignment: 0)
+            ptr.copyMemory(from: $0.baseAddress!, byteCount: $0.count)
+            return UnsafeRawPointer(ptr)
+        }
+    }
+
+    deinit {
+        ptr.deallocate()
+    }
+}
+
 class ChannelCompressionInboundHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
@@ -560,27 +576,15 @@ final class ChannelStreamCompressionInboundHandler: ChannelCompressionInboundHan
 }
 
 final class ChannelDictCompressionInboundHandler: ChannelCompressionInboundHandler, @unchecked Sendable {
-    private let dictionary: UnsafeRawPointer
+    private let dictionary: ManagedUnsafeRawPointer
     private let lz4Stream: LZ4_streamDecode_t
 
     init(_ distributedSystem: DistributedSystem, _ dictionary: Data) {
-        let ptr = dictionary.withUnsafeBytes {
-            let ptr = UnsafeMutableRawPointer.allocate(byteCount: $0.count, alignment: 0)
-            ptr.copyMemory(from: $0.baseAddress!, byteCount: $0.count)
-            return UnsafeRawPointer(ptr)
-        }
-
+        self.dictionary = .init(dictionary)
         var lz4Stream = LZ4_streamDecode_t()
-        LZ4_setStreamDecode(&lz4Stream, ptr, Int32(dictionary.count))
-
-        self.dictionary = ptr
+        LZ4_setStreamDecode(&lz4Stream, self.dictionary.ptr, Int32(dictionary.count))
         self.lz4Stream = lz4Stream
-
         super.init(distributedSystem)
-    }
-
-    deinit {
-        dictionary.deallocate()
     }
 
     override func channelRead(context: ChannelHandlerContext, data: NIOAny) {
@@ -677,28 +681,16 @@ final class ChannelStreamCompressionOutboundHandler: ChannelCompressionOutboundH
 }
 
 final class ChannelDictCompressionOutboundHandler: ChannelCompressionOutboundHandler, @unchecked Sendable {
-    private let dictionary: UnsafeRawPointer
+    private let dictionary: ManagedUnsafeRawPointer
     private let lz4Stream: LZ4_stream_t
 
     init(_ distributedSystem: DistributedSystem, _ dictionary: Data) {
-        let ptr = dictionary.withUnsafeBytes {
-            let ptr = UnsafeMutableRawPointer.allocate(byteCount: $0.count, alignment: 0)
-            ptr.copyMemory(from: $0.baseAddress!, byteCount: $0.count)
-            return UnsafeRawPointer(ptr)
-        }
-
+        self.dictionary = .init(dictionary)
         var lz4Stream = LZ4_stream_t()
         LZ4_initStream(&lz4Stream, MemoryLayout<LZ4_stream_t>.size)
-        LZ4_loadDict(&lz4Stream, ptr, Int32(dictionary.count))
-
-        self.dictionary = ptr
+        LZ4_loadDict(&lz4Stream, self.dictionary.ptr, Int32(dictionary.count))
         self.lz4Stream = lz4Stream
-
         super.init(distributedSystem)
-    }
-
-    deinit {
-        dictionary.deallocate()
     }
 
     override func write(context: ChannelHandlerContext, data: NIOAny, promise: EventLoopPromise<Void>?) {
