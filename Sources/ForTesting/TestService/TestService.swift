@@ -14,7 +14,7 @@ public struct ServiceStarter: AsyncParsableCommand {
     @Option(
         help: "Service host address"
     )
-    var host: String = "127.0.0.1"
+    var host: String = "0.0.0.0"
 
     @Option(
         help: "Service port number"
@@ -46,7 +46,7 @@ public class TestService: TestableService, @unchecked Sendable {
         logger.logLevel = .info
 
         let processInfo = ProcessInfo.processInfo
-        let systemName = "\(processInfo.hostName)-test_system-\(processInfo.processIdentifier)"
+        let systemName = "\(processInfo.hostName)-test_system"
         actorSystem = DistributedSystemServer(systemName: systemName)
     }
 

@@ -45,7 +45,7 @@ public class TestClient: TestableClient, @unchecked Sendable {
 
     public init(query: String) {
         let processInfo = Foundation.ProcessInfo.processInfo
-        let systemName = "\(processInfo.hostName)-test_system-\(processInfo.processIdentifier)"
+        let systemName = "\(processInfo.hostName)-test_system"
         actorSystem = DistributedSystem(systemName: systemName)
     }
 
