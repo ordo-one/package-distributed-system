@@ -35,7 +35,10 @@ class SyncCallManager {
         self.loggerBox = loggerBox
     }
 
-    private func resumeContinuation(_ continuation: CheckedContinuation<any DistributedSystem.SerializationRequirement, Error>, with result: inout ByteBuffer) {
+    private func resumeContinuation(
+        _ continuation: CheckedContinuation<any DistributedSystem.SerializationRequirement, Error>,
+        with result: inout ByteBuffer
+    ) {
         guard let typeHintSize = result.readInteger(as: UInt16.self),
               let typeHint = result.readString(length: Int(typeHintSize)) else {
             continuation.resume(throwing: DistributedSystemErrors.error("Invalid result received"))
