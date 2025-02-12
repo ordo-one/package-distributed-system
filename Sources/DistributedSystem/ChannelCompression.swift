@@ -23,7 +23,9 @@ private enum HandshakeResponse: UInt8 {
     case dictionary = 3 // + dictionary
 }
 
-final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableChannelHandler {
+extension ChannelHandlerContext: @unchecked @retroactive Sendable {}
+
+final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableChannelHandler, @unchecked Sendable {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
 
@@ -195,7 +197,7 @@ final class ChannelCompressionHandshakeServer: ChannelInboundHandler, RemovableC
     }
 }
 
-final class DictionaryReceiver: ChannelInboundHandler, RemovableChannelHandler {
+final class DictionaryReceiver: ChannelInboundHandler, RemovableChannelHandler, @unchecked Sendable {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
 
@@ -304,7 +306,7 @@ final class DictionaryReceiver: ChannelInboundHandler, RemovableChannelHandler {
     }
 }
 
-final class ChannelCompressionHandshakeClient: ChannelInboundHandler, RemovableChannelHandler {
+final class ChannelCompressionHandshakeClient: ChannelInboundHandler, RemovableChannelHandler, @unchecked Sendable {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
 
@@ -520,7 +522,7 @@ class ChannelCompressionInboundHandler: ChannelInboundHandler {
     }
 }
 
-final class ChannelStreamCompressionInboundHandler: ChannelCompressionInboundHandler {
+final class ChannelStreamCompressionInboundHandler: ChannelCompressionInboundHandler, @unchecked Sendable {
     private var lz4Stream = LZ4_streamDecode_t()
     private var bufferManager = BufferManager()
 
@@ -561,7 +563,7 @@ final class ChannelStreamCompressionInboundHandler: ChannelCompressionInboundHan
     }
 }
 
-final class ChannelDictCompressionInboundHandler: ChannelCompressionInboundHandler {
+final class ChannelDictCompressionInboundHandler: ChannelCompressionInboundHandler, @unchecked Sendable {
     private let dictionary: BoxEx<UnsafeRawBufferPointer>
     private var lz4Stream = LZ4_streamDecode_t()
 
@@ -602,7 +604,7 @@ final class ChannelDictCompressionInboundHandler: ChannelCompressionInboundHandl
     }
 }
 
-class ChannelCompressionOutboundHandler: ChannelInboundHandler, ChannelOutboundHandler {
+class ChannelCompressionOutboundHandler: ChannelInboundHandler, ChannelOutboundHandler, @unchecked Sendable {
     typealias InboundIn = ByteBuffer
     typealias InboundOut = ByteBuffer
     typealias OutboundIn = ByteBuffer
@@ -627,7 +629,7 @@ class ChannelCompressionOutboundHandler: ChannelInboundHandler, ChannelOutboundH
     }
 }
 
-final class ChannelStreamCompressionOutboundHandler: ChannelCompressionOutboundHandler {
+final class ChannelStreamCompressionOutboundHandler: ChannelCompressionOutboundHandler, @unchecked Sendable {
     private var lz4Stream = LZ4_stream_t()
     private var bufferManager = BufferManager()
 
@@ -664,7 +666,7 @@ final class ChannelStreamCompressionOutboundHandler: ChannelCompressionOutboundH
     }
 }
 
-final class ChannelDictCompressionOutboundHandler: ChannelCompressionOutboundHandler {
+final class ChannelDictCompressionOutboundHandler: ChannelCompressionOutboundHandler, @unchecked Sendable {
     private let dictionary: BoxEx<UnsafeRawBufferPointer>
     private var lz4Stream = LZ4_stream_t()
 
