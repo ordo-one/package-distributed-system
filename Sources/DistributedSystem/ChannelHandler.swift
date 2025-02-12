@@ -31,7 +31,7 @@ extension Channel {
     }
 }
 
-class ChannelHandler: ChannelInboundHandler {
+final class ChannelHandler: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = ByteBuffer
     typealias OutboundOut = ByteBuffer
 

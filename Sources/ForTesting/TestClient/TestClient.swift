@@ -38,7 +38,7 @@ public class TestClient: TestableClient, @unchecked Sendable {
 
     public init(query: String, _ logLevel: Logger.Level) {
         let processInfo = Foundation.ProcessInfo.processInfo
-        let systemName = "\(processInfo.hostName)-test_system-\(processInfo.processIdentifier)"
+        let systemName = "\(processInfo.hostName)-test_system"
         actorSystem = DistributedSystem(systemName: systemName)
         var logger = Logger(label: "client")
         logger.logLevel = logLevel
