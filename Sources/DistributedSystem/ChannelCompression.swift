@@ -498,7 +498,7 @@ struct ManagedUnsafeRawPointer: ~Copyable {
 
     init(_ data: Data) {
         ptr = data.withUnsafeBytes {
-            var ptr = UnsafeMutableRawPointer.allocate(byteCount: data.count, alignment: 0)
+            let ptr = UnsafeMutableRawPointer.allocate(byteCount: data.count, alignment: 0)
             ptr.copyMemory(from: $0.baseAddress!, byteCount: $0.count)
             return UnsafeRawPointer(ptr)
         }

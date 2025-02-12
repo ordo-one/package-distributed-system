@@ -16,6 +16,7 @@ import Logging
 import struct Foundation.Data
 import struct Foundation.UUID
 import NIOCore
+import Synchronization
 internal import NIOPosix
 internal import struct NIOConcurrencyHelpers.NIOLock
 
@@ -34,6 +35,18 @@ public final class Box<T> {
 
     public init(_ value: T) {
         self.value = value
+    }
+}
+
+final class LockingBox<Value> {
+    private let mutex: Mutex<Value>
+
+    init(_ value: Value) {
+        self.mutex = .init(value)
+    }
+
+    func withLock<Result>(_ body: (inout sending Value) -> sending Result) -> sending Result {
+        mutex.withLock(body)
     }
 }
 
@@ -112,7 +125,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
     }
 
-    public final class CancellationToken: Hashable {
+    public final class CancellationToken: Hashable, @unchecked Sendable {
         private let actorSystem: DistributedSystem
         var serviceName: String?
         var cancelled: Bool = false
@@ -539,12 +552,13 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             return false
         case let .started(discover, addresses):
             if discover {
-                let lastServices = Box(Array<NodeService>())
+                let lastServicesBox = LockingBox<[NodeService]>([])
                 _ = consulServiceDiscovery.subscribe(
                     to: serviceName,
                     onNext: { result in
                         switch result {
                         case let .success(services):
+                            var lastServices = lastServicesBox.withLock { exchange(&$0, with: []) }
                             for service in services {
                                 self.logger.trace("Found service \(service)")
 
@@ -567,8 +581,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                                     continue
                                 }
 
-                                if let idx = lastServices.value.firstIndex(where: { $0.serviceID == service.serviceID }) {
-                                    lastServices.value.remove(at: idx)
+                                if let idx = lastServices.firstIndex(where: { $0.serviceID == service.serviceID }) {
+                                    lastServices.remove(at: idx)
                                 }
 
                                 let connect = self.discoveryManager.setAddress(address, for: serviceName, serviceID, service)
@@ -578,13 +592,13 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                                 }
                             }
 
-                            for service in lastServices.value {
+                            for service in lastServices {
                                 if let serviceID = UUID(uuidString: service.serviceID) {
                                     self.discoveryManager.removeService(serviceName, serviceID)
                                 }
                             }
 
-                            lastServices.value = services
+                            lastServicesBox.withLock { $0 = services }
 
                         case let .failure(error):
                             self.logger.debug("\(error)")
@@ -604,31 +618,6 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
     }
 
-    private final class Monitor<T> {
-        let lock = NIOLock()
-        var cancelled = false
-        var value: T?
-
-        func setValue(_ value: T) -> Bool {
-            lock.withLock {
-                if cancelled {
-                    return false
-                } else {
-                    self.value = value
-                    return true
-                }
-            }
-        }
-
-        func cancel() -> T? {
-            lock.withLock {
-                assert(cancelled == false)
-                cancelled = true
-                return value
-            }
-        }
-    }
-
     /// To be used to connect to a single service of the particular type.
     /// Function returns the service endpoint instance after connection to service is established and service endpoint is ready for use.
     /// - Parameters:
@@ -644,7 +633,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         serviceHandler: ((S, ConsulServiceDiscovery.Instance) -> Void)? = nil,
         deadline: DispatchTime? = nil
     ) async throws -> S where S.ID == EndpointIdentifier, S.ActorSystem == DistributedSystem {
-        let monitor = Monitor<CheckedContinuation<S, Error>>()
+        let monitor = LockingBox<(cancelled: Bool, continuation: CheckedContinuation<S, Error>?)>((false, nil))
         let cancellationToken = self.makeCancellationToken()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -659,7 +648,16 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     }
                 }
 
-                guard monitor.setValue(continuation) else {
+                let cancelled = monitor.withLock {
+                    if $0.cancelled {
+                        return true
+                    } else {
+                        $0.continuation = continuation
+                        return false
+                    }
+                }
+
+                if cancelled {
                     continuation.resume(throwing: DistributedSystemErrors.cancelled("\(S.self)"))
                     return
                 }
@@ -685,7 +683,12 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 }
             }
         } onCancel: {
-            let continuation = monitor.cancel()
+            let continuation = monitor.withLock {
+                assert(!$0.cancelled)
+                $0.cancelled = true
+                return $0.continuation
+            }
+
             if let continuation {
                 if cancellationToken.cancel() {
                     continuation.resume(throwing: DistributedSystemErrors.cancelled("\(S.self)"))

@@ -1,4 +1,4 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.0
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import class Foundation.ProcessInfo
@@ -42,21 +42,10 @@ func makeDependencies() -> [Package.Dependency] {
     return dependencies
 }
 
-func enableUpcomingFeatures() -> [SwiftSetting] {
-    [
-        .enableUpcomingFeature("BareSlashRegexLiterals"),
-        .enableUpcomingFeature("ConciseMagicFile"),
-        .enableUpcomingFeature("DeprecateApplicationMain"),
-        .enableUpcomingFeature("DisableOutwardActorInference"),
-        .enableUpcomingFeature("ForwardTrailingClosures"),
-        .enableUpcomingFeature("StrictConcurrency"),
-    ]
-}
-
 let package = Package(
     name: "package-distributed-system",
     platforms: [
-        .macOS(.v14),
+        .macOS(.v15),
         .iOS(.v17),
     ],
     products: [
@@ -87,7 +76,7 @@ let package = Package(
             ],
             swiftSettings:[
                 .enableExperimentalFeature("AccessLevelOnImport")
-            ] + enableUpcomingFeatures()
+            ]
         ),
         .target(
             name: "TestMessages",
@@ -148,5 +137,6 @@ let package = Package(
                 .process("Resources")
             ]
         ),
-    ]
+    ],
+    swiftLanguageModes: [.v5]
 )
