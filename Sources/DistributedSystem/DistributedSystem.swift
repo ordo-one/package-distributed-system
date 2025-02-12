@@ -37,57 +37,36 @@ public final class Box<T> {
     }
 }
 
-final class BoxEx<Value> {
-    let value: Value
-    let deinitCallback: () -> Void
-
-    init(_ value: Value, _ deinitCallback: @escaping () -> Void) {
-        self.value = value
-        self.deinitCallback = deinitCallback
-    }
-
-    deinit {
-        deinitCallback()
-    }
-}
-
 public enum CompressionMode: CustomStringConvertible {
-    public struct DictionaryData {
-        let data: BoxEx<UnsafeRawBufferPointer>
-        let checksum: UInt32
-
-        // very simple checksum calculation
-        // would use Hasher() but it use random seeds in the different processes
-        private static func crc32(_ ptr: UnsafeRawBufferPointer) -> UInt32 {
-            let polynomial: UInt32 = 0xEDB88320
-            var crc: UInt32 = 0xFFFFFFFF
-
-            for byte in ptr {
-                var currentByte = UInt32(byte)
-                for _ in 0..<8 {
-                    let mix = (crc ^ currentByte) & 1
-                    crc >>= 1
-                    if mix != 0 {
-                        crc ^= polynomial
-                    }
-                    currentByte >>= 1
-                }
-            }
-
-            return ~crc
-        }
-
-        public init(_ data: Data) {
-            let ptr = UnsafeMutableRawBufferPointer.allocate(byteCount: data.count, alignment: 0)
-            _ = ptr.initializeMemory(as: UInt8.self, from: data)
-            self.data = BoxEx(UnsafeRawBufferPointer(ptr)) { ptr.deallocate() }
-            self.checksum = Self.crc32(self.data.value)
-        }
-    }
-
     case disabled
     case streaming
-    case dictionary(DictionaryData)
+    case dictionary(Data, UInt32)
+
+    // very simple checksum calculation
+    // would use Hasher() but it use random seeds in the different processes
+    private static func crc32(_ ptr: UnsafeRawBufferPointer) -> UInt32 {
+        let polynomial: UInt32 = 0xEDB88320
+        var crc: UInt32 = 0xFFFFFFFF
+
+        for byte in ptr {
+            var currentByte = UInt32(byte)
+            for _ in 0..<8 {
+                let mix = (crc ^ currentByte) & 1
+                crc >>= 1
+                if mix != 0 {
+                    crc ^= polynomial
+                }
+                currentByte >>= 1
+            }
+        }
+
+        return ~crc
+    }
+
+    public static func dictionary(_ dictionary: Data) -> Self {
+        let crc = dictionary.withUnsafeBytes { Self.crc32($0) }
+        return .dictionary(dictionary, crc)
+    }
 
     public var description: String {
         switch self {

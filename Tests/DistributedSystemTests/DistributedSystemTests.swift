@@ -241,7 +241,7 @@ final class DistributedSystemTests: XCTestCase {
 
             let moduleID = DistributedSystem.ModuleIdentifier(1)
             let serverDictionary = try loadResource("dict4Kb-mix")
-            let serverCompressionMode: CompressionMode = .dictionary(.init(serverDictionary))
+            let serverCompressionMode: CompressionMode = .dictionary(serverDictionary)
             let serverSystem = DistributedSystemServer(name: systemName, compressionMode: serverCompressionMode)
             try await serverSystem.start()
             try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
@@ -253,7 +253,7 @@ final class DistributedSystemTests: XCTestCase {
             }
 
             let clientDictionary = try loadResource("dict4Kb-pt")
-            let clientCompressionMode: CompressionMode = .dictionary(.init(clientDictionary))
+            let clientCompressionMode: CompressionMode = .dictionary(clientDictionary)
             let clientSystem = DistributedSystem(name: systemName, compressionMode: clientCompressionMode)
             try clientSystem.start()
 
