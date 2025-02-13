@@ -9,7 +9,7 @@
 import Distributed
 import NIOCore
 
-public struct InvocationEnvelope {
+public struct InvocationEnvelope: Sendable {
     public enum TargetFunc {
         case name(String)
         case id(UInt32)
