@@ -216,7 +216,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         var bytesReceived = 0
         var bytesReceivedCheckpoint = 0
         var bytesReceivedTimeouts = 0
-        var targetFuncs = Box<[String: UInt32]>([:])
+        var targetFuncs = [String: UInt32]()
         var pendingSyncCalls = Set<UInt64>()
 
         init(_ channel: Channel) {
@@ -1074,7 +1074,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         _ invocation: inout InvocationEncoder,
         _ callID: UInt64
     ) async throws where Actor: DistributedActor, Actor.ID == ActorID {
-        let (channel, channelTargetFuncs, suspended) = try lock.withLock {
+        let (channel, targetId, suspended) = try lock.withLock {
             guard let actorInfo = self.actors[actor.id] else {
                 throw DistributedSystemErrors.error("Actor \(Actor.self)/\(actor.id) not registered")
             }
@@ -1097,7 +1097,14 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 logger.trace("add sync call \(callID) for \(channelID)")
             }
 
-            return (channelInfo.channel, channelInfo.targetFuncs, suspended)
+            let targetId = channelInfo.targetFuncs[target.identifier]
+            if targetId == nil {
+                let idx = UInt32(channelInfo.targetFuncs.count)
+                channelInfo.targetFuncs[target.identifier] = idx
+                self.channels[channelID] = channelInfo
+            }
+
+            return (channelInfo.channel, targetId, suspended)
         }
 
         if suspended {
@@ -1129,30 +1136,27 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             }
         }
 
+        let targetFunc: InvocationEnvelope.TargetFunc = if let targetId {
+            .id(targetId)
+        } else {
+            .name(target.identifier)
+        }
+
         let payloadSize =
             MemoryLayout<SessionMessage.RawValue>.size
                 + ULEB128.size(actor.id.instanceID)
-                + InvocationEnvelope.wireSize(callID, invocation.genericSubstitutions, invocation.arguments, target)
+                + InvocationEnvelope.wireSize(callID, invocation.genericSubstitutions, invocation.arguments, targetFunc)
         // Even if we carefully calculated the capacity of the desired buffer and know it to the nearest byte,
-        // swift-nio still allocate a buffer with a storage capacity rounded up to nearest power of 2...
+        // swift-nio still allocates a buffer with a storage capacity rounded up to nearest power of 2...
         // Weird...
         var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt32>.size + payloadSize)
         buffer.writeInteger(UInt32(payloadSize))
         buffer.writeInteger(SessionMessage.invocationEnvelope.rawValue)
         buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(actor.id.instanceID, to: ptr.baseAddress!) }
-        let targetOffset = InvocationEnvelope.encode(callID, invocation.genericSubstitutions, &invocation.arguments, target, to: &buffer)
+        InvocationEnvelope.encode(callID, invocation.genericSubstitutions, &invocation.arguments, targetFunc, to: &buffer)
 
-        channel.eventLoop.execute { [buffer] in
-            var buffer = buffer
-            if let targetIdx = channelTargetFuncs.value[target.identifier] {
-                InvocationEnvelope.setTargetIdx(targetIdx, in: &buffer, at: targetOffset)
-            } else {
-                let targetIdx = UInt32(channelTargetFuncs.value.count)
-                channelTargetFuncs.value[target.identifier] = targetIdx
-            }
-            self.logger.trace("\(channel.addressDescription): send \(buffer.readableBytes) bytes for \(actor.id)")
-            channel.writeAndFlush(buffer, promise: nil)
-        }
+        self.logger.trace("\(channel.addressDescription): send \(buffer.readableBytes) bytes for \(actor.id)")
+        channel.writeAndFlush(buffer, promise: nil)
     }
 
     public func remoteCallVoid<Actor, Err>(
