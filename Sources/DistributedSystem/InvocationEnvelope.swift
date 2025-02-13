@@ -10,11 +10,6 @@ import Distributed
 import NIOCore
 
 public struct InvocationEnvelope: Sendable {
-    public enum TargetFunc {
-        case name(String)
-        case id(UInt32)
-    }
-
     public let callID: UInt64
     public let targetFunc: String
     public let genericSubstitutions: [Any.Type]
@@ -76,7 +71,7 @@ public struct InvocationEnvelope: Sendable {
         _ callID: UInt64,
         _ genericSubstitutions: [String],
         _ arguments: ByteBuffer,
-        _ targetFunc: TargetFunc
+        _ targetFunc: RemoteCallTarget
     ) -> Int {
         var wireSize = 0
         wireSize += ULEB128.size(callID)
@@ -87,11 +82,9 @@ public struct InvocationEnvelope: Sendable {
         wireSize += MemoryLayout<UInt8>.size
         wireSize += ULEB128.size(UInt(arguments.readableBytes)) + arguments.readableBytes
         wireSize += MemoryLayout<UInt8>.size // target type
-        let targetFuncWireSize = switch targetFunc {
-        case let .name(name): ULEB128.size(UInt(name.count)) + name.count
-        case let .id(id): ULEB128.size(id)
-        }
-        wireSize += targetFuncWireSize
+        let stringTargetSize = ULEB128.size(UInt(targetFunc.identifier.count)) + targetFunc.identifier.count
+        let idxTargetSize = ULEB128.size(UInt32.max)
+        wireSize += max(stringTargetSize, idxTargetSize)
         return wireSize
     }
 
@@ -99,9 +92,9 @@ public struct InvocationEnvelope: Sendable {
         _ callID: UInt64,
         _ genericSubstitutions: [String],
         _ arguments: inout ByteBuffer,
-        _ targetFunc: TargetFunc,
+        _ targetFunc: RemoteCallTarget,
         to buffer: inout ByteBuffer
-    ) {
+    ) -> Int {
         buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(callID, to: ptr.baseAddress!) }
 
         for typeName in genericSubstitutions {
@@ -113,14 +106,20 @@ public struct InvocationEnvelope: Sendable {
         buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(UInt(arguments.readableBytes), to: ptr.baseAddress!) }
         buffer.writeBuffer(&arguments)
 
-        switch targetFunc {
-        case let .name(name):
-            buffer.writeInteger(UInt8(0)) // target type = string
-            buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(UInt(name.count), to: ptr.baseAddress!) }
-            buffer.writeString(name)
-        case let .id(id):
-            buffer.writeInteger(UInt8(1)) // target type = index
-            buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(id, to: ptr.baseAddress!) }
-        }
+        let targetFuncMangled = targetFunc.identifier
+        let targetOffset = buffer.writerIndex
+        buffer.writeInteger(UInt8(0)) // target type = string
+        buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(UInt(targetFuncMangled.count), to: ptr.baseAddress!) }
+        buffer.writeString(targetFuncMangled)
+
+        return targetOffset
+    }
+
+    public static func setTargetId(_ id: UInt32, in buffer: inout ByteBuffer, at offs: Int) {
+        buffer.moveWriterIndex(to: offs)
+        buffer.writeInteger(UInt8(1)) // target type = index
+        buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(id, to: ptr.baseAddress!) }
+        let messageSize = buffer.readableBytes - MemoryLayout<UInt32>.size
+        buffer.setInteger(UInt32(messageSize), at: buffer.readerIndex)
     }
 }
