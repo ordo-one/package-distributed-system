@@ -636,7 +636,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 }
 
                 if taskCancelled {
-                    continuation.resume(throwing: DistributedSystemErrors.taskCancelled("\(S.self)"))
+                    continuation.resume(throwing: DistributedSystemErrors.cancelled("\(S.self)"))
                     return
                 }
 
@@ -651,7 +651,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     }
                 }
 
-                let started = self.connectToServices(
+                _ = self.connectToServices(
                     S.self,
                     withFilter: serviceFilter,
                     clientFactory: { actorSystem, _ in clientFactory?(actorSystem) },
@@ -667,11 +667,6 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     },
                     cancellationToken: cancellationToken
                 )
-
-                if !started {
-                    let continuation = monitor.withLockedValue { exchange(&$0.continuation, with: nil) }
-                    continuation?.resume(throwing: DistributedSystemErrors.cancelled("\(S.self)"))
-                }
             }
         } onCancel: {
             let continuation = monitor.withLockedValue {
@@ -681,7 +676,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             }
 
             _ = cancellationToken.cancel()
-            continuation?.resume(throwing: DistributedSystemErrors.taskCancelled("\(S.self)"))
+            continuation?.resume(throwing: DistributedSystemErrors.cancelled("\(S.self)"))
         }
     }
 
