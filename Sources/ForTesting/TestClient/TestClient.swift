@@ -3,11 +3,9 @@ import Dispatch
 import Distributed
 import DistributedSystem
 import class Foundation.ProcessInfo
-import Lifecycle
+@preconcurrency import Lifecycle
 import Logging
 import TestMessages
-
-public var logger = Logger(label: "client")
 
 @main
 public struct ClientStarter: AsyncParsableCommand {
@@ -24,26 +22,24 @@ public struct ClientStarter: AsyncParsableCommand {
     public init() {}
 
     public mutating func run() async throws {
-        if debug {
-            logger.logLevel = .debug
-        } else {
-            logger.logLevel = .info
-        }
-
-        let client = TestClient(query: query)
-
+        let logLevel: Logger.Level = debug ? .debug : .info
+        let client = TestClient(logLevel: logLevel, query: query)
         await client.run()
     }
 }
 
 public class TestClient: TestableClient, @unchecked Sendable {
+    private let logger: Logger
     private let actorSystem: DistributedSystem
 
     private var start: ContinuousClock.Instant?
     private var received = 0
     private var expected = 0
 
-    public init(query: String) {
+    public init(logLevel: Logger.Level, query: String) {
+        var logger = Logger(label: "client")
+        logger.logLevel = logLevel
+        self.logger = logger
         let processInfo = Foundation.ProcessInfo.processInfo
         let systemName = "\(processInfo.hostName)-test_system"
         actorSystem = DistributedSystem(systemName: systemName)

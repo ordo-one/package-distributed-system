@@ -3,19 +3,12 @@ import Dispatch
 import Distributed
 import DistributedSystem
 import class Foundation.ProcessInfo
-import Lifecycle
+@preconcurrency import Lifecycle
 import Logging
 import TestMessages
 
-public var logger = Logger(label: "server")
-
 @main
 public struct ServiceStarter: AsyncParsableCommand {
-    @Option(
-        help: "Service host address"
-    )
-    var host: String = "0.0.0.0"
-
     @Option(
         help: "Service port number"
     )
@@ -24,8 +17,7 @@ public struct ServiceStarter: AsyncParsableCommand {
     public init() {}
 
     public mutating func run() async throws {
-        let service = TestService(host: host, port: port)
-
+        let service = TestService(port: port)
         await service.run()
     }
 }
@@ -33,17 +25,17 @@ public struct ServiceStarter: AsyncParsableCommand {
 public class TestService: TestableService, @unchecked Sendable {
     private let actorSystem: DistributedSystemServer
 
-    private let serverHost: String
+    private let logger: Logger
     private let serverPort: Int
 
     private var clientEndpointID: EndpointIdentifier?
     private var clientEndpoint: TestClientEndpoint?
 
-    public init(host: String, port: Int) {
-        serverHost = host
-        serverPort = port
-
+    public init(port: Int) {
+        var logger = Logger(label: "server")
         logger.logLevel = .info
+        self.logger = logger
+        serverPort = port
 
         let processInfo = ProcessInfo.processInfo
         let systemName = "\(processInfo.hostName)-test_system"
@@ -101,7 +93,7 @@ public class TestService: TestableService, @unchecked Sendable {
 
         lifecycle.register(label: "System",
                            start: .async {
-                               try await self.actorSystem.start(at: NetworkAddress(host: self.serverHost, port: self.serverPort))
+                               try await self.actorSystem.start(at: NetworkAddress(host: "0.0.0.0", port: self.serverPort))
                                let moduleID = DistributedSystem.ModuleIdentifier(1)
                                try await self.actorSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
                                    let serviceEndpoint = try TestServiceEndpoint(self, in: actorSystem)
