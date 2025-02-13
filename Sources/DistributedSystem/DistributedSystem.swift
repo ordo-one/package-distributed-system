@@ -626,17 +626,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
 
-                if let deadline {
-                    let eventLoop = self.eventLoopGroup.next()
-                    eventLoop.scheduleTask(deadline: NIODeadline.uptimeNanoseconds(deadline.uptimeNanoseconds)) {
-                        let cancelled = cancellationToken.cancel()
-                        if cancelled {
-                            continuation.resume(throwing: DistributedSystemErrors.serviceDiscoveryTimeout(S.serviceName))
-                        }
-                    }
-                }
-
-                let cancelled = monitor.withLockedValue {
+                let taskCancelled = monitor.withLockedValue {
                     if $0.cancelled {
                         return true
                     } else {
@@ -645,9 +635,20 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     }
                 }
 
-                if cancelled {
-                    continuation.resume(throwing: DistributedSystemErrors.cancelled("\(S.self)"))
+                if taskCancelled {
+                    continuation.resume(throwing: DistributedSystemErrors.taskCancelled("\(S.self)"))
                     return
+                }
+
+                if let deadline {
+                    let eventLoop = self.eventLoopGroup.next()
+                    eventLoop.scheduleTask(deadline: NIODeadline.uptimeNanoseconds(deadline.uptimeNanoseconds)) {
+                        let cancelled = cancellationToken.cancel()
+                        if cancelled {
+                            let continuation = monitor.withLockedValue { exchange(&$0.continuation, with: nil) }
+                            continuation?.resume(throwing: DistributedSystemErrors.serviceDiscoveryTimeout(S.serviceName))
+                        }
+                    }
                 }
 
                 let started = self.connectToServices(
@@ -660,28 +661,27 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                             if let serviceHandler {
                                 serviceHandler(serviceEndpoint, service)
                             }
-                            continuation.resume(returning: serviceEndpoint)
+                            let continuation = monitor.withLockedValue { exchange(&$0.continuation, with: nil) }
+                            continuation?.resume(returning: serviceEndpoint)
                         }
                     },
                     cancellationToken: cancellationToken
                 )
 
                 if !started {
-                    continuation.resume(throwing: DistributedSystemErrors.cancelled("\(S.self)"))
+                    let continuation = monitor.withLockedValue { exchange(&$0.continuation, with: nil) }
+                    continuation?.resume(throwing: DistributedSystemErrors.cancelled("\(S.self)"))
                 }
             }
         } onCancel: {
             let continuation = monitor.withLockedValue {
                 assert(!$0.cancelled)
                 $0.cancelled = true
-                return $0.continuation
+                return exchange(&$0.continuation, with: nil)
             }
 
-            if let continuation {
-                if cancellationToken.cancel() {
-                    continuation.resume(throwing: DistributedSystemErrors.cancelled("\(S.self)"))
-                }
-            }
+            _ = cancellationToken.cancel()
+            continuation?.resume(throwing: DistributedSystemErrors.taskCancelled("\(S.self)"))
         }
     }
 
