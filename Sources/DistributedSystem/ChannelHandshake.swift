@@ -28,7 +28,7 @@ final class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandl
 
     func channelActive(context: ChannelHandlerContext) {
         logger.info("\(context.channel.addressDescription)/\(channelHandler.id): connection accepted")
-        if DistributedSystem.pingInterval.nanoseconds > 0 {
+        if DistributedSystem.pingInterval > TimeAmount.zero {
             timer = context.eventLoop.scheduleTask(in: DistributedSystem.pingInterval*2) {
                 self.logger.info("\(context.channel.addressDescription)/\(Self.self): session timeout, closing connection")
                 context.close(promise: nil)
@@ -124,7 +124,7 @@ final class ChannelHandshakeClient: ChannelInboundHandler, RemovableChannelHandl
         let promise = context.eventLoop.makePromise(of: Void.self)
         context.writeAndFlush(NIOAny(buffer), promise: promise)
 
-        if DistributedSystem.pingInterval.nanoseconds > 0 {
+        if DistributedSystem.pingInterval > TimeAmount.zero {
             promise.futureResult.whenSuccess {
                 self.timer = context.eventLoop.scheduleTask(in: DistributedSystem.pingInterval*2) {
                     self.logger.info("\(context.channel.addressDescription)\(Self.self): session timeout, closing connection")

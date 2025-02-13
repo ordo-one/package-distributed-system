@@ -364,7 +364,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         if let address {
             discoveryManager.setChannel(channelID, channel, forProcessAt: address)
         }
-        if Self.pingInterval.nanoseconds > 0 {
+        if Self.pingInterval > TimeAmount.zero {
             sendPing(to: channelID, channel, with: eventLoopGroup.next())
         }
     }
