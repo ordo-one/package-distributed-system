@@ -659,7 +659,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     eventLoop.scheduleTask(deadline: NIODeadline.uptimeNanoseconds(deadline.uptimeNanoseconds)) {
                         let cancelled = cancellationToken.cancel()
                         if cancelled {
-                            let continuation = monitor.withLockedValue { exchange(&$0.continuation, with: nil) }
+                            let continuation = monitor.withLockedValue { $0.continuation.take() }
                             continuation?.resume(throwing: DistributedSystemErrors.serviceDiscoveryTimeout(S.serviceName))
                         }
                     }
@@ -675,7 +675,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                             if let serviceHandler {
                                 serviceHandler(serviceEndpoint, service)
                             }
-                            let continuation = monitor.withLockedValue { exchange(&$0.continuation, with: nil) }
+                            let continuation = monitor.withLockedValue { $0.continuation.take() }
                             continuation?.resume(returning: serviceEndpoint)
                         }
                     },
@@ -686,7 +686,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             let continuation = monitor.withLockedValue {
                 assert(!$0.cancelled)
                 $0.cancelled = true
-                return exchange(&$0.continuation, with: nil)
+                return $0.continuation.take()
             }
 
             _ = cancellationToken.cancel()

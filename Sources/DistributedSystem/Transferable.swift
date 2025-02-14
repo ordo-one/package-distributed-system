@@ -26,7 +26,7 @@ public protocol Deserializable {
 }
 
 /// Combine Serializable & Deserializable protocols
-public protocol Transferable: Serializable & Deserializable {}
+public protocol Transferable: Serializable & Deserializable & Sendable {}
 
 /// If a type implements TriviallyCopyable protocol then collection types (like an Array or Dictionary)
 /// just serialize a binary data representation of the collection instead of serializing each item.

@@ -7,7 +7,7 @@ import NIOCore
 @testable import TestMessages
 import XCTest
 
-var logger = Logger(label: "ds-test")
+let logger = Logger(label: "ds-test")
 
 struct Client: TestableClient {
     func snapshotDone(for stream: TestMessages.Stream) async {
@@ -27,7 +27,7 @@ struct Client: TestableClient {
     }
 }
 
-class Service: TestableService {
+class Service: TestableService, @unchecked Sendable {
     var clientEndpoint: TestClientEndpoint?
     let stream: AsyncStream<Result<Void, Error>>
     private let streamContinuation: AsyncStream<Result<Void, Error>>.Continuation
@@ -91,7 +91,7 @@ final class DistributedSystemTests: XCTestCase {
         var clientConnectionClosed = false
     }
 
-    class ServiceWithLeakCheckImpl: TestableService {
+    class ServiceWithLeakCheckImpl: TestableService, @unchecked Sendable {
         let flags: Flags
         var clientEndpoint: TestClientEndpoint?
 
@@ -133,7 +133,7 @@ final class DistributedSystemTests: XCTestCase {
         }
     }
 
-    class ClientWithLeakCheckImpl: TestableClient {
+    class ClientWithLeakCheckImpl: TestableClient, @unchecked Sendable {
         let flags: Flags
         let stream: AsyncStream<Void>
         private let continuation: AsyncStream<Void>.Continuation
@@ -372,7 +372,7 @@ final class DistributedSystemTests: XCTestCase {
     func testReconnectAfterServerRestart() async throws {
         try checkCanRunTimeConsumingTest()
 
-        class ServiceImpl: TestableService {
+        class ServiceImpl: TestableService, @unchecked Sendable {
             func openStream(byRequest request: TestMessages.OpenRequest) async {
                 fatalError("Should never be called")
             }
@@ -441,7 +441,7 @@ final class DistributedSystemTests: XCTestCase {
     }
 
     func testConcurrentRemoteCalls() async throws {
-        class ServiceImpl: TestableService {
+        class ServiceImpl: TestableService, @unchecked Sendable {
             private let totalCount: Int
             private let count: ManagedAtomic<Int>
             let stream: AsyncStream<Void>
@@ -537,7 +537,7 @@ final class DistributedSystemTests: XCTestCase {
     }
 
     func testOpenStream() async throws {
-        class ServiceImpl: TestableService {
+        class ServiceImpl: TestableService, @unchecked Sendable {
             private let count: Int
             var clientEndpoint: TestClientEndpoint?
 
@@ -578,7 +578,7 @@ final class DistributedSystemTests: XCTestCase {
             }
         }
 
-        class ClientImpl: TestableClient {
+        class ClientImpl: TestableClient, @unchecked Sendable {
             private let expectedSnapshots: Int
             private let expectedMonsters: Int
 
@@ -1195,7 +1195,7 @@ final class DistributedSystemTests: XCTestCase {
     }
 
     func testMultipleServices() async throws {
-        class TestServiceImpl: TestableService {
+        class TestServiceImpl: TestableService, @unchecked Sendable {
             let id: Int
             var clientEndpoint: TestClientEndpoint?
 
@@ -1222,7 +1222,7 @@ final class DistributedSystemTests: XCTestCase {
             func handleConnectionState(_ state: ConnectionState) async {}
         }
 
-        class TestClientImpl: TestableClient {
+        class TestClientImpl: TestableClient, @unchecked Sendable {
             var stream: AsyncStream<StreamOpened>
             var continuation: AsyncStream<StreamOpened>.Continuation
 

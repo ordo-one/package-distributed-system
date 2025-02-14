@@ -4,7 +4,7 @@ import Logging
 import TestMessages
 internal import struct NIOConcurrencyHelpers.NIOLock
 
-public class Client: TestableClient {
+public class Client: TestableClient, @unchecked Sendable {
     private let logger: Logger
 
     let lock = NIOLock()
@@ -117,8 +117,8 @@ public class Client: TestableClient {
     }
 }
 
-public class Service: TestableService {
-    private var logger: Logger
+public class Service: TestableService, @unchecked Sendable {
+    private let logger: Logger
 
     let lock = NIOLock()
 

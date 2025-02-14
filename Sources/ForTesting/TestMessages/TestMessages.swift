@@ -32,7 +32,7 @@ public struct Timestamp: CustomStringConvertible {
 /*
  Public API to access the OpenRequest
  */
-public struct OpenRequest: Transferable, CustomStringConvertible {
+public struct OpenRequest: Transferable, CustomStringConvertible, @unchecked Sendable {
     private var value: _OpenRequestValue
 
     public var requestIdentifier: RequestIdentifier {
@@ -240,7 +240,7 @@ public struct _OpenRequestBuffer: Identifiable, CustomStringConvertible {
 /*
  Public API to access the SnapshotDone
  */
-public struct SnapshotDone: Transferable, CustomStringConvertible {
+public struct SnapshotDone: Transferable, CustomStringConvertible, @unchecked Sendable {
     private var value: _SnapshotDoneValue
 
     public var streamIdentifier: StreamIdentifier {
@@ -422,7 +422,7 @@ public struct _SnapshotDoneBuffer: Identifiable, CustomStringConvertible {
 /*
  Public API to access the Stream
  */
-public struct Stream: Transferable, CustomStringConvertible {
+public struct Stream: Transferable, CustomStringConvertible, @unchecked Sendable {
     private var value: _StreamValue
 
     public var streamIdentifier: StreamIdentifier {
@@ -604,7 +604,7 @@ public struct _StreamBuffer: Identifiable, CustomStringConvertible {
 /*
  Public API to access the StreamOpened
  */
-public struct StreamOpened: Transferable, CustomStringConvertible {
+public struct StreamOpened: Transferable, CustomStringConvertible, @unchecked Sendable {
     private var value: _StreamOpenedValue
 
     public var requestIdentifier: RequestIdentifier {
@@ -810,7 +810,7 @@ public struct _StreamOpenedBuffer: Identifiable, CustomStringConvertible {
     }
 }
 
-public struct Monster: Transferable, CustomStringConvertible {
+public struct Monster: Transferable, CustomStringConvertible, @unchecked Sendable {
     private var value: _MonsterValue
 
     public var identifier: MonsterIdentifier {
