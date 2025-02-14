@@ -1,6 +1,6 @@
 import DistributedSystem
 
-public protocol TestableService {
+public protocol TestableService: Sendable {
     func openStream(byRequest request: OpenRequest) async
     func getMonster() async -> Monster
     func doNothing() async
@@ -8,7 +8,7 @@ public protocol TestableService {
     func handleConnectionState(_ state: ConnectionState) async
 }
 
-public protocol TestableClient {
+public protocol TestableClient: Sendable {
     /// Acknowledgement for previously sent open request
     func streamOpened(_ reply: StreamOpened) async
 
