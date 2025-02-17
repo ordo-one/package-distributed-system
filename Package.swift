@@ -14,7 +14,6 @@ let externalDependencies: [String: Range<Version>] = [
 ]
 
 let internalDependencies: [String: Range<Version>] = [
-    "package-benchmark": .upToNextMajor(from: "1.0.0"),
     "package-consul": .upToNextMajor(from: "7.0.0"),
     "package-lz4": .upToNextMinor(from: "1.10.0"),
 ]
@@ -60,6 +59,10 @@ let package = Package(
         .executable(
             name: "TestService",
             targets: ["TestService"]
+        ),
+        .library(
+            name: "TestMessages",
+            targets: ["TestMessages"]
         ),
     ],
     dependencies: makeDependencies(),
@@ -111,20 +114,6 @@ let package = Package(
             path: "Sources/ForTesting/TestClient",
             swiftSettings: [
                 .unsafeFlags(["-Xfrontend", "-enable-experimental-distributed"]),
-            ]
-        ),
-        .executableTarget(
-            name: "DistributedSystemBenchmark",
-            dependencies: [
-                "DistributedSystem",
-                "TestMessages",
-                .product(name: "Benchmark", package: "package-benchmark"),
-                .product(name: "BenchmarkPlugin", package: "package-benchmark"),
-            ],
-            path: "Benchmarks/DistributedSystem",
-            swiftSettings: [
-                .enableExperimentalFeature("AccessLevelOnImport"),
-                .unsafeFlags(["-Xfrontend", "-enable-experimental-distributed"])
             ]
         ),
         .testTarget(
