@@ -4,7 +4,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "package-distributed-system-benchmarks",
+    name: "benchmarks",
     platforms: [
         .macOS(.v15),
     ],
