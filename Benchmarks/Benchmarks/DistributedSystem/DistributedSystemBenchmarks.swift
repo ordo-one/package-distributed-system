@@ -51,10 +51,10 @@ fileprivate struct SharedData {
     }
 }
 
-private var logger = Logger(label: "ds-benchmarks")
-private var sharedData: SharedData?
+private let logger = Logger(label: "ds-benchmarks")
+private nonisolated(unsafe) var sharedData: SharedData?
 
-let benchmarks = {
+let benchmarks: @Sendable () -> Void = {
     Benchmark.startupHook = {
         let processInfo = ProcessInfo.processInfo
         let systemName = "\(processInfo.hostName)-benchmark_test_system-\(processInfo.processIdentifier)"
@@ -422,16 +422,18 @@ let benchmarks = {
         benchmark.startMeasurement()
         _ = await withTaskGroup(of: Void.self, returning: Void.self, body: { taskGroup in
             let tasks = 2
+            let iterationsPerTask = (benchmark.scaledIterations.count / tasks)
             for _ in 0 ..< tasks {
-                taskGroup.addTask {
+                let taskClosure: @Sendable () async -> Void = {
                     do {
-                        for _ in 0 ..< benchmark.scaledIterations.count / tasks {
+                        for _ in 0 ..< iterationsPerTask {
                             try await endpoints.service.doNothing()
                         }
                     } catch {
                         fatalError("\(error)")
                     }
                 }
+                taskGroup.addTask(operation: taskClosure)
             }
             await taskGroup.waitForAll()
         })
