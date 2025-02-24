@@ -1260,7 +1260,13 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
     }
 
-    private func createService(_ serviceName: String, _ serviceID: UUID, _ instanceID: EndpointIdentifier.InstanceIdentifier, for channelID: UInt32, _ channel: Channel) {
+    private func createService(
+        _ serviceName: String,
+        _ serviceID: UUID,
+        _ instanceID: EndpointIdentifier.InstanceIdentifier,
+        for channelID: UInt32,
+        _ channel: Channel
+    ) {
         let serviceFactory = discoveryManager.factoryFor(serviceName, serviceID)
         guard let serviceFactory else {
             logger.error("\(channel.addressDescription): service \(serviceName) for \(instanceID) not registered")
