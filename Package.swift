@@ -9,7 +9,6 @@ let externalDependencies: [String: Range<Version>] = [
     "https://github.com/apple/swift-argument-parser": .upToNextMajor(from: "1.1.0"),
     "https://github.com/apple/swift-nio": .upToNextMajor(from: "2.42.0"),
     "https://github.com/apple/swift-log": .upToNextMajor(from: "1.4.4"),
-    "https://github.com/ordo-one/swift-service-lifecycle_1.0": .upToNextMajor(from: "1.0.0-alpha.13"), // to remove in future
     "https://github.com/apple/swift-service-discovery.git" : .upToNextMajor(from: "1.0.0"),
 ]
 
@@ -96,7 +95,6 @@ let package = Package(
                 "DistributedSystem",
                 "TestMessages",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
-                .product(name: "Lifecycle", package: "swift-service-lifecycle_1.0"),
             ],
             path: "Sources/ForTesting/TestService",
             swiftSettings: [
@@ -109,7 +107,6 @@ let package = Package(
                 "DistributedSystem",
                 "TestMessages",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
-                .product(name: "Lifecycle", package: "swift-service-lifecycle_1.0"),
             ],
             path: "Sources/ForTesting/TestClient",
             swiftSettings: [

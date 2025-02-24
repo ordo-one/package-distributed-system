@@ -3,7 +3,6 @@ import Dispatch
 import Distributed
 import DistributedSystem
 import class Foundation.ProcessInfo
-@preconcurrency import Lifecycle
 import Logging
 import TestMessages
 
@@ -18,7 +17,7 @@ public struct ServiceStarter: AsyncParsableCommand {
 
     public mutating func run() async throws {
         let service = TestService(port: port)
-        await service.run()
+        try await service.run()
     }
 }
 
@@ -42,20 +41,25 @@ public class TestService: TestableService, @unchecked Sendable {
         actorSystem = DistributedSystemServer(systemName: systemName)
     }
 
-    public func openStream(byRequest _: OpenRequest) async {
+    public func openStream(byRequest request: OpenRequest) async {
         do {
             logger.info("Server: open stream")
             let clientEndpoint = try TestClientEndpoint.resolve(id: clientEndpointID!, using: actorSystem)
             self.clientEndpoint = clientEndpoint
 
             Task {
-                try await clientEndpoint.streamOpened(StreamOpened(_StreamOpenedStruct(requestIdentifier: 0)))
+                try await clientEndpoint.streamOpened(StreamOpened(_StreamOpenedStruct(requestIdentifier: request.id)))
+                let stream = Stream(_StreamStruct(streamIdentifier: 0))
 
-                for i in 1 ... 1_000_000 {
+                let count = 100_000
+                for idx in 1...count {
                     try await clientEndpoint.handleMonster(
-                        Monster(_MonsterStruct(identifier: MonsterIdentifier(i))),
-                        for: Stream(_StreamStruct(streamIdentifier: 0)))
+                        Monster(_MonsterStruct(identifier: MonsterIdentifier(idx))),
+                        for: stream)
                 }
+
+                try await clientEndpoint.snapshotDone(for: stream)
+                logger.info("sent \(count) messages")
             }
         } catch {
             logger.error("Error: \(error)")
@@ -82,42 +86,17 @@ public class TestService: TestableService, @unchecked Sendable {
         // do nothing
     }
 
-    public func start() async {}
-
-    public func stop() async {}
-
-    public func run() async {
-        let signal = [ServiceLifecycle.Signal.INT]
-        let lifecycle = ServiceLifecycle(configuration: .init(callbackQueue: .main,
-                                                              shutdownSignal: signal, installBacktrace: true))
-
-        lifecycle.register(label: "System",
-                           start: .async {
-                               try await self.actorSystem.start(at: NetworkAddress(host: "0.0.0.0", port: self.serverPort))
-                               let moduleID = DistributedSystem.ModuleIdentifier(1)
-                               try await self.actorSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
-                                   let serviceEndpoint = try TestServiceEndpoint(self, in: actorSystem)
-                                   self.clientEndpointID = serviceEndpoint.id.makeClientEndpoint()
-                                   return serviceEndpoint
-                               }
-                           },
-                           shutdown: .sync(actorSystem.stop))
-
-        lifecycle.register(label: "Client",
-                           start: .async(start),
-                           shutdown: .async(stop))
-
-        lifecycle.start { error in
-            if let error {
-                print("Opps...: \(error)")
-            }
+    public func run() async throws {
+        try await self.actorSystem.start(at: NetworkAddress(host: "0.0.0.0", port: self.serverPort))
+        let moduleID = DistributedSystem.ModuleIdentifier(1)
+        try await self.actorSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+            let serviceEndpoint = try TestServiceEndpoint(self, in: actorSystem)
+            self.clientEndpointID = serviceEndpoint.id.makeClientEndpoint()
+            return serviceEndpoint
         }
 
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global().async {
-                lifecycle.wait()
-                continuation.resume()
-            }
-        }
+        // wait forever while the test service will not be stopped by signal
+        let (stream, _) = AsyncStream.makeStream(of: Void.self)
+        for await _ in stream { break }
     }
 }

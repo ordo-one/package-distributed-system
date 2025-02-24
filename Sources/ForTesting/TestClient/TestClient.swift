@@ -3,7 +3,6 @@ import Dispatch
 import Distributed
 import DistributedSystem
 import class Foundation.ProcessInfo
-@preconcurrency import Lifecycle
 import Logging
 import TestMessages
 
@@ -30,19 +29,14 @@ public struct ClientStarter: AsyncParsableCommand {
 
 public class TestClient: TestableClient, @unchecked Sendable {
     private let logger: Logger
-    private let actorSystem: DistributedSystem
 
     private var start: ContinuousClock.Instant?
     private var received = 0
-    private var expected = 0
 
     public init(logLevel: Logger.Level, query: String) {
         var logger = Logger(label: "client")
         logger.logLevel = logLevel
         self.logger = logger
-        let processInfo = Foundation.ProcessInfo.processInfo
-        let systemName = "\(processInfo.hostName)-test_system"
-        actorSystem = DistributedSystem(systemName: systemName)
     }
 
     public func streamOpened(_: StreamOpened) async {
@@ -56,9 +50,6 @@ public class TestClient: TestableClient, @unchecked Sendable {
 
     public func snapshotDone(for _: Stream) async {
         let finish = ContinuousClock.now
-        if received != expected {
-            logger.error("MISBEHAVIOR: received \(received) monsters, but expected \(expected)")
-        }
         if let start {
             let duration = start.duration(to: finish)
             logger.info("Stream snapshot done in \(duration), received \(received) monsters")
@@ -69,11 +60,15 @@ public class TestClient: TestableClient, @unchecked Sendable {
         // do nothing
     }
 
-    public func start() async {
+    public func run() async {
+        let processInfo = Foundation.ProcessInfo.processInfo
+        let systemName = "\(processInfo.hostName)-test_system"
+        let distributedSystem = DistributedSystem(systemName: systemName)
+
         logger.info("starting client...done!")
 
         do {
-            let serverEndpoint = try await actorSystem.connectToService(
+            let serverEndpoint = try await distributedSystem.connectToService(
                 TestServiceEndpoint.self,
                 withFilter: { _ in true },
                 clientFactory: { actorSystem in
@@ -88,36 +83,9 @@ public class TestClient: TestableClient, @unchecked Sendable {
         } catch {
             logger.warning("Error: \(error)")
         }
-    }
 
-    public func stop() async {
-        logger.info("stopping client...done!")
-    }
-
-    public func run() async {
-        let signal = [ServiceLifecycle.Signal.INT]
-        let lifecycle = ServiceLifecycle(configuration: .init(callbackQueue: .main,
-                                                              shutdownSignal: signal, installBacktrace: true))
-
-        lifecycle.register(label: "System",
-                           start: .sync { try self.actorSystem.start() },
-                           shutdown: .sync { self.actorSystem.stop() })
-
-        lifecycle.register(label: "Client",
-                           start: .async(start),
-                           shutdown: .async(stop))
-
-        lifecycle.start { error in
-            if let error {
-                print("Opps...: \(error)")
-            }
-        }
-
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global().async {
-                lifecycle.wait()
-                continuation.resume()
-            }
-        }
+        // wait forever while the test client will not be stopped by signal
+        let (stream, _) = AsyncStream.makeStream(of: Void.self)
+        for await _ in stream { break }
     }
 }
