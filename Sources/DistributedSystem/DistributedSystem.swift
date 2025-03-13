@@ -30,10 +30,10 @@ extension Channel {
     }
 }
 
-public final class Box<T> {
+public final class Box<T: ~Copyable>: @unchecked Sendable {
     public var value: T
 
-    public init(_ value: T) {
+    public init(_ value: consuming T) {
         self.value = value
     }
 }
@@ -284,14 +284,13 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         self.systemName = systemName
         self.addressTag = addressTag
         eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 2)
-        consul = Consul()
+        consul = Consul(logLevel: logLevel)
         consulServiceDiscovery = ConsulServiceDiscovery(consul)
         discoveryManager = DiscoveryManager(loggerBox)
         syncCallManager = SyncCallManager(loggerBox)
         self.compressionMode = compressionMode
 
         loggerBox.value.logLevel = logLevel
-        consul.logLevel = logLevel
     }
 
     deinit {
@@ -730,7 +729,11 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         return (serviceID, updateHealthStatus)
     }
 
-    func getLocalServices() -> [NodeService] {
+    func removeService(_ serviceID: UUID) -> Int? {
+        discoveryManager.removeLocalService(serviceID)
+    }
+
+    func getLocalServices() -> ([NodeService], Int) {
         discoveryManager.getLocalServices()
     }
 

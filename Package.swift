@@ -13,7 +13,7 @@ let externalDependencies: [String: Range<Version>] = [
 ]
 
 let internalDependencies: [String: Range<Version>] = [
-    "package-consul": .upToNextMajor(from: "7.0.0"),
+    "package-consul": .upToNextMajor(from: "9.0.0"),
     "package-lz4": .upToNextMinor(from: "1.10.0"),
 ]
 

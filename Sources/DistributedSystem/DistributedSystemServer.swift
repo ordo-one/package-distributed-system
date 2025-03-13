@@ -16,6 +16,7 @@ import Logging
 import NIOCore
 internal import NIOPosix
 import class ServiceDiscovery.CancellationToken
+import Synchronization
 
 public class DistributedSystemServer: DistributedSystem, @unchecked Sendable {
     private var localAddress: String?
@@ -26,6 +27,14 @@ public class DistributedSystemServer: DistributedSystem, @unchecked Sendable {
     let criticalServiceDeregisterTimeout = TimeAmount.seconds(60) // minimum in Consul is 60 seconds
     var healthStatusUpdateInterval = TimeAmount.seconds(10)
     var healthStatusTTL = TimeAmount.seconds(15)
+
+    struct HealthUpdateState {
+        var version = 0
+        var pendingUpdate = false
+        var continuation: CheckedContinuation<Void, Never>?
+    }
+
+    let healthUpdateState = Mutex<HealthUpdateState>(.init())
 
     private static func localAddress(_ consulAddress: String) throws -> String? {
         #if os(Linux)
@@ -132,6 +141,10 @@ public class DistributedSystemServer: DistributedSystem, @unchecked Sendable {
         logger.info("starting server '\(systemName)' @ \(localPort) (compression mode = \(compressionMode))")
     }
 
+    private static func makeCheckID(_ serviceID: UUID) -> String {
+        "service:\(serviceID)"
+    }
+
     private func registerService(_ serviceName: String, _ serviceID: UUID, metadata: [String: String]) -> EventLoopFuture<Void> {
         // Use TTL type service health check
         // One could think we could use TCP,
@@ -139,9 +152,10 @@ public class DistributedSystemServer: DistributedSystem, @unchecked Sendable {
         // Service can crash, then OS will allocate the same port for another service,
         // consul will be able to connect to that port and report that service as 'passing'
         // while in the reality the service will be down
-        let check = Check(checkID: "service:\(serviceID)",
+        let checkID = Self.makeCheckID(serviceID)
+        let check = Check(checkID: checkID,
                           deregisterCriticalServiceAfter: "\(criticalServiceDeregisterTimeout.nanoseconds / Self.nanosecondsInSecond)s",
-                          name: "service:\(serviceID)",
+                          name: checkID,
                           status: .passing,
                           ttl: "\(healthStatusTTL.nanoseconds / Self.nanosecondsInSecond)s")
         let service = Service(address: localAddress, checks: [check], id: "\(serviceID)", meta: metadata, name: serviceName, port: localPort)
@@ -156,45 +170,95 @@ public class DistributedSystemServer: DistributedSystem, @unchecked Sendable {
         super.stop()
     }
 
+    @discardableResult
     public func addService(
         ofType type: any ServiceEndpoint.Type,
         toModule moduleID: ModuleIdentifier,
         metadata: [String: String]? = nil,
         _ factory: @escaping ServiceFactory
-    ) async throws {
+    ) async throws -> UUID {
         try await addService(name: type.serviceName, toModule: moduleID, metadata: metadata, factory)
     }
 
-    private func updateHealthStatus(with eventLoop: EventLoop) {
-        let services = getLocalServices()
-        logger.trace("update health status for \(services.count) services")
+    private func removePendingRequest(_ pendingRequestsBox: Box<Atomic<Int>>, _ eventLoop: EventLoop) {
+        let pendingRequests = pendingRequestsBox.value.wrappingSubtract(1, ordering: .releasing).newValue
+        if pendingRequests == 0 {
+            logger.trace("schedule next health status update check in \(self.healthStatusUpdateInterval) seconds")
+            let continuation = self.healthUpdateState.withLock {
+                $0.pendingUpdate = false
+                return $0.continuation.take()
+            }
 
-        for service in services {
-            let checkID = "service:\(service.serviceID)"
-            let future = consul.agent.check(checkID, status: .passing)
-            future.whenFailure { error in
-                if let error = error as? ConsulError,
-                   case let .httpResponseError(status) = error,
-                   case status = HTTPResponseStatus.notFound {
-                    if let serviceName = service.serviceName,
-                       let serviceID = UUID(uuidString: service.serviceID) {
-                        self.logger.error("check '\(checkID)' failed: \(error), register service again")
-                        let serviceMeta = service.serviceMeta ?? [:]
-                        let future = self.registerService(serviceName, serviceID, metadata: serviceMeta)
-                        future.whenFailure { error in
-                            self.logger.error("failed to register service \(serviceName)/\(serviceID): \(error)")
-                        }
-                    } else {
-                        self.logger.error("check '\(checkID)' failed: \(error), can't register service \(service)")
-                    }
-                } else {
-                    self.logger.error("check '\(checkID)' failed: \(error)")
-                }
+            if let continuation {
+                logger.debug("resuming continuation")
+                continuation.resume(returning: ())
+            }
+
+            eventLoop.scheduleTask(in: self.healthStatusUpdateInterval) {
+                self.updateHealthStatus(with: eventLoop)
             }
         }
+    }
 
-        eventLoop.scheduleTask(in: healthStatusUpdateInterval) {
-            self.updateHealthStatus(with: eventLoop)
+    private func updateHealthStatus(with eventLoop: EventLoop) {
+        while true {
+            let (services, servicesVersion) = getLocalServices()
+            let expectedServicesVersion: Int? = healthUpdateState.withLock {
+                if servicesVersion < $0.version {
+                    return $0.version
+                } else {
+                    $0.pendingUpdate = true
+                    return nil
+                }
+            }
+
+            if let expectedServicesVersion {
+                logger.debug("services version \(servicesVersion) is less than expected version \(expectedServicesVersion)")
+                continue
+            }
+
+            logger.trace("updating health status for \(services.count) services @ \(servicesVersion)")
+            let pendingRequestsBox = Box<Atomic<Int>>(.init(services.count))
+
+            for service in services {
+                let checkID = "service:\(service.serviceID)"
+                let future = consul.agent.check(checkID, status: .passing)
+                future.whenComplete { result in
+                    switch result {
+                    case .success:
+                        self.removePendingRequest(pendingRequestsBox, eventLoop)
+                    case let .failure(error):
+                        // dependning on the error we could try to re-register service
+                        if let error = error as? ConsulError,
+                           case let .httpResponseError(status, _) = error,
+                           case status = HTTPResponseStatus.notFound {
+                            if let serviceName = service.serviceName,
+                               let serviceID = UUID(uuidString: service.serviceID) {
+                                self.logger.error("check '\(checkID)' failed: \(error), trying to register service again")
+                                let serviceMeta = service.serviceMeta ?? [:]
+                                let future = self.registerService(serviceName, serviceID, metadata: serviceMeta)
+                                future.whenComplete {
+                                    switch $0 {
+                                    case .success:
+                                        break
+                                    case let .failure(error):
+                                        self.logger.error("failed to re-register service \(serviceName)/\(serviceID): \(error)")
+                                    }
+                                    self.removePendingRequest(pendingRequestsBox, eventLoop)
+                                }
+                            } else {
+                                self.logger.error("check '\(checkID)' failed: \(error), can't register service \(service)")
+                                self.removePendingRequest(pendingRequestsBox, eventLoop)
+                            }
+                        } else {
+                            self.logger.error("check '\(checkID)' failed: \(error)")
+                            self.removePendingRequest(pendingRequestsBox, eventLoop)
+                        }
+                    }
+                }
+            }
+
+            break
         }
     }
 
@@ -203,7 +267,7 @@ public class DistributedSystemServer: DistributedSystem, @unchecked Sendable {
         toModule moduleID: ModuleIdentifier,
         metadata: [String: String]? = nil,
         _ factory: @escaping ServiceFactory
-    ) async throws {
+    ) async throws -> UUID {
         var metadata = metadata ?? [:]
         metadata[ServiceMetadata.systemName.rawValue] = systemName
         metadata[ServiceMetadata.processIdentifier.rawValue] = String(ProcessInfo.processInfo.processIdentifier)
@@ -224,5 +288,46 @@ public class DistributedSystemServer: DistributedSystem, @unchecked Sendable {
         }
 
         try await future.get()
+
+        return serviceID
+    }
+
+    @discardableResult
+    public func removeService(_ serviceID: UUID) async throws -> Bool {
+        if let version = super.removeService(serviceID) {
+            await withCheckedContinuation { continuation in
+                let resumeContinuation = healthUpdateState.withLock {
+                    $0.version = version
+                    if $0.pendingUpdate {
+                        $0.continuation = continuation
+                        return false
+                    } else {
+                        return true
+                    }
+                }
+
+                if resumeContinuation {
+                    continuation.resume(returning: ())
+                } else {
+                    logger.debug("waiting for health status update finish")
+                }
+            }
+
+            let checkID = Self.makeCheckID(serviceID)
+            let future = consul.agent.deregisterCheck(checkID).flatMap {
+                self.consul.agent.deregisterServiceID(serviceID.uuidString)
+            }
+
+            do {
+                _ = try await future.get()
+                logger.info("service \(serviceID) deregistered")
+            } catch {
+                logger.error("\(error)")
+            }
+
+            return true
+        } else {
+            return false
+        }
     }
 }
