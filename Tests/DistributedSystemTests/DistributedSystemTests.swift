@@ -1355,7 +1355,7 @@ final class DistributedSystemTests: XCTestCase {
 
         for await _ in stream { break }
 
-        // client and server connected now, restarting server
+        // client and server connected now, removing server
         try await serverSystem.removeService(serviceID)
 
         clientSystem.stop()

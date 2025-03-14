@@ -30,7 +30,7 @@ extension Channel {
     }
 }
 
-public final class Box<T: ~Copyable>: @unchecked Sendable {
+public final class Box<T> {
     public var value: T
 
     public init(_ value: consuming T) {

@@ -31,7 +31,7 @@ public class DistributedSystemServer: DistributedSystem, @unchecked Sendable {
     struct HealthUpdateState {
         var version = 0
         var pendingUpdate = false
-        var continuation: CheckedContinuation<Void, Never>?
+        var continuations = [CheckedContinuation<Void, Never>]()
     }
 
     let healthUpdateState = Mutex<HealthUpdateState>(.init())
@@ -141,8 +141,12 @@ public class DistributedSystemServer: DistributedSystem, @unchecked Sendable {
         logger.info("starting server '\(systemName)' @ \(localPort) (compression mode = \(compressionMode))")
     }
 
-    private static func makeCheckID(_ serviceID: UUID) -> String {
+    private static func makeCheckID(_ serviceID: String) -> String {
         "service:\(serviceID)"
+    }
+
+    private static func makeCheckID(_ serviceID: UUID) -> String {
+        makeCheckID(serviceID.uuidString)
     }
 
     private func registerService(_ serviceName: String, _ serviceID: UUID, metadata: [String: String]) -> EventLoopFuture<Void> {
@@ -180,85 +184,95 @@ public class DistributedSystemServer: DistributedSystem, @unchecked Sendable {
         try await addService(name: type.serviceName, toModule: moduleID, metadata: metadata, factory)
     }
 
-    private func removePendingRequest(_ pendingRequestsBox: Box<Atomic<Int>>, _ eventLoop: EventLoop) {
-        let pendingRequests = pendingRequestsBox.value.wrappingSubtract(1, ordering: .releasing).newValue
-        if pendingRequests == 0 {
-            logger.trace("schedule next health status update check in \(self.healthStatusUpdateInterval) seconds")
-            let continuation = self.healthUpdateState.withLock {
-                $0.pendingUpdate = false
-                return $0.continuation.take()
+    private func updateHealthStatus(with eventLoop: EventLoop) {
+        let services = {
+            while true {
+                let (services, servicesVersion) = getLocalServices()
+
+                let expectedServicesVersion: Int? = healthUpdateState.withLock {
+                    if servicesVersion < $0.version {
+                        return $0.version
+                    } else {
+                        $0.pendingUpdate = true
+                        return nil
+                    }
+                }
+
+                if let expectedServicesVersion {
+                    logger.debug("services version \(servicesVersion) is less than expected version \(expectedServicesVersion)")
+                } else {
+                    logger.trace("updating health status for \(services.count) services @ \(servicesVersion)")
+                    return services
+                }
+            }
+        }()
+
+        var futures = [EventLoopFuture<Void>]()
+
+        for service in services {
+            let checkID = Self.makeCheckID(service.serviceID)
+            let promise = eventLoop.makePromise(of: Void.self)
+            let checkFuture = consul.agent.check(checkID, status: .passing)
+            checkFuture.whenComplete { result in
+                switch result {
+                case .success:
+                    promise.succeed()
+                case let .failure(error):
+                    // depending on the error we could try to re-register service
+                    if let error = error as? ConsulError,
+                       case let .httpResponseError(status, _) = error,
+                       case status = HTTPResponseStatus.notFound {
+                        if let serviceName = service.serviceName,
+                           let serviceID = UUID(uuidString: service.serviceID) {
+                            self.logger.error("check '\(checkID)' failed: \(error), trying to register service again")
+                            let serviceMeta = service.serviceMeta ?? [:]
+                            let registerFuture = self.registerService(serviceName, serviceID, metadata: serviceMeta)
+                            registerFuture.whenComplete {
+                                switch $0 {
+                                case .success:
+                                    promise.succeed()
+                                case let .failure(error):
+                                    self.logger.error("failed to re-register service \(serviceName)/\(serviceID): \(error)")
+                                    promise.fail(error)
+                                }
+                            }
+                        } else {
+                            self.logger.error("check '\(checkID)' failed: \(error), can't register service \(service)")
+                            promise.fail(error)
+                        }
+                    } else {
+                        self.logger.error("check '\(checkID)' failed: \(error)")
+                        promise.fail(error)
+                    }
+                }
             }
 
-            if let continuation {
-                logger.debug("resuming continuation")
-                continuation.resume(returning: ())
+            futures.append(promise.futureResult)
+        }
+
+        let allCompletedFuture = EventLoopFuture.whenAllComplete(futures, on: eventLoop)
+        _ = allCompletedFuture.map { _ in
+            let continuations = self.healthUpdateState.withLock {
+                $0.pendingUpdate = false
+                return exchange(&$0.continuations, with: [])
+            }
+
+            if continuations.isEmpty {
+                self.logger.trace("no waiters, schedule next health update update")
+            } else {
+                self.logger.trace("""
+                    resuming \(continuations.count) continuations,
+                    schedule next health update in \(self.healthStatusUpdateInterval)"
+                    """
+                )
+                for continuation in continuations {
+                    continuation.resume()
+                }
             }
 
             eventLoop.scheduleTask(in: self.healthStatusUpdateInterval) {
                 self.updateHealthStatus(with: eventLoop)
             }
-        }
-    }
-
-    private func updateHealthStatus(with eventLoop: EventLoop) {
-        while true {
-            let (services, servicesVersion) = getLocalServices()
-            let expectedServicesVersion: Int? = healthUpdateState.withLock {
-                if servicesVersion < $0.version {
-                    return $0.version
-                } else {
-                    $0.pendingUpdate = true
-                    return nil
-                }
-            }
-
-            if let expectedServicesVersion {
-                logger.debug("services version \(servicesVersion) is less than expected version \(expectedServicesVersion)")
-                continue
-            }
-
-            logger.trace("updating health status for \(services.count) services @ \(servicesVersion)")
-            let pendingRequestsBox = Box<Atomic<Int>>(.init(services.count))
-
-            for service in services {
-                let checkID = "service:\(service.serviceID)"
-                let future = consul.agent.check(checkID, status: .passing)
-                future.whenComplete { result in
-                    switch result {
-                    case .success:
-                        self.removePendingRequest(pendingRequestsBox, eventLoop)
-                    case let .failure(error):
-                        // dependning on the error we could try to re-register service
-                        if let error = error as? ConsulError,
-                           case let .httpResponseError(status, _) = error,
-                           case status = HTTPResponseStatus.notFound {
-                            if let serviceName = service.serviceName,
-                               let serviceID = UUID(uuidString: service.serviceID) {
-                                self.logger.error("check '\(checkID)' failed: \(error), trying to register service again")
-                                let serviceMeta = service.serviceMeta ?? [:]
-                                let future = self.registerService(serviceName, serviceID, metadata: serviceMeta)
-                                future.whenComplete {
-                                    switch $0 {
-                                    case .success:
-                                        break
-                                    case let .failure(error):
-                                        self.logger.error("failed to re-register service \(serviceName)/\(serviceID): \(error)")
-                                    }
-                                    self.removePendingRequest(pendingRequestsBox, eventLoop)
-                                }
-                            } else {
-                                self.logger.error("check '\(checkID)' failed: \(error), can't register service \(service)")
-                                self.removePendingRequest(pendingRequestsBox, eventLoop)
-                            }
-                        } else {
-                            self.logger.error("check '\(checkID)' failed: \(error)")
-                            self.removePendingRequest(pendingRequestsBox, eventLoop)
-                        }
-                    }
-                }
-            }
-
-            break
         }
     }
 
@@ -294,40 +308,40 @@ public class DistributedSystemServer: DistributedSystem, @unchecked Sendable {
 
     @discardableResult
     public func removeService(_ serviceID: UUID) async throws -> Bool {
-        if let version = super.removeService(serviceID) {
-            await withCheckedContinuation { continuation in
-                let resumeContinuation = healthUpdateState.withLock {
-                    $0.version = version
-                    if $0.pendingUpdate {
-                        $0.continuation = continuation
-                        return false
-                    } else {
-                        return true
-                    }
-                }
-
-                if resumeContinuation {
-                    continuation.resume(returning: ())
-                } else {
-                    logger.debug("waiting for health status update finish")
-                }
-            }
-
-            let checkID = Self.makeCheckID(serviceID)
-            let future = consul.agent.deregisterCheck(checkID).flatMap {
-                self.consul.agent.deregisterServiceID(serviceID.uuidString)
-            }
-
-            do {
-                _ = try await future.get()
-                logger.info("service \(serviceID) deregistered")
-            } catch {
-                logger.error("\(error)")
-            }
-
-            return true
-        } else {
+        guard let servicesVersion = super.removeService(serviceID) else {
             return false
         }
+
+        await withCheckedContinuation { continuation in
+            let resumeContinuation = healthUpdateState.withLock {
+                $0.version = servicesVersion
+                if $0.pendingUpdate {
+                    $0.continuations.append(continuation)
+                    return false
+                } else {
+                    return true
+                }
+            }
+
+            if resumeContinuation {
+                continuation.resume()
+            } else {
+                logger.debug("waiting for health status update to finish")
+            }
+        }
+
+        let checkID = Self.makeCheckID(serviceID)
+        let future = consul.agent.deregisterCheck(checkID).flatMap {
+            self.consul.agent.deregisterServiceID(serviceID.uuidString)
+        }
+
+        do {
+            _ = try await future.get()
+            logger.info("service \(serviceID) deregistered")
+        } catch {
+            logger.error("\(error)")
+        }
+
+        return true
     }
 }

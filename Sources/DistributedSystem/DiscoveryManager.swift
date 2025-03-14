@@ -87,7 +87,7 @@ final class DiscoveryManager {
     private var logger: Logger { loggerBox.value }
 
     private var lock = NIOLock()
-    private var stateVersion = 0
+    private var stateVersion = 0 // incremented on service remove
     private var processes: [SocketAddress: ProcessInfo] = [:]
     private var discoveries: [String: DiscoveryInfo] = [:]
     private var updateHealthStatus = true
