@@ -87,6 +87,7 @@ final class DiscoveryManager {
     private var logger: Logger { loggerBox.value }
 
     private var lock = NIOLock()
+    private var stateVersion = 0 // incremented on service remove
     private var processes: [SocketAddress: ProcessInfo] = [:]
     private var discoveries: [String: DiscoveryInfo] = [:]
     private var updateHealthStatus = true
@@ -231,7 +232,7 @@ final class DiscoveryManager {
                 fatalError("Internal error: duplicated service \(serviceName)/\(serviceID)")
             }
 
-            logger.debug("addService: \(serviceName)/\(serviceID) (updateHealthStatus=\(updateHealthStatus))")
+            logger.debug("addService: '\(serviceName)'/\(serviceID) (updateHealthStatus=\(updateHealthStatus))")
             discoveryInfo.services[serviceID] = ServiceInfo(service, factory)
 
             var services = [(ConsulServiceDiscovery.Instance, DistributedSystem.ConnectionHandler)]()
@@ -249,6 +250,24 @@ final class DiscoveryManager {
         }
 
         return updateHealthStatus
+    }
+
+    func removeLocalService(_ serviceID: UUID) -> Int? {
+        logger.debug("removeLocalService: \(serviceID)")
+        return lock.withLock {
+            for discoveryInfo in self.discoveries.values {
+                let serviceInfo = discoveryInfo.services[serviceID]
+                if let serviceInfo {
+                    // a sanity check the service should be local
+                    if case .local = serviceInfo.address {
+                        stateVersion += 1
+                        discoveryInfo.services.removeValue(forKey: serviceID)
+                        return stateVersion
+                    }
+                }
+            }
+            return nil
+        }
     }
 
     func setAddress(_ address: SocketAddress, for serviceName: String, _ serviceID: UUID, _ service: NodeService) -> Bool {
@@ -374,9 +393,9 @@ final class DiscoveryManager {
         }
     }
 
-    func getLocalServices() -> [NodeService] {
+    func getLocalServices() -> ([NodeService], Int) {
         lock.withLock {
-            self.getLocalServicesLocked()
+            (self.getLocalServicesLocked(), stateVersion)
         }
     }
 

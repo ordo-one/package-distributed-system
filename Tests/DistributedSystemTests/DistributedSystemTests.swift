@@ -84,6 +84,27 @@ func checkCanRunTimeConsumingTest() throws {
 }
 
 final class DistributedSystemTests: XCTestCase {
+    class DummyServiceImpl: TestableService, @unchecked Sendable {
+        func openStream(byRequest request: TestMessages.OpenRequest) async {
+            fatalError("Should never be called")
+        }
+
+        func getMonster() -> Monster {
+            fatalError("Should never be called")
+        }
+
+        func doNothing() {
+            fatalError("Should never be called")
+        }
+
+        func handleMonsters(_ monsters: [Monster]) async {
+            fatalError("Should never be called")
+        }
+
+        func handleConnectionState(_ state: ConnectionState) async {
+        }
+    }
+
     class Flags {
         var serviceDeallocated = false
         var serviceConnectionClosed = false
@@ -372,27 +393,6 @@ final class DistributedSystemTests: XCTestCase {
     func testReconnectAfterServerRestart() async throws {
         try checkCanRunTimeConsumingTest()
 
-        class ServiceImpl: TestableService, @unchecked Sendable {
-            func openStream(byRequest request: TestMessages.OpenRequest) async {
-                fatalError("Should never be called")
-            }
-
-            func getMonster() -> Monster {
-                fatalError("Should never be called")
-            }
-
-            func doNothing() {
-                fatalError("Should never be called")
-            }
-
-            func handleMonsters(_ monsters: [Monster]) async {
-                fatalError("Should never be called")
-            }
-
-            func handleConnectionState(_ state: ConnectionState) async {
-            }
-        }
-
         let processInfo = ProcessInfo.processInfo
         let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
 
@@ -402,7 +402,7 @@ final class DistributedSystemTests: XCTestCase {
         let serverSystem1 = DistributedSystemServer(name: systemName)
         try await serverSystem1.start()
         try await serverSystem1.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
-            try TestServiceEndpoint(ServiceImpl(), in: actorSystem)
+            try TestServiceEndpoint(DummyServiceImpl(), in: actorSystem)
         }
 
         let clientSystem = DistributedSystem(name: systemName)
@@ -431,7 +431,7 @@ final class DistributedSystemTests: XCTestCase {
         let serverSystem2 = DistributedSystemServer(name: systemName)
         try await serverSystem2.start()
         try await serverSystem2.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
-            try TestServiceEndpoint(ServiceImpl(), in: actorSystem)
+            try TestServiceEndpoint(DummyServiceImpl(), in: actorSystem)
         }
 
         for await _ in stream { break }
@@ -1325,5 +1325,40 @@ final class DistributedSystemTests: XCTestCase {
         XCTAssertFalse(updateHealthStatus2)
 
         distributedSystem.stop()
+    }
+
+    func testRemoveService() async throws {
+        let processInfo = ProcessInfo.processInfo
+        let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
+
+        let (stream, continuation) = AsyncStream<Void>.makeStream()
+
+        let moduleID = DistributedSystem.ModuleIdentifier(1)
+        let serverSystem = DistributedSystemServer(name: systemName)
+        try await serverSystem.start()
+        let serviceID = try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+            continuation.yield()
+            return try TestServiceEndpoint(DummyServiceImpl(), in: actorSystem)
+        }
+
+        let clientSystem = DistributedSystem(name: systemName)
+        try clientSystem.start()
+
+        clientSystem.connectToServices(
+            TestServiceEndpoint.self,
+            withFilter: { _ in true },
+            clientFactory: { actorSystem, _ in
+                return TestClientEndpoint(Client(), in: actorSystem)
+            },
+            serviceHandler: { serviceEndpoint, _ in }
+        )
+
+        for await _ in stream { break }
+
+        // client and server connected now, removing server
+        try await serverSystem.removeService(serviceID)
+
+        clientSystem.stop()
+        serverSystem.stop()
     }
 }
