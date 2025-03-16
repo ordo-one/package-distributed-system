@@ -257,17 +257,14 @@ public class DistributedSystemServer: DistributedSystem, @unchecked Sendable {
                 return exchange(&$0.continuations, with: [])
             }
 
-            if continuations.isEmpty {
-                self.logger.trace("no waiters, schedule next health update update")
-            } else {
-                self.logger.trace("""
-                    resuming \(continuations.count) continuations,
-                    schedule next health update in \(self.healthStatusUpdateInterval)"
-                    """
-                )
-                for continuation in continuations {
-                    continuation.resume()
-                }
+            self.logger.trace("""
+                resuming \(continuations.count) continuations,
+                schedule next health update in \(self.healthStatusUpdateInterval)"
+                """
+            )
+
+            for continuation in continuations {
+                continuation.resume()
             }
 
             eventLoop.scheduleTask(in: self.healthStatusUpdateInterval) {
