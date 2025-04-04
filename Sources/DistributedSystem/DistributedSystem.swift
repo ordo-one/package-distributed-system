@@ -729,6 +729,10 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         return (serviceID, updateHealthStatus)
     }
 
+    func updateMetadata(_ metadata: [String: String], forService serviceID: UUID) throws -> (String, [String: String]) {
+        try discoveryManager.updateMetadata(metadata, forService: serviceID)
+    }
+
     func removeService(_ serviceID: UUID) -> Int? {
         discoveryManager.removeLocalService(serviceID)
     }

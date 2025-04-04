@@ -303,6 +303,12 @@ public class DistributedSystemServer: DistributedSystem, @unchecked Sendable {
         return serviceID
     }
 
+    public func updateMetadata(_ metadata: [String: String], forService serviceID: UUID) async throws {
+        let (name, metadata) = try super.updateMetadata(metadata, forService: serviceID)
+        let future = registerService(name, serviceID, metadata: metadata)
+        try await future.get()
+    }
+
     @discardableResult
     public func removeService(_ serviceID: UUID) async throws -> Bool {
         guard let servicesVersion = super.removeService(serviceID) else {
