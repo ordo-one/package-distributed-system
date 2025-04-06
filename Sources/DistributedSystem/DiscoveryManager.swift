@@ -252,6 +252,41 @@ final class DiscoveryManager {
         return updateHealthStatus
     }
 
+    func updateMetadata(_ metadata: [String: String], forService serviceID: UUID) throws -> (String, [String: String]) {
+        try lock.withLock {
+            for (_, discroveryInfo) in self.discoveries {
+                if let serviceInfo = discroveryInfo.services[serviceID] {
+                    switch serviceInfo.address {
+                    case .local:
+                        let src = serviceInfo.service
+                        let newMetadata = src.serviceMeta.map { $0.merging(metadata) { (_, new) in new } } ?? metadata
+                        guard let serviceName = src.serviceName else {
+                            throw DistributedSystemErrors.serviceMetadataUpdateError("Internal error: missing service name for \(serviceID)")
+                        }
+                        serviceInfo.service = NodeService(
+                            address: src.address,
+                            createIndex: src.createIndex,
+                            datacenter: src.datacenter,
+                            id: src.id,
+                            modifyIndex: src.modifyIndex,
+                            node: src.node,
+                            serviceAddress: src.serviceAddress,
+                            serviceID: src.serviceID,
+                            serviceMeta: newMetadata,
+                            serviceName: serviceName,
+                            servicePort: src.servicePort,
+                            taggedAddresses: src.taggedAddresses
+                        )
+                        return (serviceName, newMetadata)
+                    case .remote:
+                        throw DistributedSystemErrors.serviceMetadataUpdateError("Internal error: updating metata for remote service \(serviceID)")
+                    }
+                }
+            }
+            throw DistributedSystemErrors.serviceMetadataUpdateError("Service \(serviceID) not found")
+        }
+    }
+
     func removeLocalService(_ serviceID: UUID) -> Int? {
         logger.debug("removeLocalService: \(serviceID)")
         return lock.withLock {
