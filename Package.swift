@@ -7,7 +7,7 @@ import PackageDescription
 let externalDependencies: [String: Range<Version>] = [
     "https://github.com/ordo-one/flatbuffers": .upToNextMajor(from: "22.0.0"),
     "https://github.com/apple/swift-argument-parser": .upToNextMajor(from: "1.1.0"),
-    "https://github.com/apple/swift-nio": .upToNextMajor(from: "2.42.0"),
+    "https://github.com/apple/swift-nio": .upToNextMajor(from: "2.83.0"),
     "https://github.com/apple/swift-log": .upToNextMajor(from: "1.4.4"),
     "https://github.com/apple/swift-service-discovery.git" : .upToNextMajor(from: "1.0.0"),
 ]
