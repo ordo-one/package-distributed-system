@@ -5,7 +5,6 @@ import class Foundation.ProcessInfo
 import PackageDescription
 
 let externalDependencies: [String: Range<Version>] = [
-    "https://github.com/ordo-one/flatbuffers": .upToNextMajor(from: "22.0.0"),
     "https://github.com/apple/swift-argument-parser": .upToNextMajor(from: "1.1.0"),
     "https://github.com/apple/swift-nio": .upToNextMajor(from: "2.83.0"),
     "https://github.com/apple/swift-log": .upToNextMajor(from: "1.4.4"),
@@ -84,10 +83,8 @@ let package = Package(
             name: "TestMessages",
             dependencies: [
                 "DistributedSystem",
-                .product(name: "FlatBuffers", package: "flatbuffers"),
             ],
             path: "Sources/ForTesting/TestMessages/",
-            exclude: ["TestMessages.fbs"]
         ),
         .executableTarget(
             name: "TestService",

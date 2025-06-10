@@ -43,18 +43,18 @@ class Service: TestableService, @unchecked Sendable {
         logger.info("SERVER: open stream #\(request.requestIdentifier) request received")
         do {
             guard let clientEndpoint else { fatalError("Internal error: clientEndpoint unexpectedly nil") }
-            try await clientEndpoint.streamOpened(StreamOpened(_StreamOpenedStruct(requestIdentifier: request.id)))
+            try await clientEndpoint.streamOpened(StreamOpened(requestIdentifier: request.id))
         } catch {
             fatalError("Unexpected error")
         }
     }
 
     func getMonster() -> Monster {
-        var monster = _MonsterStruct(identifier: 5)
+        var monster = Monster(identifier: 5)
         monster.name = "orc"
         monster.hp = 100
         monster.mana = 100
-        return Monster(monster)
+        return monster
     }
 
     func doNothing() {
@@ -128,8 +128,8 @@ final class DistributedSystemTests: XCTestCase {
             logger.info("SERVER: open stream #\(request.requestIdentifier) request received")
             do {
                 guard let clientEndpoint else { fatalError("Internal error: clientEndpoint unexpectedly nil") }
-                try await clientEndpoint.streamOpened(StreamOpened(_StreamOpenedStruct(requestIdentifier: request.id)))
-                try await clientEndpoint.snapshotDone(for: Stream(_StreamStruct(streamIdentifier: request.id)))
+                try await clientEndpoint.streamOpened(StreamOpened(requestIdentifier: request.id))
+                try await clientEndpoint.snapshotDone(for: Stream(streamIdentifier: request.id))
             } catch {
                 print("\(error)")
             }
@@ -222,9 +222,9 @@ final class DistributedSystemTests: XCTestCase {
 
             logger.info("TEST: open streams...")
 
-            let openRequest = _OpenRequestStruct(requestIdentifier: 1)
+            let openRequest = OpenRequest(requestIdentifier: 1)
             logger.info("CLIENT: send open request for stream #\(openRequest.id)")
-            try await serviceEndpoint.openStream(byRequest: OpenRequest(openRequest))
+            try await serviceEndpoint.openStream(byRequest: openRequest)
 
             for await _ in client!.stream { break }
             client = nil
@@ -288,8 +288,8 @@ final class DistributedSystemTests: XCTestCase {
                 }
             )
 
-            let openRequest = _OpenRequestStruct(requestIdentifier: 1)
-            try await serviceEndpoint.openStream(byRequest: OpenRequest(openRequest))
+            let openRequest = OpenRequest(requestIdentifier: 1)
+            try await serviceEndpoint.openStream(byRequest: openRequest)
 
             for await _ in client!.stream { break }
             client = nil
@@ -365,8 +365,8 @@ final class DistributedSystemTests: XCTestCase {
                             if clientId == 1 {
                                 try serverSystem.closeConnectionFor(serviceEndpoint.id)
                             } else if clientId == 2 {
-                                let openRequest = _OpenRequestStruct(requestIdentifier: 1)
-                                try await serviceEndpoint.openStream(byRequest: OpenRequest(openRequest))
+                                let openRequest = OpenRequest(requestIdentifier: 1)
+                                try await serviceEndpoint.openStream(byRequest: openRequest)
                             } else {
                                 fatalError("internal error")
                             }
@@ -506,8 +506,8 @@ final class DistributedSystemTests: XCTestCase {
                 Task {
                     let range = (1 ... count)
                     for id in range {
-                        let openRequest = _OpenRequestStruct(requestIdentifier: UInt64(id))
-                        try await serviceEndpoint.openStream(byRequest: OpenRequest(openRequest))
+                        let openRequest = OpenRequest(requestIdentifier: UInt64(id))
+                        try await serviceEndpoint.openStream(byRequest: openRequest)
                     }
                 }
             }
@@ -523,8 +523,8 @@ final class DistributedSystemTests: XCTestCase {
                 Task {
                     let range = (count+1 ... count*2)
                     for id in range {
-                        let openRequest = _OpenRequestStruct(requestIdentifier: UInt64(id))
-                        try await serviceEndpoint.openStream(byRequest: OpenRequest(openRequest))
+                        let openRequest = OpenRequest(requestIdentifier: UInt64(id))
+                        try await serviceEndpoint.openStream(byRequest: openRequest)
                     }
                 }
             }
@@ -548,12 +548,12 @@ final class DistributedSystemTests: XCTestCase {
             func openStream(byRequest request: TestMessages.OpenRequest) async {
                 do {
                     guard let clientEndpoint else { fatalError("Internal error: clientEndpoint unexpectedly nil") }
-                    try await clientEndpoint.streamOpened(StreamOpened(_StreamOpenedStruct(requestIdentifier: request.id)))
-                    let stream = Stream(_StreamStruct(streamIdentifier: request.id))
+                    try await clientEndpoint.streamOpened(StreamOpened(requestIdentifier: request.id))
+                    let stream = Stream(streamIdentifier: request.id)
                     for idx in 1...count {
-                        let monster = _MonsterStruct(identifier: UInt64(idx))
+                        let monster = Monster(identifier: UInt64(idx))
                         logger.info("SERVER: send monster with id \(monster.id) to \(stream.id)")
-                        try await clientEndpoint.handleMonster(Monster(monster), for: stream)
+                        try await clientEndpoint.handleMonster(monster, for: stream)
                     }
                     try await clientEndpoint.snapshotDone(for: stream)
                 } catch {
@@ -652,9 +652,9 @@ final class DistributedSystemTests: XCTestCase {
         logger.info("TEST: open streams...")
 
         for id in 1...streams {
-            let openRequest = _OpenRequestStruct(requestIdentifier: RequestIdentifier(id))
+            let openRequest = OpenRequest(requestIdentifier: RequestIdentifier(id))
             logger.info("CLIENT: send open request for stream #\(openRequest.id)")
-            try await distributedService.openStream(byRequest: OpenRequest(openRequest))
+            try await distributedService.openStream(byRequest: openRequest)
         }
 
         for await _ in client!.stream { break }
@@ -701,12 +701,12 @@ final class DistributedSystemTests: XCTestCase {
             public static var serviceName: String { "test_service" }
 
             public distributed func getMonster() async throws -> Monster {
-                var monster = _MonsterStruct(identifier: 5)
+                var monster = Monster(identifier: 5)
                 monster.name = "orc"
                 monster.hp = 100
                 monster.mana = 100
                 try actorSystem.closeConnectionFor(id.makeClientEndpoint())
-                return Monster(monster)
+                return monster
             }
 
             public distributed func handleConnectionState(_ state: ConnectionState) async throws {
@@ -774,8 +774,8 @@ final class DistributedSystemTests: XCTestCase {
             }
         )
 
-        let openRequest = _OpenRequestStruct(requestIdentifier: 1)
-        try await distributedService.openStream(byRequest: OpenRequest(openRequest))
+        let openRequest = OpenRequest(requestIdentifier: 1)
+        try await distributedService.openStream(byRequest: openRequest)
 
         logger.info("id=\(distributedService.id)")
 
@@ -1204,10 +1204,10 @@ final class DistributedSystemTests: XCTestCase {
             }
 
             func openStream(byRequest request: TestMessages.OpenRequest) async {
-                var reply = _StreamOpenedStruct(requestIdentifier: request.requestIdentifier)
+                var reply = StreamOpened(requestIdentifier: request.requestIdentifier)
                 reply.streamIdentifier = StreamIdentifier(id)
                 do {
-                    try await clientEndpoint?.streamOpened(StreamOpened(reply))
+                    try await clientEndpoint?.streamOpened(reply)
                 } catch {
                     logger.error("\(error)")
                 }
@@ -1276,8 +1276,8 @@ final class DistributedSystemTests: XCTestCase {
             }
         )
 
-        let openRequest = _OpenRequestStruct(requestIdentifier: 2)
-        try await serviceEndpoint.openStream(byRequest: OpenRequest(openRequest))
+        let openRequest = OpenRequest(requestIdentifier: 2)
+        try await serviceEndpoint.openStream(byRequest: openRequest)
 
         for await reply in client.stream {
             XCTAssertEqual(reply.streamIdentifier, 2)

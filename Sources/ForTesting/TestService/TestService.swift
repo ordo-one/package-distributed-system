@@ -48,14 +48,15 @@ public class TestService: TestableService, @unchecked Sendable {
             self.clientEndpoint = clientEndpoint
 
             Task {
-                try await clientEndpoint.streamOpened(StreamOpened(_StreamOpenedStruct(requestIdentifier: request.id)))
-                let stream = Stream(_StreamStruct(streamIdentifier: 0))
+                let streamOpened = StreamOpened(requestIdentifier: request.id)
+                try await clientEndpoint.streamOpened(streamOpened)
+
+                let stream = Stream(streamIdentifier: 0)
 
                 let count = 100_000
                 for idx in 1...count {
-                    try await clientEndpoint.handleMonster(
-                        Monster(_MonsterStruct(identifier: MonsterIdentifier(idx))),
-                        for: stream)
+                    let monster = Monster(identifier: MonsterIdentifier(idx))
+                    try await clientEndpoint.handleMonster(monster, for: stream)
                 }
 
                 try await clientEndpoint.snapshotDone(for: stream)

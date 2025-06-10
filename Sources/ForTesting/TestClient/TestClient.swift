@@ -76,10 +76,10 @@ public class TestClient: TestableClient, @unchecked Sendable {
                 }
             )
 
-            let openRequest = _OpenRequestStruct(requestIdentifier: 1)
+            let openRequest = OpenRequest(requestIdentifier: 1)
             start = ContinuousClock.now
 
-            try await serverEndpoint.openStream(byRequest: OpenRequest(openRequest))
+            try await serverEndpoint.openStream(byRequest: openRequest)
         } catch {
             logger.warning("Error: \(error)")
         }

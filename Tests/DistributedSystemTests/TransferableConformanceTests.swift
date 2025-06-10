@@ -175,8 +175,7 @@ final class TransferableConformanceTests: XCTestCase {
 
         var monsters = [String: Monster]()
         for idx in 1...5 {
-            let monster = _MonsterStruct(identifier: MonsterIdentifier(idx))
-            monsters["monster-\(idx)"] = Monster(monster)
+            monsters["monster-\(idx)"] = Monster(identifier: MonsterIdentifier(idx))
         }
 
         try await serviceEndpoint.handleMonsters(monsters)
