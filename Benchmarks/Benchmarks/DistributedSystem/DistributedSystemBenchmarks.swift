@@ -142,23 +142,23 @@ let benchmarks: @Sendable () -> Void = {
                       _ service: Service, _ serviceEndpoint: TestServiceEndpoint,
                       _ client: Client, _ clientEndpoint: TestClientEndpoint) async throws {
         do {
-            let openRequest = _OpenRequestStruct(requestIdentifier: 1)
+            let openRequest = OpenRequest(requestIdentifier: 1)
 
-            try await serviceEndpoint.openStream(byRequest: OpenRequest(openRequest))
+            try await serviceEndpoint.openStream(byRequest: openRequest)
             await service.whenOpenStream()
 
-            try await clientEndpoint.streamOpened(StreamOpened(_StreamOpenedStruct(requestIdentifier: openRequest.id)))
+            try await clientEndpoint.streamOpened(StreamOpened(requestIdentifier: openRequest.id))
             await client.whenStreamOpened()
 
-            let stream = Stream(_StreamStruct(streamIdentifier: openRequest.id))
+            let stream = Stream(streamIdentifier: openRequest.id)
             var monsterID: UInt64 = 1
 
             let bytesSentBefore = try await serviceSystem.getBytesSent()
 
             benchmark.startMeasurement()
             for _ in benchmark.scaledIterations {
-                let monster = _MonsterStruct(identifier: monsterID)
-                try await clientEndpoint.handleMonster(Monster(monster), for: stream)
+                let monster = Monster(identifier: monsterID)
+                try await clientEndpoint.handleMonster(monster, for: stream)
                 monsterID += 1
             }
 
@@ -191,18 +191,18 @@ let benchmarks: @Sendable () -> Void = {
         let clientClass = ClientClass(client)
 
         do {
-            let openRequest = _OpenRequestStruct(requestIdentifier: 1)
+            let openRequest = OpenRequest(requestIdentifier: 1)
 
-            try await serverClass.openStream(byRequest: OpenRequest(openRequest))
-            try await clientClass.streamOpened(StreamOpened(_StreamOpenedStruct(requestIdentifier: openRequest.id)))
+            try await serverClass.openStream(byRequest: openRequest)
+            try await clientClass.streamOpened(StreamOpened(requestIdentifier: openRequest.id))
 
-            let stream = Stream(_StreamStruct(streamIdentifier: openRequest.id))
+            let stream = Stream(streamIdentifier: openRequest.id)
             var monsterID: UInt64 = 1
 
             benchmark.startMeasurement()
             for _ in benchmark.scaledIterations {
-                let monster = _MonsterStruct(identifier: monsterID)
-                try await clientClass.handleMonster(Monster(monster), for: stream)
+                let monster = Monster(identifier: monsterID)
+                try await clientClass.handleMonster(monster, for: stream)
                 monsterID += 1
             }
 
@@ -230,19 +230,19 @@ let benchmarks: @Sendable () -> Void = {
         let clientActor = ClientActor(client)
 
         do {
-            let openRequest = _OpenRequestStruct(requestIdentifier: 1)
+            let openRequest = OpenRequest(requestIdentifier: 1)
 
-            try await serverActor.openStream(byRequest: OpenRequest(openRequest))
+            try await serverActor.openStream(byRequest: openRequest)
 
-            try await clientActor.streamOpened(StreamOpened(_StreamOpenedStruct(requestIdentifier: openRequest.id)))
+            try await clientActor.streamOpened(StreamOpened(requestIdentifier: openRequest.id))
 
-            let stream = Stream(_StreamStruct(streamIdentifier: openRequest.id))
+            let stream = Stream(streamIdentifier: openRequest.id)
             var monsterID: UInt64 = 1
 
             benchmark.startMeasurement()
             for _ in benchmark.scaledIterations {
-                let monster = _MonsterStruct(identifier: monsterID)
-                try await clientActor.handleMonster(Monster(monster), for: stream)
+                let monster = Monster(identifier: monsterID)
+                try await clientActor.handleMonster(monster, for: stream)
                 monsterID += 1
             }
 
@@ -315,15 +315,15 @@ let benchmarks: @Sendable () -> Void = {
             for _ in 1...iterations {
                 var monsters = [Monster]()
                 for _ in 1...arraySize {
-                    let monster = _MonsterStruct(identifier: monsterID)
-                    monsters.append(Monster(monster))
+                    let monster = Monster(identifier: monsterID)
+                    monsters.append(monster)
                 }
                 try await endpoints.service.handleMonsters(array: monsters)
                 monsterID += 1
             }
 
-            let openRequest = _OpenRequestStruct(requestIdentifier: 1)
-            try await endpoints.service.openStream(byRequest: OpenRequest(openRequest))
+            let openRequest = OpenRequest(requestIdentifier: 1)
+            try await endpoints.service.openStream(byRequest: openRequest)
             await service.whenOpenStream()
 
             benchmark.stopMeasurement()
@@ -355,15 +355,15 @@ let benchmarks: @Sendable () -> Void = {
         let endpoints = sharedData.remoteEndpoints1
 
         do {
-            let openRequest = _OpenRequestStruct(requestIdentifier: 1)
+            let openRequest = OpenRequest(requestIdentifier: 1)
 
-            try await endpoints.service.openStream(byRequest: OpenRequest(openRequest))
+            try await endpoints.service.openStream(byRequest: openRequest)
             await service.whenOpenStream()
 
-            try await endpoints.client.streamOpened(StreamOpened(_StreamOpenedStruct(requestIdentifier: openRequest.id)))
+            try await endpoints.client.streamOpened(StreamOpened(requestIdentifier: openRequest.id))
             await client.whenStreamOpened()
 
-            let stream = Stream(_StreamStruct(streamIdentifier: openRequest.id))
+            let stream = Stream(streamIdentifier: openRequest.id)
 
             let repeatString = Array("inventory".utf8)
             var inventory: [UInt8] = []
@@ -374,9 +374,9 @@ let benchmarks: @Sendable () -> Void = {
 
             benchmark.startMeasurement()
             for _ in benchmark.scaledIterations {
-                var monster = _MonsterStruct(identifier: monsterID)
+                var monster = Monster(identifier: monsterID)
                 monster.inventory = inventory
-                try await endpoints.client.handleMonster(Monster(monster), for: stream)
+                try await endpoints.client.handleMonster(monster, for: stream)
                 monsterID += 1
             }
 
