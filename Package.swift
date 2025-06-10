@@ -84,7 +84,7 @@ let package = Package(
             dependencies: [
                 "DistributedSystem",
             ],
-            path: "Sources/ForTesting/TestMessages/",
+            path: "Sources/ForTesting/TestMessages/"
         ),
         .executableTarget(
             name: "TestService",
