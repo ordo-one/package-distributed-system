@@ -5,7 +5,7 @@ import class Foundation.ProcessInfo
 import PackageDescription
 
 let externalDependencies: [String: Range<Version>] = [
-    "https://github.com/ordo-one/flatbuffers": .upToNextMajor(from: "25.2.10-ordo.1"),
+    "https://github.com/ordo-one/flatbuffers": .upToNextMajor(from: "25.2.10-ordo.2"),
     "https://github.com/apple/swift-argument-parser": .upToNextMajor(from: "1.1.0"),
     "https://github.com/apple/swift-nio": .upToNextMajor(from: "2.83.0"),
     "https://github.com/apple/swift-log": .upToNextMajor(from: "1.4.4"),
