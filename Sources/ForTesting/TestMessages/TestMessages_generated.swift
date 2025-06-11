@@ -19,7 +19,7 @@ public enum DataModel_Color: Int8, Enum, Verifiable {
 
 public struct DataModel_Timestamp: NativeStruct, Verifiable, FlatbuffersInitializable {
 
-  static func validateVersion() { FlatBuffersVersion_23_5_26() }
+  static func validateVersion() { FlatBuffersVersion_25_2_10() }
 
   private var _seconds: UInt64
   private var _attoseconds: UInt64
@@ -50,21 +50,19 @@ public struct DataModel_Timestamp: NativeStruct, Verifiable, FlatbuffersInitiali
 
 public struct DataModel_Timestamp_Mutable: FlatBufferObject {
 
-  static func validateVersion() { FlatBuffersVersion_23_5_26() }
+  static func validateVersion() { FlatBuffersVersion_25_2_10() }
   public var __buffer: ByteBuffer! { return _accessor.bb }
   private var _accessor: Struct
 
   public init(_ bb: ByteBuffer, o: Int32) { _accessor = Struct(bb: bb, position: o) }
 
   public var seconds: UInt64 { return _accessor.readBuffer(of: UInt64.self, at: 0) }
-  @discardableResult public func mutate(seconds: UInt64) -> Bool { return _accessor.mutate(seconds, index: 0) }
   public var attoseconds: UInt64 { return _accessor.readBuffer(of: UInt64.self, at: 8) }
-  @discardableResult public func mutate(attoseconds: UInt64) -> Bool { return _accessor.mutate(attoseconds, index: 8) }
 }
 
 public struct DataModel_Vec3: NativeStruct, Verifiable, FlatbuffersInitializable {
 
-  static func validateVersion() { FlatBuffersVersion_23_5_26() }
+  static func validateVersion() { FlatBuffersVersion_25_2_10() }
 
   private var _x: Float32
   private var _y: Float32
@@ -100,23 +98,20 @@ public struct DataModel_Vec3: NativeStruct, Verifiable, FlatbuffersInitializable
 
 public struct DataModel_Vec3_Mutable: FlatBufferObject {
 
-  static func validateVersion() { FlatBuffersVersion_23_5_26() }
+  static func validateVersion() { FlatBuffersVersion_25_2_10() }
   public var __buffer: ByteBuffer! { return _accessor.bb }
   private var _accessor: Struct
 
   public init(_ bb: ByteBuffer, o: Int32) { _accessor = Struct(bb: bb, position: o) }
 
   public var x: Float32 { return _accessor.readBuffer(of: Float32.self, at: 0) }
-  @discardableResult public func mutate(x: Float32) -> Bool { return _accessor.mutate(x, index: 0) }
   public var y: Float32 { return _accessor.readBuffer(of: Float32.self, at: 4) }
-  @discardableResult public func mutate(y: Float32) -> Bool { return _accessor.mutate(y, index: 4) }
   public var z: Float32 { return _accessor.readBuffer(of: Float32.self, at: 8) }
-  @discardableResult public func mutate(z: Float32) -> Bool { return _accessor.mutate(z, index: 8) }
 }
 
 public struct DataModel_OpenRequest: FlatBufferObject, Verifiable {
 
-  static func validateVersion() { FlatBuffersVersion_23_5_26() }
+  static func validateVersion() { FlatBuffersVersion_25_2_10() }
   public var __buffer: ByteBuffer! { return _accessor.bb }
   private var _accessor: Table
 
@@ -131,9 +126,7 @@ public struct DataModel_OpenRequest: FlatBufferObject, Verifiable {
   }
 
   public var requestIdentifier: UInt64 { let o = _accessor.offset(VTOFFSET.requestIdentifier.v); return o == 0 ? 0 : _accessor.readBuffer(of: UInt64.self, at: o) }
-  @discardableResult public func mutate(requestIdentifier: UInt64) -> Bool {let o = _accessor.offset(VTOFFSET.requestIdentifier.v);  return _accessor.mutate(requestIdentifier, index: o) }
   public var clientIdentifier: UInt64? { let o = _accessor.offset(VTOFFSET.clientIdentifier.v); return o == 0 ? nil : _accessor.readBuffer(of: UInt64.self, at: o) }
-  @discardableResult public func mutate(clientIdentifier: UInt64) -> Bool {let o = _accessor.offset(VTOFFSET.clientIdentifier.v);  return _accessor.mutate(clientIdentifier, index: o) }
   public static func startOpenRequest(_ fbb: inout FlatBufferBuilder) -> UOffset { fbb.startTable(with: 2) }
   public static func add(requestIdentifier: UInt64, _ fbb: inout FlatBufferBuilder) { fbb.add(element: requestIdentifier, def: 0, at: VTOFFSET.requestIdentifier.p) }
   public static func add(clientIdentifier: UInt64?, _ fbb: inout FlatBufferBuilder) { fbb.add(element: clientIdentifier, at: VTOFFSET.clientIdentifier.p) }
@@ -159,7 +152,7 @@ public struct DataModel_OpenRequest: FlatBufferObject, Verifiable {
 
 public struct DataModel_SnapshotDone: FlatBufferObject, Verifiable {
 
-  static func validateVersion() { FlatBuffersVersion_23_5_26() }
+  static func validateVersion() { FlatBuffersVersion_25_2_10() }
   public var __buffer: ByteBuffer! { return _accessor.bb }
   private var _accessor: Table
 
@@ -173,7 +166,6 @@ public struct DataModel_SnapshotDone: FlatBufferObject, Verifiable {
   }
 
   public var streamIdentifier: UInt64 { let o = _accessor.offset(VTOFFSET.streamIdentifier.v); return o == 0 ? 0 : _accessor.readBuffer(of: UInt64.self, at: o) }
-  @discardableResult public func mutate(streamIdentifier: UInt64) -> Bool {let o = _accessor.offset(VTOFFSET.streamIdentifier.v);  return _accessor.mutate(streamIdentifier, index: o) }
   public static func startSnapshotDone(_ fbb: inout FlatBufferBuilder) -> UOffset { fbb.startTable(with: 1) }
   public static func add(streamIdentifier: UInt64, _ fbb: inout FlatBufferBuilder) { fbb.add(element: streamIdentifier, def: 0, at: VTOFFSET.streamIdentifier.p) }
   public static func endSnapshotDone(_ fbb: inout FlatBufferBuilder, start: UOffset) -> Offset { let end = Offset(offset: fbb.endTable(at: start)); return end }
@@ -195,7 +187,7 @@ public struct DataModel_SnapshotDone: FlatBufferObject, Verifiable {
 
 public struct DataModel_Stream: FlatBufferObject, Verifiable {
 
-  static func validateVersion() { FlatBuffersVersion_23_5_26() }
+  static func validateVersion() { FlatBuffersVersion_25_2_10() }
   public var __buffer: ByteBuffer! { return _accessor.bb }
   private var _accessor: Table
 
@@ -209,7 +201,6 @@ public struct DataModel_Stream: FlatBufferObject, Verifiable {
   }
 
   public var streamIdentifier: UInt64 { let o = _accessor.offset(VTOFFSET.streamIdentifier.v); return o == 0 ? 0 : _accessor.readBuffer(of: UInt64.self, at: o) }
-  @discardableResult public func mutate(streamIdentifier: UInt64) -> Bool {let o = _accessor.offset(VTOFFSET.streamIdentifier.v);  return _accessor.mutate(streamIdentifier, index: o) }
   public static func startStream(_ fbb: inout FlatBufferBuilder) -> UOffset { fbb.startTable(with: 1) }
   public static func add(streamIdentifier: UInt64, _ fbb: inout FlatBufferBuilder) { fbb.add(element: streamIdentifier, def: 0, at: VTOFFSET.streamIdentifier.p) }
   public static func endStream(_ fbb: inout FlatBufferBuilder, start: UOffset) -> Offset { let end = Offset(offset: fbb.endTable(at: start)); return end }
@@ -231,7 +222,7 @@ public struct DataModel_Stream: FlatBufferObject, Verifiable {
 
 public struct DataModel_StreamOpened: FlatBufferObject, Verifiable {
 
-  static func validateVersion() { FlatBuffersVersion_23_5_26() }
+  static func validateVersion() { FlatBuffersVersion_25_2_10() }
   public var __buffer: ByteBuffer! { return _accessor.bb }
   private var _accessor: Table
 
@@ -246,9 +237,7 @@ public struct DataModel_StreamOpened: FlatBufferObject, Verifiable {
   }
 
   public var requestIdentifier: UInt64 { let o = _accessor.offset(VTOFFSET.requestIdentifier.v); return o == 0 ? 0 : _accessor.readBuffer(of: UInt64.self, at: o) }
-  @discardableResult public func mutate(requestIdentifier: UInt64) -> Bool {let o = _accessor.offset(VTOFFSET.requestIdentifier.v);  return _accessor.mutate(requestIdentifier, index: o) }
   public var streamIdentifier: UInt64? { let o = _accessor.offset(VTOFFSET.streamIdentifier.v); return o == 0 ? nil : _accessor.readBuffer(of: UInt64.self, at: o) }
-  @discardableResult public func mutate(streamIdentifier: UInt64) -> Bool {let o = _accessor.offset(VTOFFSET.streamIdentifier.v);  return _accessor.mutate(streamIdentifier, index: o) }
   public static func startStreamOpened(_ fbb: inout FlatBufferBuilder) -> UOffset { fbb.startTable(with: 2) }
   public static func add(requestIdentifier: UInt64, _ fbb: inout FlatBufferBuilder) { fbb.add(element: requestIdentifier, def: 0, at: VTOFFSET.requestIdentifier.p) }
   public static func add(streamIdentifier: UInt64?, _ fbb: inout FlatBufferBuilder) { fbb.add(element: streamIdentifier, at: VTOFFSET.streamIdentifier.p) }
@@ -274,7 +263,7 @@ public struct DataModel_StreamOpened: FlatBufferObject, Verifiable {
 
 public struct DataModel_Monster: FlatBufferObject, Verifiable {
 
-  static func validateVersion() { FlatBuffersVersion_23_5_26() }
+  static func validateVersion() { FlatBuffersVersion_25_2_10() }
   public var __buffer: ByteBuffer! { return _accessor.bb }
   private var _accessor: Table
 
@@ -294,22 +283,17 @@ public struct DataModel_Monster: FlatBufferObject, Verifiable {
   }
 
   public var identifier: UInt64 { let o = _accessor.offset(VTOFFSET.identifier.v); return o == 0 ? 0 : _accessor.readBuffer(of: UInt64.self, at: o) }
-  @discardableResult public func mutate(identifier: UInt64) -> Bool {let o = _accessor.offset(VTOFFSET.identifier.v);  return _accessor.mutate(identifier, index: o) }
   public var name: String? { let o = _accessor.offset(VTOFFSET.name.v); return o == 0 ? nil : _accessor.string(at: o) }
   public var nameSegmentArray: [UInt8]? { return _accessor.getVector(at: VTOFFSET.name.v) }
   public var pos: DataModel_Vec3? { let o = _accessor.offset(VTOFFSET.pos.v); return o == 0 ? nil : _accessor.readBuffer(of: DataModel_Vec3.self, at: o) }
-  public var mutablePos: DataModel_Vec3_Mutable? { let o = _accessor.offset(VTOFFSET.pos.v); return o == 0 ? nil : DataModel_Vec3_Mutable(_accessor.bb, o: o + _accessor.postion) }
+  public var mutablePos: DataModel_Vec3_Mutable? { let o = _accessor.offset(VTOFFSET.pos.v); return o == 0 ? nil : DataModel_Vec3_Mutable(_accessor.bb, o: o + _accessor.position) }
   public var mana: UInt16? { let o = _accessor.offset(VTOFFSET.mana.v); return o == 0 ? nil : _accessor.readBuffer(of: UInt16.self, at: o) }
-  @discardableResult public func mutate(mana: UInt16) -> Bool {let o = _accessor.offset(VTOFFSET.mana.v);  return _accessor.mutate(mana, index: o) }
   public var hp: UInt16? { let o = _accessor.offset(VTOFFSET.hp.v); return o == 0 ? nil : _accessor.readBuffer(of: UInt16.self, at: o) }
-  @discardableResult public func mutate(hp: UInt16) -> Bool {let o = _accessor.offset(VTOFFSET.hp.v);  return _accessor.mutate(hp, index: o) }
   public var color: DataModel_Color? { let o = _accessor.offset(VTOFFSET.color.v); return o == 0 ? nil : DataModel_Color(rawValue: _accessor.readBuffer(of: Int8.self, at: o)) ?? nil }
-  @discardableResult public func mutate(color: DataModel_Color) -> Bool {let o = _accessor.offset(VTOFFSET.color.v);  return _accessor.mutate(color.rawValue, index: o) }
   public var hasInventory: Bool { let o = _accessor.offset(VTOFFSET.inventory.v); return o == 0 ? false : true }
   public var inventoryCount: Int32 { let o = _accessor.offset(VTOFFSET.inventory.v); return o == 0 ? 0 : _accessor.vector(count: o) }
   public func inventory(at index: Int32) -> UInt8 { let o = _accessor.offset(VTOFFSET.inventory.v); return o == 0 ? 0 : _accessor.directRead(of: UInt8.self, offset: _accessor.vector(at: o) + index * 1) }
   public var inventory: [UInt8] { return _accessor.getVector(at: VTOFFSET.inventory.v) ?? [] }
-  public func mutate(inventory: UInt8, at index: Int32) -> Bool { let o = _accessor.offset(VTOFFSET.inventory.v); return _accessor.directMutate(inventory, index: _accessor.vector(at: o) + index * 1) }
   public static func startMonster(_ fbb: inout FlatBufferBuilder) -> UOffset { fbb.startTable(with: 7) }
   public static func add(identifier: UInt64, _ fbb: inout FlatBufferBuilder) { fbb.add(element: identifier, def: 0, at: VTOFFSET.identifier.p) }
   public static func add(name: Offset, _ fbb: inout FlatBufferBuilder) { fbb.add(offset: name, at: VTOFFSET.name.p) }
