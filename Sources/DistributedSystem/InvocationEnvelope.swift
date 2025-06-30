@@ -81,6 +81,11 @@ public struct InvocationEnvelope: Sendable {
         }
         wireSize += MemoryLayout<UInt8>.size
         wireSize += ULEB128.size(UInt(arguments.readableBytes)) + arguments.readableBytes
+
+        // The target funcion name first time will be sent as a string,
+        // and then each next time as integer which is an index in the function names table.
+        // When we encode envelope we do not know is it first time or not,
+        // so just reserve space large enough for any of them.
         wireSize += MemoryLayout<UInt8>.size // target type
         let stringTargetSize = ULEB128.size(UInt(targetFunc.identifier.count)) + targetFunc.identifier.count
         let idxTargetSize = ULEB128.size(UInt32.max)
@@ -92,27 +97,33 @@ public struct InvocationEnvelope: Sendable {
         _ callID: UInt64,
         _ genericSubstitutions: [String],
         _ arguments: inout ByteBuffer,
-        _ targetFunc: RemoteCallTarget,
         to buffer: inout ByteBuffer
     ) -> Int {
         buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(callID, to: ptr.baseAddress!) }
 
         for typeName in genericSubstitutions {
-            buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(UInt(typeName.count), to: ptr.baseAddress!) }
+            buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) {
+                ptr in ULEB128.encode(UInt(typeName.count), to: ptr.baseAddress!)
+            }
             buffer.writeString(typeName)
         }
         buffer.writeInteger(UInt8(0)) // generic substitution end indicator
 
-        buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(UInt(arguments.readableBytes), to: ptr.baseAddress!) }
+        buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) {
+            ptr in ULEB128.encode(UInt(arguments.readableBytes), to: ptr.baseAddress!)
+        }
         buffer.writeBuffer(&arguments)
 
-        let targetFuncMangled = targetFunc.identifier
-        let targetOffset = buffer.writerIndex
-        buffer.writeInteger(UInt8(0)) // target type = string
-        buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(UInt(targetFuncMangled.count), to: ptr.baseAddress!) }
-        buffer.writeString(targetFuncMangled)
+        return buffer.writerIndex // offset where target should be encoded
+    }
 
-        return targetOffset
+    public static func setTargetId(_ name: String, in buffer: inout ByteBuffer, at offs: Int) {
+        buffer.moveWriterIndex(to: offs)
+        buffer.writeInteger(UInt8(0)) // target type = string
+        buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(UInt(name.count), to: ptr.baseAddress!) }
+        buffer.writeString(name)
+        let messageSize = buffer.readableBytes - MemoryLayout<UInt32>.size
+        buffer.setInteger(UInt32(messageSize), at: buffer.readerIndex)
     }
 
     public static func setTargetId(_ id: UInt32, in buffer: inout ByteBuffer, at offs: Int) {
