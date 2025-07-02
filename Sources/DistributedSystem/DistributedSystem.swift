@@ -30,10 +30,10 @@ extension Channel {
     }
 }
 
-public final class Box<T> {
-    public var value: T
+final class Box<T> {
+    var value: T
 
-    public init(_ value: T) {
+    init(_ value: T) {
         self.value = value
     }
 }
@@ -147,8 +147,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         case datacenter
     }
 
-    public var loggerBox = Box<Logger>(Logger(label: "ds"))
-    public var logger: Logger { loggerBox.value }
+    let loggerBox: Box<Logger>
+    var logger: Logger { loggerBox.value }
 
     var endpointQueueWarningSize: UInt64 = (1024 * 1024)
     var endpointQueueHighWatermark: UInt64 = (10 * 1024 * 1024)
@@ -281,6 +281,11 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         compressionMode: CompressionMode = .disabled,
         logLevel: Logger.Level = .info
     ) {
+        var logger = Logger(label: "ds")
+        logger.logLevel = logLevel
+        let loggerBox = Box(logger)
+
+        self.loggerBox = loggerBox
         self.systemName = systemName
         self.addressTag = addressTag
         eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 2)
@@ -289,8 +294,6 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         discoveryManager = DiscoveryManager(loggerBox)
         syncCallManager = SyncCallManager(loggerBox)
         self.compressionMode = compressionMode
-
-        loggerBox.value.logLevel = logLevel
     }
 
     deinit {
@@ -1069,11 +1072,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         invocation: inout InvocationEncoder,
         throwing _: Err.Type,
         returning _: Res.Type
-    ) async throws -> Res
-        where Actor: DistributedActor,
-        Actor.ID == ActorID,
-        Err: Error,
-        Res: Transferable {
+    ) async throws -> Res where Actor: DistributedActor, Actor.ID == ActorID, Err: Error, Res: Transferable {
         let callID = syncCallManager.nextCallID
         try await remoteCall(on: actor, target, &invocation, callID)
         let res: Res = try await syncCallManager.waitResult(callID)
@@ -1161,17 +1160,20 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         buffer.writeInteger(UInt32(payloadSize))
         buffer.writeInteger(SessionMessage.invocationEnvelope.rawValue)
         buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(actor.id.instanceID, to: ptr.baseAddress!) }
-        let targetOffset = InvocationEnvelope.encode(callID, invocation.genericSubstitutions, &invocation.arguments, target, to: &buffer)
+        let targetOffset = InvocationEnvelope.encode(callID, invocation.genericSubstitutions, &invocation.arguments, to: &buffer)
         let targetIdentifier = target.identifier
 
         channel.eventLoop.execute { [buffer] in
-            // target functions index must be modified serially
+            // target functions table must be modified serially
             // in the event loop tied to the channel to be sure it will not
             // be modified by another task sending data to the same channel
             var buffer = buffer
             if let targetId = targetFuncsIndex.getId(for: targetIdentifier) {
                 InvocationEnvelope.setTargetId(targetId, in: &buffer, at: targetOffset)
+            } else {
+                InvocationEnvelope.setTargetId(targetIdentifier, in: &buffer, at: targetOffset)
             }
+
             self.logger.trace("\(channel.addressDescription): send \(buffer.readableBytes) bytes for \(actor.id)")
             channel.writeAndFlush(buffer, promise: nil)
         }
