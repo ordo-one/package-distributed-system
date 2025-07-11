@@ -1366,7 +1366,6 @@ final class DistributedSystemTests: XCTestCase {
         let callID = UInt64(42)
         var arguments = ByteBuffer()
         let remoteCallTarget = RemoteCallTarget("does not matter")
-
         let wireSize = InvocationEnvelope.wireSize(callID, [], arguments, remoteCallTarget)
         var buffer = ByteBufferAllocator().buffer(capacity: wireSize)
         let targetOffset = InvocationEnvelope.encode(callID, [], &arguments, to: &buffer)
