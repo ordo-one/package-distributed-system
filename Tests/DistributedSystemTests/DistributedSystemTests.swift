@@ -1361,4 +1361,20 @@ final class DistributedSystemTests: XCTestCase {
         clientSystem.stop()
         serverSystem.stop()
     }
+
+    func testInvocationEncoding() {
+        let callID = UInt64(42)
+        var arguments = ByteBuffer()
+        let remoteCallTarget = RemoteCallTarget("does not matter")
+
+        let wireSize = InvocationEnvelope.wireSize(callID, [], arguments, remoteCallTarget)
+        var buffer = ByteBufferAllocator().buffer(capacity: wireSize)
+        let targetOffset = InvocationEnvelope.encode(callID, [], &arguments, to: &buffer)
+        var copy = ByteBuffer()
+        copy.writeImmutableBuffer(buffer)
+        InvocationEnvelope.setTargetId(remoteCallTarget.identifier, in: &buffer, at: targetOffset)
+        for offs in 0..<copy.readableBytes {
+            XCTAssertEqual(copy.getInteger(at: offs, as: UInt8.self)!, buffer.getInteger(at: offs, as: UInt8.self)!)
+        }
+    }
 }

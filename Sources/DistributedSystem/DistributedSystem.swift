@@ -1173,6 +1173,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             } else {
                 InvocationEnvelope.setTargetId(targetIdentifier, in: &buffer, at: targetOffset)
             }
+            let messageSize = buffer.readableBytes - MemoryLayout<UInt32>.size
+            buffer.setInteger(UInt32(messageSize), at: buffer.readerIndex)
 
             self.logger.trace("\(channel.addressDescription): send \(buffer.readableBytes) bytes for \(actor.id)")
             channel.writeAndFlush(buffer, promise: nil)
