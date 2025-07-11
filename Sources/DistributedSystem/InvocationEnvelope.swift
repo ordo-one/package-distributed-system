@@ -122,15 +122,11 @@ public struct InvocationEnvelope: Sendable {
         buffer.writeInteger(UInt8(0)) // target type = string
         buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(UInt(name.count), to: ptr.baseAddress!) }
         buffer.writeString(name)
-        let messageSize = buffer.readableBytes - MemoryLayout<UInt32>.size
-        buffer.setInteger(UInt32(messageSize), at: buffer.readerIndex)
     }
 
     public static func setTargetId(_ id: UInt32, in buffer: inout ByteBuffer, at offs: Int) {
         buffer.moveWriterIndex(to: offs)
         buffer.writeInteger(UInt8(1)) // target type = index
         buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(id, to: ptr.baseAddress!) }
-        let messageSize = buffer.readableBytes - MemoryLayout<UInt32>.size
-        buffer.setInteger(UInt32(messageSize), at: buffer.readerIndex)
     }
 }
