@@ -39,29 +39,56 @@ class SyncCallManager {
         _ continuation: CheckedContinuation<any DistributedSystem.SerializationRequirement, Error>,
         with result: inout ByteBuffer
     ) {
-        guard let typeHintSize = result.readInteger(as: UInt16.self),
-              let typeHint = result.readString(length: Int(typeHintSize)) else {
+        guard let isError = result.readInteger(as: UInt8.self).map({ $0 != 0 }) else {
+            continuation.resume(throwing: DistributedSystemErrors.error("Invalid result received"))
+            return
+        }
+
+        let typeHintSize: UInt
+        do {
+            typeHintSize = try result.readWithUnsafeReadableBytes { try ULEB128.decode($0, as: UInt.self) }
+        } catch {
+            continuation.resume(throwing: DistributedSystemErrors.error("\(error)"))
+            return
+        }
+
+        guard let typeHint = result.readString(length: Int(typeHintSize)) else {
             continuation.resume(throwing: DistributedSystemErrors.error("Invalid result received"))
             return
         }
 
         guard let type = _typeByName(typeHint) else {
-            continuation.resume(throwing: DistributedSystemErrors.error("Result with undefined type '\(typeHint)'"))
+            continuation.resume(throwing: DistributedSystemErrors.error("Unknwown type '\(typeHint)'"))
             return
         }
 
         guard let type = type as? DistributedSystem.SerializationRequirement.Type else {
-            continuation.resume(throwing: DistributedSystemErrors.error("Result type '\(typeHint) does not conform to DistributedSystem.SerializationRequirement"))
+            continuation.resume(
+                throwing: DistributedSystemErrors.error("""
+                    \(isError ? "Error" : "Result") type '\(typeHint) \
+                    does not conform to DistributedSystem.SerializationRequirement
+                    """
+                )
+            )
             return
         }
 
         result.withUnsafeReadableBytes { bytes in
             do {
-                let value: Any = try type.init(fromSerializedBuffer: bytes)
-                if let value = value as? (any DistributedSystem.SerializationRequirement) {
-                    continuation.resume(returning: value)
+                let value = try type.init(fromSerializedBuffer: bytes)
+                if isError {
+                    if let error = value as? Error {
+                        continuation.resume(throwing: error)
+                    } else {
+                        continuation.resume(
+                            throwing: DistributedSystemErrors.error("""
+                                Decoded value of type '\(type)' does not conform to 'Error' to be thrown
+                                """
+                            )
+                        )
+                    }
                 } else {
-                    continuation.resume(throwing: DistributedSystemErrors.error("result with invalid type '\(typeHint)'"))
+                    continuation.resume(returning: value)
                 }
             } catch {
                 continuation.resume(throwing: error)

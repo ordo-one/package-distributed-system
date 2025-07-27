@@ -161,7 +161,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     static let serviceDiscoveryTimeout = TimeAmount.seconds(5)
     static let reconnectInterval = TimeAmount.seconds(5)
 
-    static let protocolVersionMajor: UInt16 = 4
+    static let protocolVersionMajor: UInt16 = 5
     static let protocolVersionMinor: UInt16 = 0
 
     enum SessionMessage: UInt16 {
@@ -1396,7 +1396,6 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                             _ queueState: ManagedAtomic<UInt64>) async {
         logger.debug("\(channelAddressDescription): start stream task for \(actor.id)")
 
-        let resultHandler = ResultHandler()
         for await envelope in stream {
             var decoder = RemoteCallDecoder(envelope: envelope)
             do {
@@ -1408,6 +1407,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                         logger.error("unexpected actor type '\(type(of: actor))'")
                     }
                 } else {
+                    let resultHandler = ResultHandler(loggerBox, envelope.targetFunc)
                     try await executeDistributedTarget(on: actor,
                                                        target: RemoteCallTarget(envelope.targetFunc),
                                                        invocationDecoder: &decoder,

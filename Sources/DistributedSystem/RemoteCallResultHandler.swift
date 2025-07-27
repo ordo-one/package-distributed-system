@@ -7,14 +7,22 @@
 // http://www.apache.org/licenses/LICENSE-2.0
 
 import Distributed
+import Logging
 import NIOCore
 
 public final class RemoteCallResultHandler: DistributedTargetInvocationResultHandler {
     public typealias SerializationRequirement = Transferable
 
+    private let loggerBox: Box<Logger>
+    private let targetFunc: String
     private var buffer: ByteBuffer?
 
     var hasResult: Bool { buffer != nil }
+
+    init(_ loggerBox: Box<Logger>, _ targetFunc: String) {
+        self.loggerBox = loggerBox
+        self.targetFunc = targetFunc
+    }
 
     func sendTo(_ channel: Channel, for callID: UInt64) throws {
         if var buffer {
@@ -23,32 +31,46 @@ public final class RemoteCallResultHandler: DistributedTargetInvocationResultHan
                 buffer.setInteger(callID, at: offs)
                 _ = channel.writeAndFlush(buffer)
             } else {
-                throw DistributedSystemErrors.error("Internal error: unexpected result for void call (callID=0, buffer not empty)")
+                throw DistributedSystemErrors.error("""
+                    Internal error: unexpected result for void call (callID=0, buffer not empty)
+                    """
+                )
             }
             self.buffer = nil
         } else {
-            throw DistributedSystemErrors.error("Internal error: unexpected result for void call (callID=\(callID), buffer empty)")
+            throw DistributedSystemErrors.error("""
+                Internal error: unexpected result for void call (callID=\(callID), buffer empty)
+                """
+            )
         }
     }
 
-    public func onReturn(value: some SerializationRequirement) async throws {
-        value.withUnsafeBytesSerialization { bytes in
-            let valueType = type(of: value as Any)
-            let valueTypeHint: String = _mangledTypeName(valueType) ?? _typeName(valueType)
+    private static func encodeResult(_ result: some SerializationRequirement, isError: Bool) -> ByteBuffer {
+        result.withUnsafeBytesSerialization { bytes in
+            let resultType = type(of: result as Any)
+            let valueTypeHint: String = _mangledTypeName(resultType) ?? _typeName(resultType)
             let payloadSize =
-                MemoryLayout<DistributedSystem.SessionMessage.RawValue>.size +
-                MemoryLayout<UInt64>.size +
-                MemoryLayout<UInt16>.size + valueTypeHint.count +
-                bytes.count
+                MemoryLayout<DistributedSystem.SessionMessage.RawValue>.size
+                + MemoryLayout<UInt64>.size // callID
+                + MemoryLayout<UInt8>.size  // isError
+                + ULEB128.size(UInt(valueTypeHint.count)) + valueTypeHint.count
+                + bytes.count
             var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt32>.size + payloadSize)
             buffer.writeInteger(UInt32(payloadSize))
             buffer.writeInteger(DistributedSystem.SessionMessage.invocationResult.rawValue)
             buffer.writeInteger(UInt64(0))
-            buffer.writeInteger(UInt16(valueTypeHint.count))
+            buffer.writeInteger(UInt8(isError ? 1 : 0))
+            buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) {
+                ptr in ULEB128.encode(UInt(valueTypeHint.count), to: ptr.baseAddress!)
+            }
             buffer.writeString(valueTypeHint)
             buffer.writeBytes(bytes)
-            self.buffer = buffer
+            return buffer
         }
+    }
+
+    public func onReturn(value: some SerializationRequirement) async throws {
+        self.buffer = Self.encodeResult(value, isError: false)
     }
 
     public func onReturnVoid() async throws {
@@ -56,7 +78,15 @@ public final class RemoteCallResultHandler: DistributedTargetInvocationResultHan
     }
 
     public func onThrow(error: some Error) async throws {
-        // TODO: if func throws we need to send some result, right?
-        // logger.debug("onThrow: \(error)")
+        if let error = error as? SerializationRequirement {
+            self.buffer = Self.encodeResult(error, isError: true)
+        } else {
+            loggerBox.value.error("""
+                Error thrown by the distributed actor function '\(targetFunc)' \
+                cannot be transmitted back to the caller because the error \
+                does not conform to 'Transferable'
+                """
+            )
+        }
     }
 }

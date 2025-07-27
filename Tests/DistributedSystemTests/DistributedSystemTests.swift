@@ -689,6 +689,14 @@ final class DistributedSystemTests: XCTestCase {
         XCTAssertEqual(monster.hp, 100)
         XCTAssertEqual(monster.mana, 100)
 
+        var callError: Error?
+        do {
+            _ = try await distributedService.getMonsterThrowing()
+        } catch {
+            callError = error
+        }
+        XCTAssertNotNil(callError)
+
         clientSystem.stop()
         serverSystem.stop()
     }
