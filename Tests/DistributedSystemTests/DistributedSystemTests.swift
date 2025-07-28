@@ -691,7 +691,14 @@ final class DistributedSystemTests: XCTestCase {
 
         var callError: Error?
         do {
-            _ = try await distributedService.getMonsterThrowing()
+            _ = try await distributedService.getMonsterThrowingTransferable()
+        } catch {
+            callError = error
+        }
+        XCTAssertNotNil(callError)
+
+        do {
+            _ = try await distributedService.getMonsterThrowingNonTransferable()
         } catch {
             callError = error
         }

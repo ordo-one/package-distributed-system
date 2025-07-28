@@ -77,16 +77,42 @@ public final class RemoteCallResultHandler: DistributedTargetInvocationResultHan
         // logger.debug("onReturnVoid")
     }
 
+    struct TransferableError: Error & Transferable {
+        private let description: String
+
+        init(_ errorDescription: String) {
+            self.description = errorDescription
+        }
+
+        func withUnsafeBytesSerialization<Result>(
+            _ body: (UnsafeRawBufferPointer) throws -> Result
+        ) rethrows -> Result {
+            let utf8String = description.utf8CString
+            return try utf8String.withUnsafeBufferPointer {
+                try body(UnsafeRawBufferPointer(start: $0.baseAddress, count: $0.count))
+            }
+        }
+
+        init(fromSerializedBuffer buffer: UnsafeRawBufferPointer) throws {
+            self.description = buffer.withMemoryRebound(to: CChar.self) {
+                String(cString: $0.baseAddress!)
+            }
+        }
+
+        func _releaseBuffer() {
+        }
+    }
+
     public func onThrow(error: some Error) async throws {
         if let error = error as? SerializationRequirement {
             self.buffer = Self.encodeResult(error, isError: true)
         } else {
-            loggerBox.value.error("""
-                Error thrown by the distributed actor function '\(targetFunc)' \
-                cannot be transmitted back to the caller because the error \
-                does not conform to 'Transferable'
+            let errorDescription = """
+                Error from distributed actor function '\(targetFunc)' cannot be transmitted \
+                back to the caller: error type '\(type(of: (error as Any)))' is not Transferable
                 """
-            )
+            loggerBox.value.error("\(errorDescription)")
+            self.buffer = Self.encodeResult(TransferableError(errorDescription), isError: true)
         }
     }
 }

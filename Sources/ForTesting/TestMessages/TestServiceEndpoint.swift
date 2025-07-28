@@ -1,7 +1,7 @@
 import Distributed
 import DistributedSystem
 
-struct RemoteCallError: Error & Transferable {
+struct TransferableRemoteCallError: Error & Transferable {
     init() {
     }
 
@@ -15,6 +15,8 @@ struct RemoteCallError: Error & Transferable {
     func _releaseBuffer() {
     }
 }
+
+struct RemoteCallError: Error {}
 
 public distributed actor TestServiceEndpoint: ServiceEndpoint {
     public typealias ActorSystem = DistributedSystem
@@ -37,7 +39,11 @@ public distributed actor TestServiceEndpoint: ServiceEndpoint {
         await service.getMonster()
     }
 
-    public distributed func getMonsterThrowing() async throws -> Monster {
+    public distributed func getMonsterThrowingTransferable() async throws -> Monster {
+        throw TransferableRemoteCallError()
+    }
+
+    public distributed func getMonsterThrowingNonTransferable() async throws -> Monster {
         throw RemoteCallError()
     }
 
