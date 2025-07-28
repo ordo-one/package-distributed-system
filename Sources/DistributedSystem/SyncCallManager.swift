@@ -58,14 +58,14 @@ class SyncCallManager {
         }
 
         guard let type = _typeByName(typeHint) else {
-            continuation.resume(throwing: DistributedSystemErrors.error("Unknwown type '\(typeHint)'"))
+            continuation.resume(throwing: DistributedSystemErrors.error("Unknown type '\(typeHint)'"))
             return
         }
 
         guard let type = type as? DistributedSystem.SerializationRequirement.Type else {
             continuation.resume(
                 throwing: DistributedSystemErrors.error("""
-                    \(isError ? "Error" : "Result") type '\(typeHint) \
+                    \(isError ? "Error" : "Result") type '\(typeHint)' \
                     does not conform to DistributedSystem.SerializationRequirement
                     """
                 )
