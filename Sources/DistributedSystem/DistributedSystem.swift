@@ -1588,6 +1588,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     public func getStats() -> [(localAddr: SocketAddress, peerAddr: SocketAddress, bytesReceived: UInt64)] {
         let channels = self.lock.withLock { self.channels.values.map { $0.channel } }
         var ret = [(SocketAddress, SocketAddress, UInt64)]()
+        ret.reserveCapacity(channels.count)
         for channel in channels {
             guard let localAddr = channel.localAddress?.makeCopyWithoutHost(),
                   let peerAddr = channel.remoteAddress?.makeCopyWithoutHost()
