@@ -1583,4 +1583,30 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             }
         }
     }
+
+    public func getStats() -> [(localAddr: SocketAddress, peerAddr: SocketAddress, bytesReceived: UInt64)] {
+        let channels = self.lock.withLock { self.channels.values.map { $0.channel } }
+        var ret = [(SocketAddress, SocketAddress, UInt64)]()
+        for channel in channels {
+            guard let localAddr = channel.localAddress?.makeCopyWithoutHost(),
+                  let peerAddr = channel.remoteAddress?.makeCopyWithoutHost()
+            else {
+                // seems connection already closed
+                continue
+            }
+            let future = channel.pipeline.context(handlerType: ChannelCounters.self)
+            do {
+                let context = try future.wait()
+                guard let channelCounters = context.handler as? ChannelCounters else {
+                    logger.error("internal error: \(type(of: context.handler)) is not ChannelCounters")
+                    continue
+                }
+                let bytesReceived = channelCounters.bytesReceived.load(ordering: .relaxed)
+                ret.append((localAddr, peerAddr, bytesReceived))
+            } catch {
+                logger.error("failed to get context for channel \(localAddr) -> \(peerAddr)")
+            }
+        }
+        return ret
+    }
 }

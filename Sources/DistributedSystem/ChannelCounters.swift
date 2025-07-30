@@ -16,8 +16,8 @@ final class ChannelCounters: ChannelInboundHandler, ChannelOutboundHandler, @unc
     typealias OutboundOut = ByteBuffer
 
     private var distributedSystem: DistributedSystem
-    private var bytesReceived = ManagedAtomic<UInt64>(0)
-    private var bytesSent = ManagedAtomic<UInt64>(0)
+    let bytesReceived = ManagedAtomic<UInt64>(0)
+    let bytesSent = ManagedAtomic<UInt64>(0)
 
     static let name = "channelCounters"
     static let keyBytesReceived = "bytes_received"
