@@ -51,7 +51,12 @@ class SyncCallManager {
         }
 
         guard let type = type as? DistributedSystem.SerializationRequirement.Type else {
-            continuation.resume(throwing: DistributedSystemErrors.error("Result type '\(typeHint) does not conform to DistributedSystem.SerializationRequirement"))
+            continuation.resume(
+                throwing: DistributedSystemErrors.error("""
+                    Result type '\(typeHint) does not conform to DistributedSystem.SerializationRequirement
+                    """
+                )
+            )
             return
         }
 
