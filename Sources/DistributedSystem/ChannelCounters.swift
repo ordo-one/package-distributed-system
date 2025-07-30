@@ -6,8 +6,8 @@
 //
 // http://www.apache.org/licenses/LICENSE-2.0
 
-import Atomics
 import NIOCore
+import Synchronization
 
 final class ChannelCounters: ChannelInboundHandler, ChannelOutboundHandler, @unchecked Sendable {
     typealias InboundIn = ByteBuffer
@@ -15,9 +15,9 @@ final class ChannelCounters: ChannelInboundHandler, ChannelOutboundHandler, @unc
     typealias OutboundIn = ByteBuffer
     typealias OutboundOut = ByteBuffer
 
-    private var distributedSystem: DistributedSystem
-    let bytesReceived = ManagedAtomic<UInt64>(0)
-    let bytesSent = ManagedAtomic<UInt64>(0)
+    private let distributedSystem: DistributedSystem
+    let bytesReceived = Atomic<UInt64>(0)
+    let bytesSent = Atomic<UInt64>(0)
 
     static let name = "channelCounters"
     static let keyBytesReceived = "bytes_received"
@@ -35,7 +35,7 @@ final class ChannelCounters: ChannelInboundHandler, ChannelOutboundHandler, @unc
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         let buffer = unwrapInboundIn(data)
-        bytesReceived.wrappingIncrement(by: UInt64(buffer.readableBytes), ordering: .relaxed)
+        bytesReceived.wrappingAdd(UInt64(buffer.readableBytes), ordering: .relaxed)
         context.fireChannelRead(data)
     }
 
@@ -46,7 +46,7 @@ final class ChannelCounters: ChannelInboundHandler, ChannelOutboundHandler, @unc
 
     func write(context: ChannelHandlerContext, data: NIOAny, promise: EventLoopPromise<Void>?) {
         let buffer = unwrapOutboundIn(data)
-        bytesSent.wrappingIncrement(by: UInt64(buffer.readableBytes), ordering: .relaxed)
+        bytesSent.wrappingAdd(UInt64(buffer.readableBytes), ordering: .relaxed)
         context.write(wrapOutboundOut(buffer), promise: promise)
     }
 }

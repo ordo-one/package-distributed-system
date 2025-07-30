@@ -16,6 +16,7 @@ import Logging
 import struct Foundation.Data
 import struct Foundation.UUID
 import NIOCore
+import Synchronization
 internal import NIOPosix
 internal import struct NIOConcurrencyHelpers.NIOLock
 internal import struct NIOConcurrencyHelpers.NIOLockedValueBox
@@ -243,13 +244,13 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     private var channels: [UInt32: ChannelInfo] = [:]
     private var stats: [String: UInt64] = [:]
 
-    private let _nextChannelID = ManagedAtomic<UInt32>(1) // 0 reserved for local endpoints
-    var nextChannelID: UInt32 { _nextChannelID.loadThenWrappingIncrement(ordering: .relaxed) }
+    private let _nextChannelID = Atomic<UInt32>(1) // 0 reserved for local endpoints
+    var nextChannelID: UInt32 { _nextChannelID.add(1, ordering: .relaxed).oldValue }
 
-    private let _nextInstanceID = ManagedAtomic<UInt32>(1)
-    private var nextInstanceID: UInt32 { _nextInstanceID.loadThenWrappingIncrement(ordering: .relaxed) }
+    private let _nextInstanceID = Atomic<UInt32>(1)
+    private var nextInstanceID: UInt32 { _nextInstanceID.add(1, ordering: .relaxed).oldValue }
 
-    var discoveryManager: DiscoveryManager
+    let discoveryManager: DiscoveryManager
     private var syncCallManager: SyncCallManager
     var compressionMode: CompressionMode
 
@@ -798,7 +799,9 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
     }
 
-    private func actorsForChannelLocked(_ channelID: UInt32) -> [(EndpointIdentifier, AsyncStream<InvocationEnvelope>.Continuation, ManagedAtomic<UInt64>)] {
+    private func actorsForChannelLocked(
+        _ channelID: UInt32
+    ) -> [(EndpointIdentifier, AsyncStream<InvocationEnvelope>.Continuation, ManagedAtomic<UInt64>)] {
         // lock supposed to be locked by the caller
         var actors = [(EndpointIdentifier, AsyncStream<InvocationEnvelope>.Continuation, ManagedAtomic<UInt64>)]()
         for (actorID, actorInfo) in self.actors {
@@ -978,8 +981,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     case .remoteClient:
                         let (stream, continuation) = AsyncStream.makeStream(of: InvocationEnvelope.self)
                         let queueSize = ManagedAtomic<UInt64>(0)
-                        let sfrc = ActorInfo.Inbound(continuation, queueSize)
-                        self.actors[actor.id] = .serviceForRemoteClient(sfrc)
+                        self.actors[actor.id] = .serviceForRemoteClient(.init(continuation, queueSize))
                         if let channelInfo = self.channels[actor.id.channelID] {
                             let channelAddressDescription = channelInfo.channel.addressDescription
                             Task { await self.streamTask(stream, actor.id, actor, channelInfo.channel, channelAddressDescription, queueSize) }
@@ -1002,8 +1004,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 } else if let channelInfo = self.channels[channelID] {
                     let (stream, continuation) = AsyncStream.makeStream(of: InvocationEnvelope.self)
                     let queueSize = ManagedAtomic<UInt64>(0)
-                    let cfrs = ActorInfo.Inbound(continuation, queueSize)
-                    self.actors[actor.id] = .clientForRemoteService(cfrs)
+                    self.actors[actor.id] = .clientForRemoteService(.init(continuation, queueSize))
                     let channelAddressDescription = channelInfo.channel.addressDescription
                     Task { await self.streamTask(stream, actor.id, actor, channelInfo.channel, channelAddressDescription, queueSize) }
                 } else {
