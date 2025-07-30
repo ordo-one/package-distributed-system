@@ -1592,7 +1592,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             guard let localAddr = channel.localAddress?.makeCopyWithoutHost(),
                   let peerAddr = channel.remoteAddress?.makeCopyWithoutHost()
             else {
-                // seems connection already closed
+                // seems the connection is already closed
                 continue
             }
             let future = channel.pipeline.context(handlerType: ChannelCounters.self)
