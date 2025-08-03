@@ -1,6 +1,23 @@
 import Distributed
 import DistributedSystem
 
+struct TransferableRemoteCallError: Error & Transferable {
+    init() {
+    }
+
+    init(fromSerializedBuffer buffer: UnsafeRawBufferPointer) throws {
+    }
+
+    func withUnsafeBytesSerialization<Result>(_ body: (UnsafeRawBufferPointer) throws -> Result) rethrows -> Result {
+        try body(UnsafeRawBufferPointer(start: nil, count: 0))
+    }
+
+    func _releaseBuffer() {
+    }
+}
+
+struct RemoteCallError: Error {}
+
 public distributed actor TestServiceEndpoint: ServiceEndpoint {
     public typealias ActorSystem = DistributedSystem
     public typealias SerializationRequirement = Transferable
@@ -20,6 +37,14 @@ public distributed actor TestServiceEndpoint: ServiceEndpoint {
 
     public distributed func getMonster() async throws -> Monster {
         await service.getMonster()
+    }
+
+    public distributed func getMonsterThrowingTransferable() async throws -> Monster {
+        throw TransferableRemoteCallError()
+    }
+
+    public distributed func getMonsterThrowingNonTransferable() async throws -> Monster {
+        throw RemoteCallError()
     }
 
     public distributed func doNothing() async throws {
