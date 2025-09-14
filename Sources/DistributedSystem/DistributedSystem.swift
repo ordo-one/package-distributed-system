@@ -19,7 +19,6 @@ import NIOCore
 import Synchronization
 internal import NIOPosix
 internal import struct NIOConcurrencyHelpers.NIOLock
-internal import struct NIOConcurrencyHelpers.NIOLockedValueBox
 
 #if os(Linux)
 typealias uuid_t = (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8)
@@ -557,13 +556,13 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             return false
         case let .started(discover, addresses):
             if discover {
-                let lastServicesBox = NIOLockedValueBox<[NodeService]>([])
+                let lastServicesBox = Mutex<[NodeService]>([])
                 _ = consulServiceDiscovery.subscribe(
                     to: serviceName,
                     onNext: { result in
                         switch result {
                         case let .success(services):
-                            var lastServices = lastServicesBox.withLockedValue { exchange(&$0, with: []) }
+                            var lastServices = lastServicesBox.withLock { exchange(&$0, with: []) }
                             for service in services {
                                 self.logger.trace("Found service \(service)")
 
@@ -603,7 +602,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                                 }
                             }
 
-                            lastServicesBox.withLockedValue { $0 = services }
+                            lastServicesBox.withLock { $0 = services }
 
                         case let .failure(error):
                             self.logger.debug("\(error)")
@@ -638,12 +637,12 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         serviceHandler: ((S, ConsulServiceDiscovery.Instance) -> Void)? = nil,
         deadline: DispatchTime? = nil
     ) async throws -> S where S.ID == EndpointIdentifier, S.ActorSystem == DistributedSystem {
-        let monitor = NIOLockedValueBox<(cancelled: Bool, continuation: CheckedContinuation<S, Error>?)>((false, nil))
+        let monitor = Mutex<(cancelled: Bool, continuation: CheckedContinuation<S, Error>?)>((false, nil))
         let cancellationToken = self.makeCancellationToken()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
 
-                let taskCancelled = monitor.withLockedValue {
+                let taskCancelled = monitor.withLock {
                     if $0.cancelled {
                         return true
                     } else {
@@ -662,7 +661,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     eventLoop.scheduleTask(deadline: NIODeadline.uptimeNanoseconds(deadline.uptimeNanoseconds)) {
                         let cancelled = cancellationToken.cancel()
                         if cancelled {
-                            let continuation = monitor.withLockedValue { $0.continuation.take() }
+                            let continuation = monitor.withLock { $0.continuation.take() }
                             continuation?.resume(throwing: DistributedSystemErrors.serviceDiscoveryTimeout(S.serviceName))
                         }
                     }
@@ -678,7 +677,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                             if let serviceHandler {
                                 serviceHandler(serviceEndpoint, service)
                             }
-                            let continuation = monitor.withLockedValue { $0.continuation.take() }
+                            let continuation = monitor.withLock { $0.continuation.take() }
                             continuation?.resume(returning: serviceEndpoint)
                         }
                     },
@@ -686,7 +685,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 )
             }
         } onCancel: {
-            let continuation = monitor.withLockedValue {
+            let continuation = monitor.withLock {
                 assert(!$0.cancelled)
                 $0.cancelled = true
                 return $0.continuation.take()
