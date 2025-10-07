@@ -18,7 +18,6 @@ import struct Foundation.UUID
 import NIOCore
 import Synchronization
 internal import NIOPosix
-internal import struct NIOConcurrencyHelpers.NIOLock
 
 #if os(Linux)
 typealias uuid_t = (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8)
@@ -238,10 +237,29 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
     }
 
-    private var lock = NIOLock()
-    private var actors: [EndpointIdentifier: ActorInfo] = [:]
-    private var channels: [UInt32: ChannelInfo] = [:]
-    private var stats: [String: UInt64] = [:]
+    private struct LockedState {
+        var actors: [EndpointIdentifier: ActorInfo] = [:]
+        var channels: [UInt32: ChannelInfo] = [:]
+        var stats: [String: UInt64] = [:]
+
+        func actorsForChannelLocked(
+            _ channelID: UInt32
+        ) -> [(EndpointIdentifier, AsyncStream<InvocationEnvelope>.Continuation, ManagedAtomic<UInt64>)] {
+            var actors = [(EndpointIdentifier, AsyncStream<InvocationEnvelope>.Continuation, ManagedAtomic<UInt64>)]()
+            for (actorID, actorInfo) in self.actors {
+                if actorID.channelID == channelID {
+                    switch actorInfo {
+                    case let .clientForRemoteService(inbound), let .serviceForRemoteClient(inbound):
+                        actors.append((actorID, inbound.continuation, inbound.queueState))
+                    default:
+                        break
+                    }
+                }
+            }
+            return actors
+        }
+    }
+    private let lockedState = Mutex<LockedState>(.init())
 
     private let _nextChannelID = Atomic<UInt32>(1) // 0 reserved for local endpoints
     var nextChannelID: UInt32 { _nextChannelID.add(1, ordering: .relaxed).oldValue }
@@ -254,7 +272,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     var compressionMode: CompressionMode
 
     public typealias ServiceFilter = (NodeService) -> Bool
-    public typealias ServiceFactory = (DistributedSystem) throws -> any ServiceEndpoint
+    public typealias ServiceFactory = @Sendable (DistributedSystem) throws -> any ServiceEndpoint
 
     enum ChannelOrFactory {
         case channel(UInt32, Channel)
@@ -374,8 +392,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     }
 
     func setChannel(_ channelID: UInt32, _ channel: Channel, forProcessAt address: SocketAddress?) {
-        lock.withLockVoid {
-            self.channels[channelID] = ChannelInfo(channel)
+        lockedState.withLock {
+            $0.channels[channelID] = ChannelInfo(channel)
         }
         if let address {
             discoveryManager.setChannel(channelID, channel, forProcessAt: address)
@@ -396,11 +414,11 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             false
         }
 
-        let (streamContinuations, endpointContinuations, pendingSyncCalls) = lock.withLock {
+        let (streamContinuations, endpointContinuations, pendingSyncCalls) = lockedState.withLock {
             var streamContinuations = [AsyncStream<InvocationEnvelope>.Continuation]()
             var endpointContinuations = [CheckedContinuation<Void, Error>]()
             var actors: [EndpointIdentifier] = []
-            for (actorID, actorInfo) in self.actors {
+            for (actorID, actorInfo) in $0.actors {
                 if actorID.channelID == channelID {
                     switch actorInfo {
                     case let .clientForRemoteService(inbound),
@@ -421,10 +439,10 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             }
 
             for actorID in actors {
-                self.actors.removeValue(forKey: actorID)
+                $0.actors.removeValue(forKey: actorID)
             }
 
-            if let channelInfo = self.channels.removeValue(forKey: channelID) {
+            if let channelInfo = $0.channels.removeValue(forKey: channelID) {
                 return (streamContinuations, endpointContinuations, channelInfo.pendingSyncCalls)
             } else {
                 return (streamContinuations, endpointContinuations, [])
@@ -517,18 +535,18 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 switch channelOrFactory {
                 case let .channel(channelID, channel):
                     // remote service
-                    let serviceEndpointID = self.lock.withLock {
+                    let serviceEndpointID = self.lockedState.withLock {
                         let serviceEndpointID = self.makeServiceEndpoint(channelID)
-                        self.actors[serviceEndpointID] = .remoteService(.init())
+                        $0.actors[serviceEndpointID] = .remoteService(.init())
                         return serviceEndpointID
                     }
                     self.sendCreateService(serviceName, serviceID, serviceEndpointID.instanceID, to: channel)
                     return serviceEndpointID
                 case let .factory(factory):
                     let serviceEndpointID = self.makeServiceEndpoint(0)
-                    self.lock.withLockVoid {
-                        assert(self.actors[serviceEndpointID] == nil)
-                        self.actors[serviceEndpointID] = .localService(factory)
+                    self.lockedState.withLock {
+                        assert($0.actors[serviceEndpointID] == nil)
+                        $0.actors[serviceEndpointID] = .localService(factory)
                     }
                     return serviceEndpointID
                 }
@@ -763,24 +781,24 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             actors: [(EndpointIdentifier, AsyncStream<InvocationEnvelope>.Continuation, ManagedAtomic<UInt64>)]
         )
 
-        let res: Res? = lock.withLock {
-            guard var channelInfo = self.channels[channelID] else { return nil }
+        let res: Res? = lockedState.withLock {
+            guard var channelInfo = $0.channels[channelID] else { return nil }
             var res: Res? = nil
             if channelInfo.bytesReceived == channelInfo.bytesReceivedCheckpoint {
                 channelInfo.bytesReceivedTimeouts += 1
                 if channelInfo.bytesReceivedTimeouts == 2 {
                     logger.warning("\(channel.debugDescription): session timeout")
-                    res = (.stale, actorsForChannelLocked(channelID))
+                    res = (.stale, $0.actorsForChannelLocked(channelID))
                 }
             } else {
                 channelInfo.bytesReceivedCheckpoint = channelInfo.bytesReceived
                 if channelInfo.bytesReceivedTimeouts > 1 {
                     logger.warning("\(channel.debugDescription): session recovered after \(channelInfo.bytesReceivedTimeouts * Self.pingInterval)")
-                    res = (.active, actorsForChannelLocked(channelID))
+                    res = (.active, $0.actorsForChannelLocked(channelID))
                 }
                 channelInfo.bytesReceivedTimeouts = 0
             }
-            self.channels[channelID] = channelInfo
+            $0.channels[channelID] = channelInfo
             return res
         }
 
@@ -796,25 +814,6 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 dispatchInvocation(envelope, for: entry.0, channel, entry.1, entry.2)
             }
         }
-    }
-
-    private func actorsForChannelLocked(
-        _ channelID: UInt32
-    ) -> [(EndpointIdentifier, AsyncStream<InvocationEnvelope>.Continuation, ManagedAtomic<UInt64>)] {
-        // lock supposed to be locked by the caller
-        var actors = [(EndpointIdentifier, AsyncStream<InvocationEnvelope>.Continuation, ManagedAtomic<UInt64>)]()
-        for (actorID, actorInfo) in self.actors {
-            if actorID.channelID == channelID {
-                switch actorInfo {
-                case let .clientForRemoteService(inbound),
-                     let .serviceForRemoteClient(inbound):
-                    actors.append((actorID, inbound.continuation, inbound.queueState))
-                default:
-                    break
-                }
-            }
-        }
-        return actors
     }
 
     /// Service lifecycle start
@@ -856,9 +855,9 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             logger.error("\(error) (\(#file):\(#line))")
         }
 
-        let continuations = lock.withLock {
+        let continuations = lockedState.withLock {
             var continuations: [AsyncStream<InvocationEnvelope>.Continuation] = []
-            for (_, actorInfo) in self.actors {
+            for (_, actorInfo) in $0.actors {
                 switch actorInfo {
                 case let .clientForRemoteService(cfrs):
                     continuations.append(cfrs.continuation)
@@ -875,20 +874,28 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
         logger.info("stopped")
 
-        let str = lock.withLock {
+        let str = lockedState.withLock {
             var strs = [String]()
-            if let bytesSent = stats[ChannelCounters.keyBytesSent] {
+            if let bytesSent = $0.stats[ChannelCounters.keyBytesSent] {
                 strs.append("bytes_sent=\(bytesSent)")
-                if let bytesCompressed = stats[ChannelCompressionOutboundHandler.statsKey] {
+                if let bytesCompressed = $0.stats[ChannelCompressionOutboundHandler.statsKey] {
                     strs.append(", bytes_compressed=\(bytesCompressed), ")
-                    strs.append("outbound space saving=\(Self.calculateSpaceSaving(dataSize: bytesCompressed, compressedSize: bytesSent))%")
+                    strs.append("""
+                        outbound space saving=\
+                        \(Self.calculateSpaceSaving(dataSize: bytesCompressed, compressedSize: bytesSent))%
+                        """
+                    )
                 }
             }
-            if let bytesReceived = stats[ChannelCounters.keyBytesReceived] {
+            if let bytesReceived = $0.stats[ChannelCounters.keyBytesReceived] {
                 strs.append(", bytes_received=\(bytesReceived)")
-                if let bytesDecompressed = stats[ChannelCompressionInboundHandler.statsKey] {
+                if let bytesDecompressed = $0.stats[ChannelCompressionInboundHandler.statsKey] {
                     strs.append(", bytes_decompressed=\(bytesDecompressed), ")
-                    strs.append("inbound space saving=\(Self.calculateSpaceSaving(dataSize: bytesDecompressed, compressedSize: bytesReceived))%")
+                    strs.append("""
+                        inbound space saving=\
+                        \(Self.calculateSpaceSaving(dataSize: bytesDecompressed, compressedSize: bytesReceived))%
+                        """
+                    )
                 }
             }
             return strs.joined()
@@ -910,21 +917,25 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
     }
 
-    public func resolve<Actor>(id: EndpointIdentifier, as _: Actor.Type) throws -> Actor?
-        where Actor: DistributedActor,
-        EndpointIdentifier == Actor.ID {
+    public func resolve<Actor>(
+        id: EndpointIdentifier, as _: Actor.Type
+    ) throws -> Actor? where Actor: DistributedActor, EndpointIdentifier == Actor.ID {
         logger.debug("resolve<\(Actor.self)>: \(id)")
 
         if Actor.self is any ServiceEndpoint.Type {
-            lock.lock()
-            guard let actorInfo = self.actors[id] else {
-                throw DistributedSystemErrors.unknownActor(id)
+            let serviceFactory: ServiceFactory? = try lockedState.withLock {
+                guard let actorInfo = $0.actors[id] else {
+                    throw DistributedSystemErrors.unknownActor(id)
+                }
+                if case .remoteService = actorInfo {
+                    return nil
+                } else if case let .localService(serviceFactory) = actorInfo {
+                    return serviceFactory
+                } else {
+                    fatalError("internal error: invalid actor state \(actorInfo)")
+                }
             }
-            if case .remoteService = actorInfo {
-                lock.unlock()
-                return nil
-            } else if case let .localService(serviceFactory) = actorInfo {
-                lock.unlock()
+            if let serviceFactory {
                 // We can't call the factory under the lock,
                 // because after actor instantiation actorReady<> will be called,
                 // and it will try to take the lock again
@@ -934,11 +945,11 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 }
                 return actor
             } else {
-                fatalError("internal error: invalid actor state \(actorInfo)")
+                return nil
             }
         } else if Actor.self is any ClientEndpoint.Type {
-            return try lock.withLock {
-                guard let actorInfo = self.actors[id] else {
+            return try lockedState.withLock {
+                guard let actorInfo = $0.actors[id] else {
                     throw DistributedSystemErrors.unknownActor(id)
                 }
                 switch actorInfo {
@@ -962,10 +973,10 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     public func actorReady<Actor>(_ actor: Actor) where Actor: DistributedActor, EndpointIdentifier == Actor.ID {
         logger.debug("actorReady<\(Actor.self)>: \(actor.id)")
         if Actor.self is any ServiceEndpoint.Type {
-            lock.withLockVoid {
-                if let actorInfo = self.actors[actor.id] {
+            lockedState.withLock {
+                if let actorInfo = $0.actors[actor.id] {
                     if case .localService = actorInfo {
-                        self.actors.removeValue(forKey: actor.id)
+                        $0.actors.removeValue(forKey: actor.id)
                     } else {
                         fatalError("internal error: invalid actor \(actor.id) state: \(actorInfo)")
                     }
@@ -973,15 +984,15 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     assert(actor.id.channelID != 0)
                 }
                 let clientEndpointID = actor.id.makeClientEndpoint()
-                if let actorInfo = self.actors[clientEndpointID] {
+                if let actorInfo = $0.actors[clientEndpointID] {
                     switch actorInfo {
                     case .newClient:
                         break // do nothing here
                     case .remoteClient:
                         let (stream, continuation) = AsyncStream.makeStream(of: InvocationEnvelope.self)
                         let queueSize = ManagedAtomic<UInt64>(0)
-                        self.actors[actor.id] = .serviceForRemoteClient(.init(continuation, queueSize))
-                        if let channelInfo = self.channels[actor.id.channelID] {
+                        $0.actors[actor.id] = .serviceForRemoteClient(.init(continuation, queueSize))
+                        if let channelInfo = $0.channels[actor.id.channelID] {
                             let channelAddressDescription = channelInfo.channel.addressDescription
                             Task { await self.streamTask(stream, actor.id, actor, channelInfo.channel, channelAddressDescription, queueSize) }
                         } else {
@@ -993,17 +1004,17 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 }
             }
         } else if Actor.self is any ClientEndpoint.Type {
-            lock.withLockVoid {
+            lockedState.withLock {
                 let channelID = actor.id.channelID
                 if channelID == 0 {
                     // local client
-                    if self.actors.updateValue(.newClient(actor), forKey: actor.id) != nil {
+                    if $0.actors.updateValue(.newClient(actor), forKey: actor.id) != nil {
                         fatalError("Internal error: duplicate actor id \(actor.id)")
                     }
-                } else if let channelInfo = self.channels[channelID] {
+                } else if let channelInfo = $0.channels[channelID] {
                     let (stream, continuation) = AsyncStream.makeStream(of: InvocationEnvelope.self)
                     let queueSize = ManagedAtomic<UInt64>(0)
-                    self.actors[actor.id] = .clientForRemoteService(.init(continuation, queueSize))
+                    $0.actors[actor.id] = .clientForRemoteService(.init(continuation, queueSize))
                     let channelAddressDescription = channelInfo.channel.addressDescription
                     Task { await self.streamTask(stream, actor.id, actor, channelInfo.channel, channelAddressDescription, queueSize) }
                 } else {
@@ -1033,13 +1044,13 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         // and it will entail a nested call to the resignID() for that actor,
         // and we will have a recursive lock.
         // Returning ActorInfo from under the lock let as release an actor instance outside the lock.
-        _ = lock.withLock { () -> ActorInfo? in
-            if let actorInfo = self.actors[id] {
+        let _: ActorInfo? = lockedState.withLock {
+            if let actorInfo = $0.actors[id] {
                 switch actorInfo {
                 case .remoteClient:
                     fatalError("internal error: unexpected actor state")
                 default:
-                    self.actors.removeValue(forKey: id)
+                    $0.actors.removeValue(forKey: id)
                     return actorInfo
                 }
             }
@@ -1048,10 +1059,10 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
         if (id.channelID == 0) && ((id.instanceID & EndpointIdentifier.serviceFlag) != 0) {
             let clientEndpointID = id.makeClientEndpoint()
-            _ = lock.withLock { () -> ActorInfo? in
-                if let actorInfo = self.actors[clientEndpointID] {
+            let _: ActorInfo? = lockedState.withLock {
+                if let actorInfo = $0.actors[clientEndpointID] {
                     if case .newClient = actorInfo {
-                        self.actors.removeValue(forKey: clientEndpointID)
+                        $0.actors.removeValue(forKey: clientEndpointID)
                         return actorInfo
                     } else {
                         logger.error("internal error: unexpected actor state for \(clientEndpointID)")
@@ -1076,11 +1087,11 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         let callID = syncCallManager.nextCallID
         try await remoteCall(on: actor, target, &invocation, callID)
         let res: Res = try await syncCallManager.waitResult(callID)
-        lock.withLockVoid {
+        lockedState.withLock {
             let channelID = actor.id.channelID
-            if var channelInfo = self.channels[channelID] {
+            if var channelInfo = $0.channels[channelID] {
                 channelInfo.pendingSyncCalls.remove(callID)
-                self.channels[channelID] = channelInfo
+                $0.channels[channelID] = channelInfo
             } else {
                 logger.error("internal error: channel \(channelID) not found")
             }
@@ -1094,8 +1105,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         _ invocation: inout InvocationEncoder,
         _ callID: UInt64
     ) async throws where Actor: DistributedActor, Actor.ID == ActorID {
-        let (channel, targetFuncsIndex, suspended) = try lock.withLock {
-            guard let actorInfo = self.actors[actor.id] else {
+        let (channel, targetFuncsIndex, suspended) = try lockedState.withLock {
+            guard let actorInfo = $0.actors[actor.id] else {
                 throw DistributedSystemErrors.error("Actor \(Actor.self)/\(actor.id) not registered")
             }
             let suspended = switch actorInfo {
@@ -1106,14 +1117,14 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             }
 
             let channelID = actor.id.channelID
-            guard var channelInfo = self.channels[channelID] else {
+            guard var channelInfo = $0.channels[channelID] else {
                 logger.error("internal error: no connection for actor \(Actor.self)/\(actor.id)")
                 throw DistributedSystemErrors.error("No connection for actor \(Actor.self)/\(actor.id)")
             }
 
             if callID != 0 {
                 channelInfo.pendingSyncCalls.insert(callID)
-                self.channels[channelID] = channelInfo
+                $0.channels[channelID] = channelInfo
                 logger.trace("add sync call \(callID) for \(channelID)")
             }
 
@@ -1122,20 +1133,20 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
         if suspended {
             try await withCheckedThrowingContinuation { continuation in
-                lock.withLockVoid {
-                    let actorInfo = self.actors[actor.id]
+                lockedState.withLock {
+                    let actorInfo = $0.actors[actor.id]
                     switch actorInfo {
                     case var .remoteClient(remoteClient):
                         if remoteClient.suspended {
                             remoteClient.continuations.append(continuation)
-                            self.actors[actor.id] = .remoteClient(remoteClient)
+                            $0.actors[actor.id] = .remoteClient(remoteClient)
                         } else {
                             continuation.resume()
                         }
                     case var .remoteService(remoteService):
                         if remoteService.suspended {
                             remoteService.continuations.append(continuation)
-                            self.actors[actor.id] = .remoteService(remoteService)
+                            $0.actors[actor.id] = .remoteService(remoteService)
                         } else {
                             continuation.resume()
                         }
@@ -1260,11 +1271,11 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             _ = channel.close()
         }
 
-        lock.withLockVoid {
-            let channelInfo = self.channels[channelID]
+        lockedState.withLock {
+            let channelInfo = $0.channels[channelID]
             if var channelInfo {
                 channelInfo.bytesReceived += bytesReceived
-                self.channels[channelID] = channelInfo
+                $0.channels[channelID] = channelInfo
             } else {
                 logger.error("internal error: channel \(channelID) not registered")
             }
@@ -1284,14 +1295,14 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             return
         }
 
-        let clientEndpointID: EndpointIdentifier? = lock.withLock {
+        let clientEndpointID: EndpointIdentifier? = lockedState.withLock {
             let serviceEndpointID = EndpointIdentifier(channelID, instanceID)
             let clientEndpointID = serviceEndpointID.makeClientEndpoint()
-            if self.actors[clientEndpointID] != nil {
+            if $0.actors[clientEndpointID] != nil {
                 logger.error("\(channel.addressDescription): duplicate endpoint identifier \(clientEndpointID)")
                 return nil
             }
-            self.actors[clientEndpointID] = .remoteClient(.init())
+            $0.actors[clientEndpointID] = .remoteClient(.init())
             return clientEndpointID
         }
 
@@ -1301,8 +1312,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             do {
                 let _ = try Self.$actorID.withValue(serviceEndpointID) { try serviceFactory(self) }
             } catch {
-                lock.withLockVoid {
-                    self.actors.removeValue(forKey: clientEndpointID)
+                lockedState.withLock {
+                    _ = $0.actors.removeValue(forKey: clientEndpointID)
                 }
                 logger.error("\(channel.addressDescription): \(error)")
             }
@@ -1310,8 +1321,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     }
 
     private func suspendEndpoint(_ endpointID: EndpointIdentifier) {
-        lock.withLockVoid {
-            let actorInfo = self.actors[endpointID]
+        lockedState.withLock {
+            let actorInfo = $0.actors[endpointID]
             guard let actorInfo else {
                 logger.error("internal error: suspend unknown enpoint \(endpointID)")
                 return
@@ -1326,7 +1337,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     }
                     logger.debug("suspend endpoint \(endpointID)")
                     remoteClient.suspended = true
-                    self.actors[endpointID] = .remoteClient(remoteClient)
+                    $0.actors[endpointID] = .remoteClient(remoteClient)
                 }
             case var .remoteService(remoteService):
                 if remoteService.suspended {
@@ -1337,7 +1348,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     }
                     logger.debug("suspend endpoint \(endpointID)")
                     remoteService.suspended = true
-                    self.actors[endpointID] = .remoteService(remoteService)
+                    $0.actors[endpointID] = .remoteService(remoteService)
                 }
             default:
                 logger.error("internal error: suspend endpoint \(endpointID) \(actorInfo)")
@@ -1346,8 +1357,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     }
 
     private func resumeEndpoint(_ endpointID: EndpointIdentifier) {
-        let continuations: [CheckedContinuation<Void, Error>]? = lock.withLock {
-            let actorInfo = self.actors[endpointID]
+        let continuations: [CheckedContinuation<Void, Error>]? = lockedState.withLock {
+            let actorInfo = $0.actors[endpointID]
             guard let actorInfo else {
                 logger.error("internal error: endpoint \(endpointID) not registered")
                 return nil
@@ -1360,7 +1371,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     continuations = remoteClient.continuations
                     remoteClient.suspended = false
                     remoteClient.continuations = []
-                    self.actors[endpointID] = .remoteClient(remoteClient)
+                    $0.actors[endpointID] = .remoteClient(remoteClient)
                 } else {
                     logger.error("internal error: endpoint \(endpointID) not suspended")
                 }
@@ -1369,7 +1380,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     continuations = remoteService.continuations
                     remoteService.suspended = false
                     remoteService.continuations = []
-                    self.actors[endpointID] = .remoteService(remoteService)
+                    $0.actors[endpointID] = .remoteService(remoteService)
                 } else {
                     logger.error("internal error: endpoint \(endpointID) not suspended")
                 }
@@ -1388,12 +1399,14 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
     }
 
-    private func streamTask(_ stream: AsyncStream<InvocationEnvelope>,
-                            _ endpointID: EndpointIdentifier,
-                            _ actor: any DistributedActor,
-                            _ channel: Channel,
-                            _ channelAddressDescription: String,
-                            _ queueState: ManagedAtomic<UInt64>) async {
+    private func streamTask(
+        _ stream: AsyncStream<InvocationEnvelope>,
+        _ endpointID: EndpointIdentifier,
+        _ actor: any DistributedActor,
+        _ channel: Channel,
+        _ channelAddressDescription: String,
+        _ queueState: ManagedAtomic<UInt64>
+    ) async {
         logger.debug("\(channelAddressDescription): start stream task for \(actor.id)")
 
         for await envelope in stream {
@@ -1460,9 +1473,13 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         logger.debug("\(channelAddressDescription): streamTask for \(actor.id) done")
     }
 
-    private func invokeLocalCall(_ envelope: InvocationEnvelope, for endpointID: EndpointIdentifier, _ channel: Channel) throws {
-        let ret = try lock.withLock {
-            let actorInfo = self.actors[endpointID]
+    private func invokeLocalCall(
+        _ envelope: InvocationEnvelope,
+        for endpointID: EndpointIdentifier,
+        _ channel: Channel
+    ) throws {
+        let ret = try lockedState.withLock {
+            let actorInfo = $0.actors[endpointID]
             guard let actorInfo else {
                 throw DistributedSystemErrors.unknownActor(endpointID)
             }
@@ -1474,7 +1491,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 guard let continuation else { fatalError("Internal error: continuation unexpectedly nil") }
                 let queueState = ManagedAtomic<UInt64>(0)
                 let inbound = ActorInfo.Inbound(continuation, queueState)
-                self.actors[endpointID] = .clientForRemoteService(inbound)
+                $0.actors[endpointID] = .clientForRemoteService(inbound)
                 let channelAddressDescription = channel.addressDescription
                 Task { await self.streamTask(stream, endpointID, actor, channel, channelAddressDescription, queueState) }
                 return (continuation, queueState)
@@ -1489,11 +1506,13 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         dispatchInvocation(envelope, for: endpointID, channel, ret.0, ret.1)
     }
 
-    private func dispatchInvocation(_ envelope: InvocationEnvelope,
-                                    for endpointID: EndpointIdentifier,
-                                    _ channel: Channel,
-                                    _ continuation: AsyncStream<InvocationEnvelope>.Continuation,
-                                    _ queueState: ManagedAtomic<UInt64>) {
+    private func dispatchInvocation(
+        _ envelope: InvocationEnvelope,
+        for endpointID: EndpointIdentifier,
+        _ channel: Channel,
+        _ continuation: AsyncStream<InvocationEnvelope>.Continuation,
+        _ queueState: ManagedAtomic<UInt64>
+    ) {
         let sizeBits = Self.endpointQueueSizeBits
         let sizeMask = ((UInt64(1) << sizeBits) - 1)
         var oldState = queueState.load(ordering: .relaxed)
@@ -1531,8 +1550,8 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     }
 
     func closeConnectionFor(_ endpointID: EndpointIdentifier) throws {
-        let channel = try lock.withLock {
-            if let channelInfo = self.channels[endpointID.channelID] {
+        let channel = try lockedState.withLock {
+            if let channelInfo = $0.channels[endpointID.channelID] {
                 return channelInfo.channel
             } else {
                 throw DistributedSystemErrors.error("No connection for \(endpointID)")
@@ -1543,11 +1562,11 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     }
 
     public func getBytesSent() async throws -> UInt64 {
-        let (bytesSent, futures) = lock.withLock {
-            let bytesSent = self.stats[ChannelCounters.keyBytesSent, default: 0]
+        let (bytesSent, futures) = lockedState.withLock {
+            let bytesSent = $0.stats[ChannelCounters.keyBytesSent, default: 0]
             var futures = [EventLoopFuture<UInt64>]()
-            futures.reserveCapacity(self.channels.count)
-            for (_, channelInfo) in self.channels {
+            futures.reserveCapacity($0.channels.count)
+            for (_, channelInfo) in $0.channels {
                 let future = channelInfo.channel.pipeline.context(handlerType: ChannelCounters.self).flatMap { context in
                     let eventLoop = context.eventLoop
                     if let counter = context.handler as? ChannelCounters {
@@ -1577,15 +1596,15 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     }
 
     func incrementStats(_ stats: [String: UInt64]) {
-        lock.withLock {
+        lockedState.withLock {
             for (key, value) in stats {
-                self.stats[key, default: 0] += value
+                $0.stats[key, default: 0] += value
             }
         }
     }
 
     public func getStats() -> [(localAddr: SocketAddress, peerAddr: SocketAddress, bytesReceived: UInt64)] {
-        let channels = self.lock.withLock { self.channels.values.map { $0.channel } }
+        let channels = lockedState.withLock { $0.channels.values.map { $0.channel } }
         var ret = [(SocketAddress, SocketAddress, UInt64)]()
         ret.reserveCapacity(channels.count)
         for channel in channels {

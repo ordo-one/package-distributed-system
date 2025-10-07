@@ -4,6 +4,7 @@ import Distributed
 @testable import DistributedSystem
 import Logging
 import NIOCore
+import Synchronization
 @testable import TestMessages
 import XCTest
 
@@ -105,11 +106,11 @@ final class DistributedSystemTests: XCTestCase {
         }
     }
 
-    class Flags {
-        var serviceDeallocated = false
-        var serviceConnectionClosed = false
-        var clientDeallocated = false
-        var clientConnectionClosed = false
+    final class Flags: Sendable {
+        let serviceDeallocated = Atomic<Bool>(false)
+        let serviceConnectionClosed = Atomic<Bool>(false)
+        let clientDeallocated = Atomic<Bool>(false)
+        let clientConnectionClosed = Atomic<Bool>(false)
     }
 
     class ServiceWithLeakCheckImpl: TestableService, @unchecked Sendable {
@@ -121,7 +122,7 @@ final class DistributedSystemTests: XCTestCase {
         }
 
         deinit {
-            flags.serviceDeallocated = true
+            flags.serviceDeallocated.store(true, ordering: .relaxed)
         }
 
         func openStream(byRequest request: TestMessages.OpenRequest) async {
@@ -149,7 +150,7 @@ final class DistributedSystemTests: XCTestCase {
 
         func handleConnectionState(_ state: ConnectionState) async {
             if case .closed = state {
-                flags.serviceConnectionClosed = true
+                flags.serviceConnectionClosed.store(true, ordering: .relaxed)
             }
         }
     }
@@ -167,7 +168,7 @@ final class DistributedSystemTests: XCTestCase {
         }
 
         deinit {
-            flags.clientDeallocated = true
+            flags.clientDeallocated.store(true, ordering: .relaxed)
         }
 
         func snapshotDone(for stream: TestMessages.Stream) {
@@ -185,7 +186,7 @@ final class DistributedSystemTests: XCTestCase {
 
         func handleConnectionState(_ state: ConnectionState) async {
             if case .closed = state {
-                flags.clientConnectionClosed = true
+                flags.clientConnectionClosed.store(true, ordering: .relaxed)
             }
         }
     }
@@ -231,10 +232,10 @@ final class DistributedSystemTests: XCTestCase {
 
             actorSystem.stop()
         }
-        XCTAssertTrue(flags.serviceDeallocated)
-        XCTAssertFalse(flags.serviceConnectionClosed)
-        XCTAssertTrue(flags.clientDeallocated)
-        XCTAssertFalse(flags.clientConnectionClosed)
+        XCTAssertTrue(flags.serviceDeallocated.load(ordering: .relaxed))
+        XCTAssertFalse(flags.serviceConnectionClosed.load(ordering: .relaxed))
+        XCTAssertTrue(flags.clientDeallocated.load(ordering: .relaxed))
+        XCTAssertFalse(flags.clientConnectionClosed.load(ordering: .relaxed))
     }
 
     struct ResourceLoadError: Error {
@@ -298,10 +299,10 @@ final class DistributedSystemTests: XCTestCase {
             serverSystem.stop()
         }
 
-        XCTAssertTrue(flags.serviceDeallocated)
-        XCTAssertTrue(flags.serviceConnectionClosed)
-        XCTAssertTrue(flags.clientDeallocated)
-        XCTAssertTrue(flags.clientConnectionClosed)
+        XCTAssertTrue(flags.serviceDeallocated.load(ordering: .relaxed))
+        XCTAssertTrue(flags.serviceConnectionClosed.load(ordering: .relaxed))
+        XCTAssertTrue(flags.clientDeallocated.load(ordering: .relaxed))
+        XCTAssertTrue(flags.clientConnectionClosed.load(ordering: .relaxed))
     }
 
     /*
@@ -384,10 +385,10 @@ final class DistributedSystemTests: XCTestCase {
             serverSystem.stop()
         }
 
-        XCTAssertTrue(flags.serviceDeallocated)
-        XCTAssertTrue(flags.serviceConnectionClosed)
-        XCTAssertTrue(flags.clientDeallocated)
-        XCTAssertTrue(flags.clientConnectionClosed)
+        XCTAssertTrue(flags.serviceDeallocated.load(ordering: .relaxed))
+        XCTAssertTrue(flags.serviceConnectionClosed.load(ordering: .relaxed))
+        XCTAssertTrue(flags.clientDeallocated.load(ordering: .relaxed))
+        XCTAssertTrue(flags.clientConnectionClosed.load(ordering: .relaxed))
     }
 
     func testReconnectAfterServerRestart() async throws {

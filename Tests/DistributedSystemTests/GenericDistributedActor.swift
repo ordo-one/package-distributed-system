@@ -8,7 +8,7 @@ private distributed actor TestServiceEndpoint: ServiceEndpoint {
     public typealias ActorSystem = DistributedSystem
     public typealias SerializationRequirement = Transferable
 
-    static var serviceName = "TestService"
+    static let serviceName = "TestService"
 
     distributed func handleRequest() async throws {
         let clientEndpointID = id.makeClientEndpoint()
