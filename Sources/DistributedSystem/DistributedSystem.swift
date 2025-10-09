@@ -1619,16 +1619,19 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 continue
             }
             let future = channel.pipeline.context(handlerType: ChannelCounters.self)
-            do {
-                let context = try future.wait()
-                guard let channelCounters = context.handler as? ChannelCounters else {
-                    logger.error("internal error: \(type(of: context.handler)) is not ChannelCounters")
-                    continue
+                .map { context in
+                    guard let channelCounters = context.handler as? ChannelCounters else {
+                        // should never happen
+                        preconditionFailure("internal error")
+                    }
+                    let bytesReceived = channelCounters.bytesReceived.load(ordering: .relaxed)
+                    return bytesReceived
                 }
-                let bytesReceived = channelCounters.bytesReceived.load(ordering: .relaxed)
+            do {
+                let bytesReceived = try future.wait()
                 ret.append((localAddr, peerAddr, bytesReceived))
             } catch {
-                logger.error("failed to get context for channel \(localAddr) -> \(peerAddr)")
+                logger.error("failed to get context for channel \(localAddr) -> \(peerAddr): \(error)")
             }
         }
         return ret
