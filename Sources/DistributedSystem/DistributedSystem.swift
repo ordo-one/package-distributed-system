@@ -1624,8 +1624,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                         // should never happen
                         preconditionFailure("internal error")
                     }
-                    let bytesReceived = channelCounters.bytesReceived.load(ordering: .relaxed)
-                    return bytesReceived
+                    return channelCounters.bytesReceived.load(ordering: .relaxed)
                 }
             do {
                 let bytesReceived = try future.wait()
