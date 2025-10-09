@@ -1033,25 +1033,28 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         // and it will entail a nested call to the resignID() for that actor,
         // and we will have a recursive lock.
         // Returning ActorInfo from under the lock let as release an actor instance outside the lock.
-        _ = lock.withLock { () -> ActorInfo? in
-            if let actorInfo = self.actors[id] {
+        let actorInfo: ActorInfo? = lock.withLock {
+            if let idx = self.actors.index(forKey: id) {
+                let actorInfo = self.actors[idx].value
                 switch actorInfo {
                 case .remoteClient:
                     fatalError("internal error: unexpected actor state")
                 default:
-                    self.actors.removeValue(forKey: id)
+                    self.actors.remove(at: idx)
                     return actorInfo
                 }
             }
             return nil
         }
+        _ = actorInfo
 
         if (id.channelID == 0) && ((id.instanceID & EndpointIdentifier.serviceFlag) != 0) {
             let clientEndpointID = id.makeClientEndpoint()
-            _ = lock.withLock { () -> ActorInfo? in
-                if let actorInfo = self.actors[clientEndpointID] {
+            let actorInfo: ActorInfo? = lock.withLock {
+                if let idx = self.actors.index(forKey: clientEndpointID) {
+                    let actorInfo = self.actors[idx].value
                     if case .newClient = actorInfo {
-                        self.actors.removeValue(forKey: clientEndpointID)
+                        self.actors.remove(at: idx)
                         return actorInfo
                     } else {
                         logger.error("internal error: unexpected actor state for \(clientEndpointID)")
@@ -1059,6 +1062,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 }
                 return nil
             }
+            _ = actorInfo
         }
     }
 
