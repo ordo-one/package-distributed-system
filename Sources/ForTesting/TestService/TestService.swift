@@ -88,8 +88,7 @@ public class TestService: TestableService, @unchecked Sendable {
 
     public func run() async throws {
         try await self.actorSystem.start(at: NetworkAddress(host: "0.0.0.0", port: self.serverPort))
-        let moduleID = DistributedSystem.ModuleIdentifier(1)
-        try await self.actorSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+        try await self.actorSystem.addService(ofType: TestServiceEndpoint.self) { actorSystem in
             let serviceEndpoint = try TestServiceEndpoint(self, in: actorSystem)
             self.clientEndpointID = serviceEndpoint.id.makeClientEndpoint()
             return serviceEndpoint

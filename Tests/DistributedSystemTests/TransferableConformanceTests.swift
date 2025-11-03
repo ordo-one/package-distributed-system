@@ -101,10 +101,9 @@ final class TransferableConformanceTests: XCTestCase {
         let stream = AsyncStream<Result<Void, Error>>() { streamContinuation = $0 }
         guard let streamContinuation else { fatalError("Internal error: streamContinuation unexpectedly nil") }
 
-        let moduleID = DistributedSystem.ModuleIdentifier(1)
         let serverSystem = DistributedSystemServer(name: systemName)
         try await serverSystem.start()
-        try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+        try await serverSystem.addService(ofType: TestServiceEndpoint.self) { actorSystem in
             TestServiceEndpoint(actorSystem: actorSystem, stream, streamContinuation)
         }
 
@@ -158,10 +157,9 @@ final class TransferableConformanceTests: XCTestCase {
         let stream = AsyncStream<Result<Void, Error>>() { streamContinuation = $0 }
         guard let streamContinuation else { fatalError("Internal error: streamContinuation unexpectedly nil") }
 
-        let moduleID = DistributedSystem.ModuleIdentifier(1)
         let serverSystem = DistributedSystemServer(name: systemName)
         try await serverSystem.start()
-        try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+        try await serverSystem.addService(ofType: TestServiceEndpoint.self) { actorSystem in
             TestServiceEndpoint(actorSystem: actorSystem, stream, streamContinuation)
         }
 

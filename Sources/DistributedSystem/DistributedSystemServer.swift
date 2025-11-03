@@ -177,11 +177,10 @@ public class DistributedSystemServer: DistributedSystem, @unchecked Sendable {
     @discardableResult
     public func addService(
         ofType type: any ServiceEndpoint.Type,
-        toModule moduleID: ModuleIdentifier,
         metadata: [String: String]? = nil,
         _ factory: @escaping ServiceFactory
     ) async throws -> UUID {
-        try await addService(name: type.serviceName, toModule: moduleID, metadata: metadata, factory)
+        try await addService(name: type.serviceName, metadata: metadata, factory)
     }
 
     private func updateHealthStatus(with eventLoop: EventLoop) {
@@ -275,14 +274,12 @@ public class DistributedSystemServer: DistributedSystem, @unchecked Sendable {
 
     public func addService(
         name: String,
-        toModule moduleID: ModuleIdentifier,
         metadata: [String: String]? = nil,
         _ factory: @escaping ServiceFactory
     ) async throws -> UUID {
         var metadata = metadata ?? [:]
         metadata[ServiceMetadata.systemName.rawValue] = systemName
         metadata[ServiceMetadata.processIdentifier.rawValue] = String(ProcessInfo.processInfo.processIdentifier)
-        metadata[ServiceMetadata.moduleIdentifier.rawValue] = String(moduleID.rawValue)
 
         let (serviceID, updateHealthStatus) = super.addService(name, metadata, factory)
         let future = registerService(name, serviceID, metadata: metadata)
