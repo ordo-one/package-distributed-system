@@ -10,7 +10,7 @@ import Distributed
 
 public enum DistributedSystemErrors: DistributedActorSystemError, CustomStringConvertible {
     case decodeError(description: String)
-    case duplicatedService(String, DistributedSystem.ModuleIdentifier)
+    case duplicatedService(String)
     case error(String)
     case serviceDiscoveryTimeout(String)
     case unexpectedResultType(String)
@@ -24,8 +24,8 @@ public enum DistributedSystemErrors: DistributedActorSystemError, CustomStringCo
         switch self {
         case .decodeError(let description):
             return "Decode error: \(description)"
-        case .duplicatedService(let serviceName, let moduleId):
-            return "Duplicated service '\(serviceName)' in module \(moduleId)"
+        case .duplicatedService(let serviceName):
+            return "Duplicated service '\(serviceName)'"
         case .error(let message):
             return "Error: \(message)"
         case .serviceDiscoveryTimeout(let details):

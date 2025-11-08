@@ -199,11 +199,10 @@ final class DistributedSystemTests: XCTestCase {
             let processInfo = ProcessInfo.processInfo
             let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
 
-            let moduleID = DistributedSystem.ModuleIdentifier(UInt64(processInfo.processIdentifier))
             let actorSystem = DistributedSystemServer(name: systemName)
             try await actorSystem.start()
 
-            try await actorSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+            try await actorSystem.addService(ofType: TestServiceEndpoint.self) { actorSystem in
                 let service = ServiceWithLeakCheckImpl(flags)
                 let serviceEndpoint = try TestServiceEndpoint(service, in: actorSystem)
                 let clientEndpointID = serviceEndpoint.id.makeClientEndpoint()
@@ -261,12 +260,11 @@ final class DistributedSystemTests: XCTestCase {
             let processInfo = ProcessInfo.processInfo
             let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
 
-            let moduleID = DistributedSystem.ModuleIdentifier(1)
             let serverDictionary = try loadResource("dict4Kb-mix")
             let serverCompressionMode: CompressionMode = .dictionary(serverDictionary)
             let serverSystem = DistributedSystemServer(name: systemName, compressionMode: serverCompressionMode)
             try await serverSystem.start()
-            try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+            try await serverSystem.addService(ofType: TestServiceEndpoint.self) { actorSystem in
                 let service = ServiceWithLeakCheckImpl(flags)
                 let serviceEndpoint = try TestServiceEndpoint(service, in: actorSystem)
                 let clientEndpointID = serviceEndpoint.id.makeClientEndpoint()
@@ -338,10 +336,9 @@ final class DistributedSystemTests: XCTestCase {
             let processInfo = ProcessInfo.processInfo
             let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
 
-            let moduleID = DistributedSystem.ModuleIdentifier(1)
             let serverSystem = DistributedSystemServer(name: systemName)
             try await serverSystem.start()
-            try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+            try await serverSystem.addService(ofType: TestServiceEndpoint.self) { actorSystem in
                 let service = ServiceWithLeakCheckImpl(flags)
                 let serviceEndpoint = try TestServiceEndpoint(service, in: actorSystem)
                 let clientEndpointID = serviceEndpoint.id.makeClientEndpoint()
@@ -399,10 +396,9 @@ final class DistributedSystemTests: XCTestCase {
 
         let (stream, continuation) = AsyncStream<Void>.makeStream()
 
-        let moduleID = DistributedSystem.ModuleIdentifier(1)
         let serverSystem1 = DistributedSystemServer(name: systemName)
         try await serverSystem1.start()
-        try await serverSystem1.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+        try await serverSystem1.addService(ofType: TestServiceEndpoint.self) { actorSystem in
             try TestServiceEndpoint(DummyServiceImpl(), in: actorSystem)
         }
 
@@ -431,7 +427,7 @@ final class DistributedSystemTests: XCTestCase {
 
         let serverSystem2 = DistributedSystemServer(name: systemName)
         try await serverSystem2.start()
-        try await serverSystem2.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+        try await serverSystem2.addService(ofType: TestServiceEndpoint.self) { actorSystem in
             try TestServiceEndpoint(DummyServiceImpl(), in: actorSystem)
         }
 
@@ -487,10 +483,9 @@ final class DistributedSystemTests: XCTestCase {
         let count = 5_000
 
         let service = ServiceImpl(count * 2)
-        let moduleID = DistributedSystem.ModuleIdentifier(UInt64(processInfo.processIdentifier))
         let serverSystem = DistributedSystemServer(name: systemName)
         try await serverSystem.start()
-        try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+        try await serverSystem.addService(ofType: TestServiceEndpoint.self) { actorSystem in
             try TestServiceEndpoint(service, in: actorSystem)
         }
 
@@ -626,10 +621,9 @@ final class DistributedSystemTests: XCTestCase {
         let processInfo = ProcessInfo.processInfo
         let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)"
 
-        let moduleID = DistributedSystem.ModuleIdentifier(UInt64(processInfo.processIdentifier))
         let serverSystem = DistributedSystemServer(name: systemName)
         try await serverSystem.start()
-        try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+        try await serverSystem.addService(ofType: TestServiceEndpoint.self) { actorSystem in
             let service = ServiceImpl(monsters)
             let serviceEndpoint = try TestServiceEndpoint(service, in: actorSystem)
             let clientEndpointID = serviceEndpoint.id.makeClientEndpoint()
@@ -669,10 +663,9 @@ final class DistributedSystemTests: XCTestCase {
         let processInfo = ProcessInfo.processInfo
         let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
 
-        let moduleID = DistributedSystem.ModuleIdentifier(UInt64(processInfo.processIdentifier))
         let serverSystem = DistributedSystemServer(name: systemName)
         try await serverSystem.start()
-        try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+        try await serverSystem.addService(ofType: TestServiceEndpoint.self) { actorSystem in
             try TestServiceEndpoint(Service(), in: actorSystem)
         }
 
@@ -733,10 +726,9 @@ final class DistributedSystemTests: XCTestCase {
         let processInfo = ProcessInfo.processInfo
         let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
 
-        let moduleID = DistributedSystem.ModuleIdentifier(UInt64(processInfo.processIdentifier))
         let serverSystem = DistributedSystemServer(name: systemName)
         try await serverSystem.start()
-        try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+        try await serverSystem.addService(ofType: TestServiceEndpoint.self) { actorSystem in
             TestServiceEndpoint(actorSystem: actorSystem)
         }
 
@@ -773,8 +765,7 @@ final class DistributedSystemTests: XCTestCase {
         let distributedSystem = DistributedSystemServer(name: systemName)
         try await distributedSystem.start()
 
-        let moduleID = DistributedSystem.ModuleIdentifier(UInt64(processInfo.processIdentifier))
-        try await distributedSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+        try await distributedSystem.addService(ofType: TestServiceEndpoint.self) { actorSystem in
             let service = Service()
             let serviceEndpoint = try TestServiceEndpoint(service, in: actorSystem)
             let clientEndpointID = serviceEndpoint.id.makeClientEndpoint()
@@ -820,8 +811,7 @@ final class DistributedSystemTests: XCTestCase {
             }
         )
 
-        let moduleID = DistributedSystem.ModuleIdentifier(1)
-        try await distributedSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+        try await distributedSystem.addService(ofType: TestServiceEndpoint.self) { actorSystem in
             let serviceEndpoint = try TestServiceEndpoint(Service(), in: actorSystem)
             return serviceEndpoint
         }
@@ -839,8 +829,7 @@ final class DistributedSystemTests: XCTestCase {
             let serverSystem = DistributedSystemServer(name: systemName)
             try await serverSystem.start()
 
-            let moduleID = DistributedSystem.ModuleIdentifier(1)
-            try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+            try await serverSystem.addService(ofType: TestServiceEndpoint.self) { actorSystem in
                 let serviceEndpoint = try TestServiceEndpoint(Service(), in: actorSystem)
                 Task { actorSystem.stop() }
                 return serviceEndpoint
@@ -897,10 +886,9 @@ final class DistributedSystemTests: XCTestCase {
         let processInfo = ProcessInfo.processInfo
         let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
 
-        let moduleID = DistributedSystem.ModuleIdentifier(1)
         let serverSystem = DistributedSystemServer(name: systemName)
         try await serverSystem.start()
-        try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+        try await serverSystem.addService(ofType: TestServiceEndpoint.self) { actorSystem in
             XCTFail("should not be called")
             return try TestServiceEndpoint(Service(), in: actorSystem)
         }
@@ -991,10 +979,9 @@ final class DistributedSystemTests: XCTestCase {
         let stream = AsyncStream<Void>() { continuation = $0 }
         guard let continuation else { fatalError("continuation unexpectedly nil") }
 
-        let moduleID = DistributedSystem.ModuleIdentifier(1)
         let serverSystem = DistributedSystemServer(name: systemName)
         try await serverSystem.start()
-        try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+        try await serverSystem.addService(ofType: TestServiceEndpoint.self) { actorSystem in
             TestServiceEndpoint(actorSystem, clientSystem, continuation)
         }
 
@@ -1062,7 +1049,6 @@ final class DistributedSystemTests: XCTestCase {
         let stream = AsyncStream<Void>() { continuation = $0 }
         guard let continuation else { fatalError("continuation unexpectedly nil") }
 
-        let moduleID = DistributedSystem.ModuleIdentifier(1)
         let serverSystem = DistributedSystemServer(name: systemName)
 
         // each invocation envelope is about 100 bytes,
@@ -1071,7 +1057,7 @@ final class DistributedSystemTests: XCTestCase {
         serverSystem.endpointQueueLowWatermark = 1024
 
         try await serverSystem.start()
-        try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+        try await serverSystem.addService(ofType: TestServiceEndpoint.self) { actorSystem in
             TestServiceEndpoint(actorSystem, requests, continuation)
         }
 
@@ -1145,10 +1131,9 @@ final class DistributedSystemTests: XCTestCase {
 
         let connectionClosed = ManagedAtomic<Int>(0)
 
-        let moduleID = DistributedSystem.ModuleIdentifier(1)
         let serverSystem = DistributedSystemServer(name: systemName)
         try await serverSystem.start()
-        try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+        try await serverSystem.addService(ofType: TestServiceEndpoint.self) { actorSystem in
             let serviceEndpoint = TestServiceEndpoint(actorSystem, connectionClosed)
             return serviceEndpoint
         }
@@ -1196,14 +1181,13 @@ final class DistributedSystemTests: XCTestCase {
 
         let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
 
-        let moduleID = DistributedSystem.ModuleIdentifier(1)
         let serverSystem = DistributedSystemServer(name: systemName)
 
         serverSystem.healthStatusUpdateInterval = TimeAmount.seconds(90)
         serverSystem.healthStatusTTL = TimeAmount.seconds(5)
 
         try await serverSystem.start()
-        try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+        try await serverSystem.addService(ofType: TestServiceEndpoint.self) { actorSystem in
             TestServiceEndpoint(actorSystem: actorSystem)
         }
 
@@ -1258,11 +1242,10 @@ final class DistributedSystemTests: XCTestCase {
         let processInfo = ProcessInfo.processInfo
         let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
 
-        let moduleID = DistributedSystem.ModuleIdentifier(1)
         let serverSystem = DistributedSystemServer(name: systemName, compressionMode: .disabled)
         try await serverSystem.start()
 
-        try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID, metadata: ["opt": "1"]) { actorSystem in
+        try await serverSystem.addService(ofType: TestServiceEndpoint.self, metadata: ["opt": "1"]) { actorSystem in
             let service = TestServiceImpl(1)
             let serviceEndpoint = try TestServiceEndpoint(service, in: actorSystem)
             let clientEndpointID = serviceEndpoint.id.makeClientEndpoint()
@@ -1270,7 +1253,7 @@ final class DistributedSystemTests: XCTestCase {
             return serviceEndpoint
         }
 
-        try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID, metadata: ["opt": "2"]) { actorSystem in
+        try await serverSystem.addService(ofType: TestServiceEndpoint.self, metadata: ["opt": "2"]) { actorSystem in
             let service = TestServiceImpl(2)
             let serviceEndpoint = try TestServiceEndpoint(service, in: actorSystem)
             let clientEndpointID = serviceEndpoint.id.makeClientEndpoint()
@@ -1349,10 +1332,9 @@ final class DistributedSystemTests: XCTestCase {
 
         let (stream, continuation) = AsyncStream<Void>.makeStream()
 
-        let moduleID = DistributedSystem.ModuleIdentifier(1)
         let serverSystem = DistributedSystemServer(name: systemName)
         try await serverSystem.start()
-        let serviceID = try await serverSystem.addService(ofType: TestServiceEndpoint.self, toModule: moduleID) { actorSystem in
+        let serviceID = try await serverSystem.addService(ofType: TestServiceEndpoint.self) { actorSystem in
             continuation.yield()
             return try TestServiceEndpoint(DummyServiceImpl(), in: actorSystem)
         }
