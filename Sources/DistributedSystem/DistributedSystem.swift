@@ -131,8 +131,14 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
     static let serviceDiscoveryTimeout = TimeAmount.seconds(5)
     static let reconnectInterval = TimeAmount.seconds(5)
 
-    static let protocolVersionMajor: UInt16 = 5
-    static let protocolVersionMinor: UInt16 = 0
+    struct ProtocolVersion: CustomStringConvertible {
+        let major: UInt16
+        let minor: UInt16
+
+        var description: String { "\(major).\(minor)" }
+    }
+
+    static let protocolVersion = ProtocolVersion(major: 5, minor: 0)
 
     enum SessionMessage: UInt16 {
         case createServiceInstance = 0
