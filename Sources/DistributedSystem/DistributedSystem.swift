@@ -12,10 +12,12 @@ import Atomics
 import ConsulServiceDiscovery
 import Dispatch
 import Distributed
+import Instrumentation
 import Logging
 import struct Foundation.Data
 import struct Foundation.UUID
 import NIOCore
+import ServiceContextModule
 import Synchronization
 internal import NIOPosix
 
@@ -783,10 +785,10 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             let stateSize = MemoryLayout<ConnectionState.RawValue>.size
             let bufferSize = ULEB128.size(UInt(stateSize)) + stateSize
             var buffer = ByteBufferAllocator().buffer(capacity: bufferSize)
-            buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(UInt(stateSize), to: ptr.baseAddress!) }
-            _ = res.state.rawValue.withUnsafeBytesSerialization { bytes in buffer.writeBytes(bytes) }
+            ULEB128.encode(UInt(stateSize), to: &buffer)
+            _ = res.state.rawValue.withUnsafeBytesSerialization { buffer.writeBytes($0) }
 
-            let envelope = InvocationEnvelope(0, "", [], buffer)
+            let envelope = InvocationEnvelope(UInt32(stateSize), 0, [:], "", [], buffer)
             for entry in res.actors {
                 dispatchInvocation(envelope, for: entry.0, channel, entry.1, entry.2)
             }
@@ -1141,18 +1143,31 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             }
         }
 
+        let serviceContext: ServiceContext? = (callID == 0) ? nil : .current
         let payloadSize =
             MemoryLayout<SessionMessage.RawValue>.size
                 + ULEB128.size(actor.id.instanceID)
-                + InvocationEnvelope.wireSize(callID, invocation.genericSubstitutions, invocation.arguments, target)
+                + InvocationEnvelope.wireSize(
+                    callID,
+                    serviceContext,
+                    invocation.genericSubstitutions,
+                    invocation.arguments,
+                    target)
+
         // Even if we carefully calculated the capacity of the desired buffer and know it to the nearest byte,
         // swift-nio still allocates a buffer with a storage capacity rounded up to nearest power of 2...
         // Weird...
         var buffer = ByteBufferAllocator().buffer(capacity: MemoryLayout<UInt32>.size + payloadSize)
         buffer.writeInteger(UInt32(payloadSize))
         buffer.writeInteger(SessionMessage.invocationEnvelope.rawValue)
-        buffer.writeWithUnsafeMutableBytes(minimumWritableBytes: 0) { ptr in ULEB128.encode(actor.id.instanceID, to: ptr.baseAddress!) }
-        let targetOffset = InvocationEnvelope.encode(callID, invocation.genericSubstitutions, &invocation.arguments, to: &buffer)
+        ULEB128.encode(actor.id.instanceID, to: &buffer)
+        let targetOffset = InvocationEnvelope.encode(
+            callID,
+            serviceContext,
+            invocation.genericSubstitutions,
+            &invocation.arguments,
+            to: &buffer
+        )
         let targetIdentifier = target.identifier
 
         channel.eventLoop.execute { [buffer] in
@@ -1193,7 +1208,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
     func channelRead(_ channelID: UInt32, _ channel: Channel, _ buffer: inout ByteBuffer, _ targetFuncs: inout [String]) {
         let bytesReceived = buffer.readableBytes
-        guard buffer.readInteger(as: UInt32.self) != nil, // skip message size
+        guard let messageSize = buffer.readInteger(as: UInt32.self),
               let rawMessageType = buffer.readInteger(as: SessionMessage.RawValue.self)
         else {
             logger.error("\(channel.addressDescription): invalid message received (\(bytesReceived)), closing connection")
@@ -1225,7 +1240,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             case .invocationEnvelope:
                 let instanceID = try Self.readULEB128(from: &buffer, as: EndpointIdentifier.InstanceIdentifier.self)
                 let endpointID = EndpointIdentifier(channelID, instanceID)
-                let envelope = try InvocationEnvelope(from: &buffer, &targetFuncs)
+                let envelope = try InvocationEnvelope(from: &buffer, messageSize, &targetFuncs)
                 try invokeLocalCall(envelope, for: endpointID, channel)
             case .invocationResult:
                 try syncCallManager.handleResult(&buffer)
@@ -1402,14 +1417,46 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                     }
                 } else {
                     let resultHandler = ResultHandler(loggerBox, envelope.targetFunc)
-                    try await executeDistributedTarget(on: actor,
-                                                       target: RemoteCallTarget(envelope.targetFunc),
-                                                       invocationDecoder: &decoder,
-                                                       handler: resultHandler)
-                    if resultHandler.hasResult {
-                        try resultHandler.sendTo(channel, for: envelope.callID)
+
+                    if envelope.serviceContext.isEmpty {
+                        try await executeDistributedTarget(
+                            on: actor,
+                            target: RemoteCallTarget(envelope.targetFunc),
+                            invocationDecoder: &decoder,
+                            handler: resultHandler
+                        )
+
+                        if resultHandler.hasResult {
+                            logger.error("internal error: unexpected result for \(envelope.targetFunc)")
+                        }
                     } else {
-                        if envelope.callID != 0 {
+                        var requestBaggage = ServiceContext.current ?? .topLevel
+
+                        struct ServiceContextExtractor: Extractor {
+                            typealias Carrier = [String: String]
+                            func extract(key: String, from carrier: Carrier) -> String? {
+                                carrier[key]
+                            }
+                        }
+
+                        InstrumentationSystem.instrument.extract(
+                            envelope.serviceContext,
+                            into: &requestBaggage,
+                            using: ServiceContextExtractor(),
+                        )
+
+                        try await ServiceContext.withValue(requestBaggage) {
+                            try await executeDistributedTarget(
+                                on: actor,
+                                target: RemoteCallTarget(envelope.targetFunc),
+                                invocationDecoder: &decoder,
+                                handler: resultHandler
+                            )
+                        }
+
+                        if resultHandler.hasResult {
+                            try resultHandler.sendTo(channel, for: envelope.callID)
+                        } else {
                             logger.error("internal error: missing result")
                         }
                     }
@@ -1425,7 +1472,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             while true {
                 let oldSize = (oldState & sizeMask)
                 assert(oldSize >= envelope.size)
-                var newState = (oldState - envelope.size)
+                var newState = (oldState - UInt64(envelope.size))
                 let newSize = (newState & sizeMask)
                 if (newSize < endpointQueueLowWatermark) && (oldSize >= endpointQueueLowWatermark) && ((oldState & Self.endpointQueueSuspendIndicator) != 0) {
                     newState -= Self.endpointQueueSuspendIndicator
@@ -1498,7 +1545,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         let sizeMask = ((UInt64(1) << sizeBits) - 1)
         var oldState = queueState.load(ordering: .relaxed)
         while true {
-            var newState = (oldState + envelope.size)
+            var newState = (oldState + UInt64(envelope.size))
             let oldSize = (oldState & sizeMask)
             let newSize = (newState & sizeMask)
             let warningSize = (endpointQueueWarningSize << ((oldState >> sizeBits) & 0x7F))

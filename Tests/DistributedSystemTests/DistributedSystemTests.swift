@@ -5,6 +5,8 @@ import Distributed
 import Logging
 import NIOCore
 import Synchronization
+import InMemoryTracing
+import Tracing
 @testable import TestMessages
 import XCTest
 
@@ -1360,13 +1362,67 @@ final class DistributedSystemTests: XCTestCase {
         serverSystem.stop()
     }
 
+    func testDistributedTracing() async throws {
+        distributed actor TestServiceEndpoint: ServiceEndpoint {
+            public typealias ActorSystem = DistributedSystem
+            public typealias SerializationRequirement = Transferable
+
+            public static var serviceName: String { "test_service" }
+
+            init(_ actorSystem: DistributedSystem) {
+                self.actorSystem = actorSystem
+            }
+
+            distributed func handleConnectionState(_ state: ConnectionState) async throws {
+            }
+
+            distributed func foo() async throws -> Bool {
+                var result = false
+                ServiceContext.current?.forEach { _, value in
+                    if let context = value as? InMemorySpanContext {
+                        logger.info("context=\(context)")
+                        result = true
+                    }
+                }
+                return result
+            }
+        }
+
+        InstrumentationSystem.bootstrap(InMemoryTracer())
+        let processInfo = ProcessInfo.processInfo
+        let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
+
+        let serverSystem = DistributedSystemServer(name: systemName)
+        try await serverSystem.start()
+        try await serverSystem.addService(ofType: TestServiceEndpoint.self) { actorSystem in
+            TestServiceEndpoint(actorSystem)
+        }
+
+        let clientSystem = DistributedSystem(name: systemName)
+        try clientSystem.start()
+
+        let serviceEndpoint = try await clientSystem.connectToService(
+            TestServiceEndpoint.self,
+            withFilter: { _ in true }
+        )
+
+        let result = try await withSpan("remote call") { _ in
+            try await serviceEndpoint.foo()
+        }
+
+        XCTAssertTrue(result)
+
+        clientSystem.stop()
+        serverSystem.stop()
+    }
+
     func testInvocationEncoding() {
         let callID = UInt64(42)
         var arguments = ByteBuffer()
         let remoteCallTarget = RemoteCallTarget("does not matter")
-        let wireSize = InvocationEnvelope.wireSize(callID, [], arguments, remoteCallTarget)
+        let wireSize = InvocationEnvelope.wireSize(callID, nil, [], arguments, remoteCallTarget)
         var buffer = ByteBufferAllocator().buffer(capacity: wireSize)
-        let targetOffset = InvocationEnvelope.encode(callID, [], &arguments, to: &buffer)
+        let targetOffset = InvocationEnvelope.encode(callID, nil, [], &arguments, to: &buffer)
         var copy = ByteBuffer()
         copy.writeImmutableBuffer(buffer)
         InvocationEnvelope.setTargetId(remoteCallTarget.identifier, in: &buffer, at: targetOffset)
