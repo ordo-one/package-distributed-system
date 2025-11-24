@@ -1426,8 +1426,16 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                             handler: resultHandler
                         )
 
-                        if resultHandler.hasResult {
-                            logger.error("internal error: unexpected result for \(envelope.targetFunc)")
+                        if envelope.callID == 0 {
+                            if resultHandler.hasResult {
+                                logger.error("internal error: unexpected result for \(envelope.targetFunc)")
+                            }
+                        } else {
+                            if resultHandler.hasResult {
+                                try resultHandler.sendTo(channel, for: envelope.callID)
+                            } else {
+                                logger.error("internal error: missing result for \(envelope.targetFunc)")
+                            }
                         }
                     } else {
                         var requestBaggage = ServiceContext.current ?? .topLevel
@@ -1457,7 +1465,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                         if resultHandler.hasResult {
                             try resultHandler.sendTo(channel, for: envelope.callID)
                         } else {
-                            logger.error("internal error: missing result")
+                            logger.error("internal error: missing result for \(envelope.targetFunc)")
                         }
                     }
                 }
