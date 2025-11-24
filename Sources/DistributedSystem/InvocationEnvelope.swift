@@ -32,31 +32,30 @@ extension ULEB128 {
 }
 
 public struct InvocationEnvelope: Sendable {
-    public let size: UInt32
     public let callID: UInt64
     public let serviceContext: [String: String]
     public let targetFunc: String
     public let genericSubstitutions: [Any.Type]
     public let arguments: ByteBuffer
+    public let size: Int
 
-    public init(
-        _ size: UInt32,
+    init(
         _ callID: UInt64,
         _ serviceContext: [String: String],
         _ targetFunc: String,
         _ genericSubstitutions: [Any.Type],
         _ arguments: ByteBuffer
     ) {
-        self.size = size
         self.callID = callID
         self.serviceContext = serviceContext
         self.targetFunc = targetFunc
         self.genericSubstitutions = genericSubstitutions
         self.arguments = arguments
+        self.size = arguments.readableBytes
     }
 
-    public init(from buffer: inout ByteBuffer, _ size: UInt32, _ targetFuncs: inout [String]) throws {
-        self.size = size
+    init(from buffer: inout ByteBuffer, _ targetFuncs: inout [String]) throws {
+        let startIndex = buffer.readerIndex
         self.callID = try ULEB128.decode(from: &buffer)
 
         var serviceContext = [String: String]()
@@ -112,6 +111,7 @@ public struct InvocationEnvelope: Sendable {
             let funcId = try buffer.readWithUnsafeReadableBytes { ptr in try ULEB128.decode(ptr, as: UInt32.self) }
             self.targetFunc = targetFuncs[Int(funcId)]
         }
+        self.size = (buffer.readerIndex - startIndex)
     }
 
     public static func wireSize(

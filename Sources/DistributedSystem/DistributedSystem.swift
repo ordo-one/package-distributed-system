@@ -788,7 +788,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             ULEB128.encode(UInt(stateSize), to: &buffer)
             _ = res.state.rawValue.withUnsafeBytesSerialization { buffer.writeBytes($0) }
 
-            let envelope = InvocationEnvelope(UInt32(stateSize), 0, [:], "", [], buffer)
+            let envelope = InvocationEnvelope(0, [:], "", [], buffer)
             for entry in res.actors {
                 dispatchInvocation(envelope, for: entry.0, channel, entry.1, entry.2)
             }
@@ -1208,7 +1208,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
     func channelRead(_ channelID: UInt32, _ channel: Channel, _ buffer: inout ByteBuffer, _ targetFuncs: inout [String]) {
         let bytesReceived = buffer.readableBytes
-        guard let messageSize = buffer.readInteger(as: UInt32.self),
+        guard let _ = buffer.readInteger(as: UInt32.self),
               let rawMessageType = buffer.readInteger(as: SessionMessage.RawValue.self)
         else {
             logger.error("\(channel.addressDescription): invalid message received (\(bytesReceived)), closing connection")
@@ -1240,7 +1240,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
             case .invocationEnvelope:
                 let instanceID = try Self.readULEB128(from: &buffer, as: EndpointIdentifier.InstanceIdentifier.self)
                 let endpointID = EndpointIdentifier(channelID, instanceID)
-                let envelope = try InvocationEnvelope(from: &buffer, messageSize, &targetFuncs)
+                let envelope = try InvocationEnvelope(from: &buffer, &targetFuncs)
                 try invokeLocalCall(envelope, for: endpointID, channel)
             case .invocationResult:
                 try syncCallManager.handleResult(&buffer)
