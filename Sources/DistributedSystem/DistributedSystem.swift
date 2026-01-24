@@ -206,6 +206,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         var bytesReceived = 0
         var bytesReceivedCheckpoint = 0
         var bytesReceivedTimeouts = 0
+        var calls = UInt64(0)
         var targetFuncsIndex = TargetFuncsIndex()
         var pendingSyncCalls = Set<UInt64>()
 
@@ -1105,9 +1106,11 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
 
             if callID != 0 {
                 channelInfo.pendingSyncCalls.insert(callID)
-                $0.channels[channelID] = channelInfo
                 logger.trace("add sync call \(callID) for \(channelID)")
             }
+
+            channelInfo.calls += 1
+            $0.channels[channelID] = channelInfo
 
             return (channelInfo.channel, channelInfo.targetFuncsIndex, suspended)
         }
@@ -1584,11 +1587,18 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         }
     }
 
-    public func getStats() -> [(localAddr: SocketAddress, peerAddr: SocketAddress, bytesReceived: UInt64)] {
-        let channels = lockedState.withLock { $0.channels.values.map { $0.channel } }
-        var ret = [(SocketAddress, SocketAddress, UInt64)]()
+    public struct ConnectionStats {
+        public let localAddr: SocketAddress
+        public let peerAddr: SocketAddress
+        public let bytesSent: UInt64
+        public let calls: UInt64
+    }
+
+    public func getStats() -> [ConnectionStats] {
+        let channels = lockedState.withLock { $0.channels.values.map { ($0.channel, $0.calls) } }
+        var ret = [ConnectionStats]()
         ret.reserveCapacity(channels.count)
-        for channel in channels {
+        for (channel, calls) in channels {
             guard let localAddr = channel.localAddress?.makeCopyWithoutHost(),
                   let peerAddr = channel.remoteAddress?.makeCopyWithoutHost()
             else {
@@ -1601,11 +1611,11 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                         // should never happen
                         preconditionFailure("internal error")
                     }
-                    return channelCounters.bytesReceived.load(ordering: .relaxed)
+                    return channelCounters.bytesSent.load(ordering: .relaxed)
                 }
             do {
-                let bytesReceived = try future.wait()
-                ret.append((localAddr, peerAddr, bytesReceived))
+                let bytesSent = try future.wait()
+                ret.append(.init(localAddr: localAddr, peerAddr: peerAddr, bytesSent: bytesSent, calls: calls))
             } catch {
                 logger.error("failed to get context for channel \(localAddr) -> \(peerAddr): \(error)")
             }
