@@ -1592,18 +1592,6 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
         public let peerAddr: SocketAddress
         public let bytesSent: UInt64
         public let calls: UInt64
-
-        init(
-            _ localAddr: SocketAddress,
-            _ peerAddr: SocketAddress,
-            _ bytesSent: UInt64,
-            _ calls: UInt64
-        ) {
-            self.localAddr = localAddr
-            self.peerAddr = peerAddr
-            self.bytesSent = bytesSent
-            self.calls = calls
-        }
     }
 
     public func getStats() -> [ConnectionStats] {
@@ -1627,7 +1615,7 @@ public class DistributedSystem: DistributedActorSystem, @unchecked Sendable {
                 }
             do {
                 let bytesSent = try future.wait()
-                ret.append(.init(localAddr, peerAddr, bytesSent, calls))
+                ret.append(.init(localAddr: localAddr, peerAddr: peerAddr, bytesSent: bytesSent, calls: calls))
             } catch {
                 logger.error("failed to get context for channel \(localAddr) -> \(peerAddr): \(error)")
             }
