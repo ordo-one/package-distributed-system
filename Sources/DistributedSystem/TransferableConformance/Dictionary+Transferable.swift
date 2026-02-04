@@ -29,10 +29,10 @@ public extension Dictionary where Key: Serializable, Value: Serializable {
                     if space < entrySize {
                         if buffer.count == 0 {
                             let capacity = nearestPowerOf2(entrySize * count)
-                            buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: capacity, alignment: 0)
+                            buffer = UnsafeMutableRawBufferPointer.allocate(byteCount: capacity, alignment: 1)
                         } else {
                             let capacity = nearestPowerOf2(buffer.count + entrySize)
-                            let newBuffer = UnsafeMutableRawBufferPointer.allocate(byteCount: capacity, alignment: 0)
+                            let newBuffer = UnsafeMutableRawBufferPointer.allocate(byteCount: capacity, alignment: 1)
                             newBuffer.copyMemory(from: UnsafeRawBufferPointer(start: buffer.baseAddress, count: pos))
                             buffer.deallocate()
                             buffer = newBuffer
@@ -40,10 +40,14 @@ public extension Dictionary where Key: Serializable, Value: Serializable {
                     }
                     var dst = (buffer.baseAddress! + pos)
                     dst += ULEB128.encode(SizeType(key.count), to: dst)
-                    dst.copyMemory(from: key.baseAddress!, byteCount: key.count)
+                    if key.count > 0 {
+                        dst.copyMemory(from: key.baseAddress!, byteCount: key.count)
+                    }
                     dst += key.count
                     dst += ULEB128.encode(SizeType(value.count), to: dst)
-                    dst.copyMemory(from: value.baseAddress!, byteCount: value.count)
+                    if value.count > 0 {
+                        dst.copyMemory(from: value.baseAddress!, byteCount: value.count)
+                    }
                     pos += entrySize
                 }
             }

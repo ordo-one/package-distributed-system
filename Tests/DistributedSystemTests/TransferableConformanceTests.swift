@@ -87,6 +87,50 @@ fileprivate distributed actor TestServiceEndpoint: ServiceEndpoint {
         }
     }
 
+    public distributed func handleNestedMonsters(_ monsters: [String: [Int: Monster]]) async {
+        logger.info("SERVICE: got \(monsters.count) outer entries")
+
+        // Verify we have exactly 2 outer keys
+        guard monsters.count == 2 else {
+            streamContinuation.yield(.failure(ServiceError.error("Expected 2 outer keys, got \(monsters.count)")))
+            return
+        }
+
+        // Verify "scary" key exists with 5 monsters
+        guard let scaryMonsters = monsters["scary"] else {
+            streamContinuation.yield(.failure(ServiceError.error("Missing 'scary' key")))
+            return
+        }
+        guard scaryMonsters.count == 5 else {
+            streamContinuation.yield(.failure(ServiceError.error("Expected 5 scary monsters, got \(scaryMonsters.count)")))
+            return
+        }
+
+        // Verify each monster has correct identifier
+        for idx in 1...5 {
+            guard let monster = scaryMonsters[idx] else {
+                streamContinuation.yield(.failure(ServiceError.error("Missing monster at index \(idx)")))
+                return
+            }
+            guard monster.identifier == idx else {
+                streamContinuation.yield(.failure(ServiceError.error("Monster at index \(idx) has wrong identifier: \(monster.identifier)")))
+                return
+            }
+        }
+
+        // Verify "funny" key exists and is empty
+        guard let funnyMonsters = monsters["funny"] else {
+            streamContinuation.yield(.failure(ServiceError.error("Missing 'funny' key")))
+            return
+        }
+        guard funnyMonsters.isEmpty else {
+            streamContinuation.yield(.failure(ServiceError.error("Expected 'funny' to be empty, got \(funnyMonsters.count) entries")))
+            return
+        }
+
+        streamContinuation.yield(.success(()))
+    }
+
     public distributed func handleConnectionState(_ state: ConnectionState) async {
         logger.info("SERVICE: connection state: \(state)")
     }
@@ -178,6 +222,48 @@ final class TransferableConformanceTests: XCTestCase {
         }
 
         try await serviceEndpoint.handleMonsters(monsters)
+
+        for await result in stream {
+            if case let .failure(err) = result {
+                XCTFail(String(describing: err))
+            }
+            break
+        }
+
+        clientSystem.stop()
+        serverSystem.stop()
+    }
+
+    func testNestedDictionarySerialization() async throws {
+        let processInfo = ProcessInfo.processInfo
+        let systemName = "\(processInfo.hostName)-ts-\(processInfo.processIdentifier)-\(#line)"
+
+        var streamContinuation: AsyncStream<Result<Void, Error>>.Continuation?
+        let stream = AsyncStream<Result<Void, Error>>() { streamContinuation = $0 }
+        guard let streamContinuation else { fatalError("Internal error: streamContinuation unexpectedly nil") }
+
+        let serverSystem = DistributedSystemServer(name: systemName)
+        try await serverSystem.start()
+        try await serverSystem.addService(ofType: TestServiceEndpoint.self) { actorSystem in
+            TestServiceEndpoint(actorSystem: actorSystem, stream, streamContinuation)
+        }
+
+        let clientSystem = DistributedSystem(name: systemName)
+        try clientSystem.start()
+
+        let serviceEndpoint = try await clientSystem.connectToService(
+            TestServiceEndpoint.self,
+            withFilter: { _ in true }
+        )
+
+        var monsters = [String: [Int: Monster]]()
+        for idx in 1...5 {
+            let monster = _MonsterStruct(identifier: MonsterIdentifier(idx))
+            monsters["scary", default: [:]][idx] = Monster(monster)
+        }
+        monsters["funny"] = [:]
+
+        try await serviceEndpoint.handleNestedMonsters(monsters)
 
         for await result in stream {
             if case let .failure(err) = result {
