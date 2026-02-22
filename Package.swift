@@ -7,9 +7,11 @@ import PackageDescription
 let externalDependencies: [String: Range<Version>] = [
     "https://github.com/ordo-one/flatbuffers": .upToNextMajor(from: "25.2.10-ordo.2"),
     "https://github.com/apple/swift-argument-parser": .upToNextMajor(from: "1.1.0"),
-    "https://github.com/apple/swift-nio": .upToNextMajor(from: "2.83.0"),
+    "https://github.com/apple/swift-distributed-tracing": .upToNextMajor(from: "1.0.0"),
     "https://github.com/apple/swift-log": .upToNextMajor(from: "1.4.4"),
-    "https://github.com/apple/swift-service-discovery.git" : .upToNextMajor(from: "1.0.0"),
+    "https://github.com/apple/swift-nio": .upToNextMajor(from: "2.83.0"),
+    "https://github.com/apple/swift-service-context.git": .upToNextMajor(from: "1.2.1"),
+    "https://github.com/apple/swift-service-discovery.git": .upToNextMajor(from: "1.0.0")
 ]
 
 let internalDependencies: [String: Range<Version>] = [
@@ -70,10 +72,12 @@ let package = Package(
             name: "DistributedSystem",
             dependencies: [
                 .product(name: "ConsulServiceDiscovery", package: "package-consul"),
+                .product(name: "Instrumentation", package: "swift-distributed-tracing"),
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "lz4", package: "package-lz4"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "ServiceContextModule", package: "swift-service-context"),
                 .product(name: "ServiceDiscovery", package: "swift-service-discovery"),
             ],
             swiftSettings:[
@@ -118,6 +122,8 @@ let package = Package(
             dependencies: [
                 "DistributedSystem",
                 "TestMessages",
+                .product(name: "InMemoryTracing", package: "swift-distributed-tracing"),
+                .product(name: "Tracing", package: "swift-distributed-tracing")
             ],
             resources: [
                 .process("Resources")

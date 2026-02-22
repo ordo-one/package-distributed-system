@@ -96,7 +96,11 @@ final class ChannelHandshakeServer: ChannelInboundHandler, RemovableChannelHandl
                 // If we would close TCP connection now then client not necessary will receive it.
             }
         } else {
-            logger.info("\(context.channel.addressDescription): invalid handshake request received, closing connection\n\(unwrapInboundIn(data).hexDump(format: ByteBuffer.HexDumpFormat.detailed(maxBytes: Self.hexDumpMaxBytes)))")
+            logger.info("""
+                \(context.channel.addressDescription): invalid handshake request received, closing connection
+                \(unwrapInboundIn(data).hexDump(format: ByteBuffer.HexDumpFormat.detailed(maxBytes: Self.hexDumpMaxBytes)))
+                """
+            )
             context.close(promise: nil)
         }
     }
