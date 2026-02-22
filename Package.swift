@@ -48,6 +48,11 @@ let package = Package(
     ],
     products: [
         .library(
+            name: "DistributedABI",
+            type: .dynamic,
+            targets: ["DistributedABI"]
+        ),
+        .library(
             name: "DistributedSystem",
             targets: ["DistributedSystem"]
         ),
@@ -67,8 +72,15 @@ let package = Package(
     dependencies: makeDependencies(),
     targets: [
         .target(
+            name: "DistributedABI",
+            swiftSettings: [
+                .unsafeFlags(["-enable-library-evolution", "-emit-module-interface"]),
+            ]
+        ),
+        .target(
             name: "DistributedSystem",
             dependencies: [
+                .target(name: "DistributedABI"),
                 .product(name: "ConsulServiceDiscovery", package: "package-consul"),
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "lz4", package: "package-lz4"),
